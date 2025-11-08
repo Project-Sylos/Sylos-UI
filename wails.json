@@ -1,0 +1,17 @@
+{
+  "name": "Sylos UI",
+  "author": {
+    "name": "Logan Maupin",
+    "email": "logan@sylos.io"
+  },
+  "frontend": {
+    "dir": "frontend",
+    "install": "npm install",
+    "build": "npm run build",
+    "devServer": "npm run dev"
+  },
+  "output": {
+    "directory": "build"
+  },
+  "wailsVersion": "~v2.11.0"
+}

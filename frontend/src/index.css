@@ -1,0 +1,27 @@
+:root {
+  color-scheme: light dark;
+  color: #e2e8f0;
+}
+
+body {
+  position: relative;
+  margin: 0;
+  min-height: 100vh;
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  overflow: hidden;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background-image: url("./assets/backgrounds/main-app-background.png");
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  z-index: -1;
+}
+
+#root {
+  min-height: 100vh;
+}

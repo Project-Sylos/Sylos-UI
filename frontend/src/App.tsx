@@ -4,7 +4,7 @@ import AnimatedBackground from "./components/AnimatedBackground";
 
 export default function App() {
   return (
-    <div className="relative flex flex-col items-center justify-center min-h-screen text-white overflow-hidden">
+    <div className="App-root">
       <AnimatedBackground />
 
       <div className="App-card">

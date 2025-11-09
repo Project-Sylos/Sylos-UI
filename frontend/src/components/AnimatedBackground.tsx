@@ -6,43 +6,40 @@ const DIR_Y = -Math.sin(ANGLE);
 const PERP_X = -DIR_Y;
 const PERP_Y = DIR_X;
 
-const TRACK_SPACING = 80;
-const GAP = 24;
-const MIN_LENGTH = 70;
-const MAX_LENGTH = 160;
-const SPEED_MIN = 160;
-const SPEED_MAX = 260;
+// Make the lines spawn more frequently and move faster for a smoother effect.
+// Track spacing smaller = more tracks. GAP smaller = more lines per track. SPEED increased for faster movement.
+const TRACK_SPACING = 48;
+const GAP = 16;
+const LENGTH = 140;
+const SPEED = 160;
+const FIXED_TIME_STEP = 1000 / 120; // ~8.3ms per physics tick
+const MAX_FRAME_DELTA = 48;
 const MARGIN = 260;
 
-const COLORS = [
-  "rgba(34, 211, 238, 0.42)",
-  "rgba(167, 139, 250, 0.38)",
-  "rgba(96, 165, 250, 0.36)",
-  "rgba(251, 191, 36, 0.3)",
-];
+const PURE_CYAN = "#00ffff";
+const PURE_MAGENTA = "#ff00ff";
+
+const COLOR_CYCLE = [PURE_CYAN, PURE_MAGENTA, PURE_CYAN, PURE_MAGENTA];
 
 type Segment = {
   start: number;
   length: number;
-  speed: number;
   color: string;
 };
 
 type Track = {
   offset: number;
   segments: Segment[];
+  nextColor: () => string;
 };
 
-function randomLength() {
-  return MIN_LENGTH + Math.random() * (MAX_LENGTH - MIN_LENGTH);
-}
-
-function randomSpeed() {
-  return SPEED_MIN + Math.random() * (SPEED_MAX - SPEED_MIN);
-}
-
-function randomColor() {
-  return COLORS[Math.floor(Math.random() * COLORS.length)];
+function makeColorCycler() {
+  let colorIndex = 0;
+  return () => {
+    const color = COLOR_CYCLE[colorIndex];
+    colorIndex = (colorIndex + 1) % COLOR_CYCLE.length;
+    return color;
+  };
 }
 
 export default function AnimatedBackground() {
@@ -77,22 +74,23 @@ export default function AnimatedBackground() {
         (i - (trackCount - 1) / 2) * TRACK_SPACING
       );
 
+      // Each track gets its own cycler so segment colors stay in same order after segment cycling
       tracks = offsets.map((offset) => {
         const segments: Segment[] = [];
-        let cursor = -diagDistance / 2 - randomLength();
+        let cursor = -diagDistance / 2 - LENGTH;
+        const nextColor = makeColorCycler();
 
-        while (cursor < diagDistance / 2 + MAX_LENGTH) {
-          const length = randomLength();
+        while (cursor < diagDistance / 2 + LENGTH) {
+          const length = LENGTH;
           segments.push({
             start: cursor,
             length,
-            speed: randomSpeed(),
-            color: randomColor(),
+            color: nextColor(),
           });
           cursor += length + GAP;
         }
 
-        return { offset, segments };
+        return { offset, segments, nextColor };
       });
     };
 
@@ -102,13 +100,14 @@ export default function AnimatedBackground() {
     });
 
     const updateTracks = (delta: number) => {
-      const maxDistance = diagDistance / 2 + MAX_LENGTH + MARGIN;
+      const maxDistance = diagDistance / 2 + LENGTH + MARGIN;
 
       for (const track of tracks) {
         let minStart = Infinity;
+        const pickColor = track.nextColor;
 
         for (const segment of track.segments) {
-          segment.start += (segment.speed * delta) / 1000;
+          segment.start += (SPEED * delta) / 1000;
           if (segment.start < minStart) {
             minStart = segment.start;
           }
@@ -116,9 +115,8 @@ export default function AnimatedBackground() {
 
         for (const segment of track.segments) {
           if (segment.start - segment.length > maxDistance) {
-            segment.length = randomLength();
-            segment.speed = randomSpeed();
-            segment.color = randomColor();
+            segment.length = LENGTH;
+            segment.color = pickColor();
             segment.start = minStart - GAP - segment.length;
             minStart = segment.start;
           }
@@ -129,7 +127,7 @@ export default function AnimatedBackground() {
     const drawTracks = () => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.lineCap = "round";
-      ctx.lineWidth = 2.6;
+      ctx.lineWidth = 2;
 
       for (const track of tracks) {
         for (const segment of track.segments) {
@@ -138,8 +136,9 @@ export default function AnimatedBackground() {
 
           ctx.strokeStyle = segment.color;
           ctx.shadowColor = segment.color;
-          ctx.shadowBlur = 24;
-
+          ctx.shadowBlur = 20;
+          ctx.shadowOffsetX = segment.color === "#00ffff" ? 1 : -1;
+          ctx.shadowOffsetY = segment.color === "#00ffff" ? 1 : -1;
           ctx.beginPath();
           ctx.moveTo(startPoint.x, startPoint.y);
           ctx.lineTo(endPoint.x, endPoint.y);
@@ -149,13 +148,20 @@ export default function AnimatedBackground() {
     };
 
     let lastTime = performance.now();
+    let accumulator = 0;
 
     const render = () => {
       const now = performance.now();
-      const delta = now - lastTime;
+      let frameDelta = now - lastTime;
       lastTime = now;
+      frameDelta = Math.min(frameDelta, MAX_FRAME_DELTA);
+      accumulator += frameDelta;
 
-      updateTracks(delta);
+      while (accumulator >= FIXED_TIME_STEP) {
+        updateTracks(FIXED_TIME_STEP);
+        accumulator -= FIXED_TIME_STEP;
+      }
+
       drawTracks();
 
       animationFrameId = requestAnimationFrame(render);
@@ -180,7 +186,7 @@ export default function AnimatedBackground() {
   return (
     <canvas
       ref={canvasRef}
-      className="absolute inset-0 w-full h-full pointer-events-none"
+      className="App-backgroundCanvas"
       style={{ zIndex: 1 }}
     />
   );

@@ -11,7 +11,7 @@ const PERP_Y = DIR_X;
 const TRACK_SPACING = 48;
 const GAP = 16;
 const LENGTH = 140;
-const SPEED = 160;
+const SPEED = 80;
 const FIXED_TIME_STEP = 1000 / 120; // ~8.3ms per physics tick
 const MAX_FRAME_DELTA = 48;
 const MARGIN = 260;
@@ -19,7 +19,7 @@ const MARGIN = 260;
 const PURE_CYAN = "#00ffff";
 const PURE_MAGENTA = "#ff00ff";
 
-const COLOR_CYCLE = [PURE_CYAN, PURE_MAGENTA, PURE_CYAN, PURE_MAGENTA];
+const COLOR_CYCLE = [PURE_CYAN, PURE_MAGENTA];
 
 type Segment = {
   start: number;
@@ -127,7 +127,7 @@ export default function AnimatedBackground() {
     const drawTracks = () => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.lineCap = "round";
-      ctx.lineWidth = 2;
+      ctx.lineWidth = 1;
 
       for (const track of tracks) {
         for (const segment of track.segments) {

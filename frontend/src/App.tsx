@@ -1,16 +1,21 @@
 import "./App.css";
-import logo from "./assets/logos/main-app-logo-transparent.png";
-import AnimatedBackground from "./components/AnimatedBackground";
+import { HashRouter, Route, Routes } from "react-router-dom";
+
+import { SelectionProvider } from "./context/SelectionContext";
+import ConnectSource from "./pages/ConnectSource";
+import Destination from "./pages/Destination";
+import Splash from "./pages/Splash";
 
 export default function App() {
   return (
-    <div className="App-root">
-      <AnimatedBackground />
-
-      <div className="App-card">
-        <img src={logo} alt="Sylos Logo" className="App-logo" />
-        <button className="App-button">Start Migration</button>
-      </div>
-    </div>
+    <SelectionProvider>
+      <HashRouter>
+        <Routes>
+          <Route path="/" element={<Splash />} />
+          <Route path="/connect" element={<ConnectSource />} />
+          <Route path="/destination" element={<Destination />} />
+        </Routes>
+      </HashRouter>
+    </SelectionProvider>
   );
 }

@@ -4,14 +4,21 @@ set -euo pipefail
 # Determine the directory of this script (so it works anywhere)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Define frontend and backend paths relative to the script location
+# Define frontend path relative to the script location
 FRONTEND="$SCRIPT_DIR/frontend"
-BACKEND="$SCRIPT_DIR"
 
-# Step 1: Build frontend
+# Step 1: Start Vite dev server in background
 cd "$FRONTEND"
-npm run build
+npm run dev &
+VITE_PID=$!
 
-# Step 2: Run Wails dev (or you can swap for wails build for production)
-cd "$BACKEND"
-wails dev
+# Wait a bit for Vite to start
+sleep 3
+
+# Step 2: Start Electron
+cd "$SCRIPT_DIR"
+export NODE_ENV=development
+npx electron .
+
+# Cleanup: kill Vite when Electron exits
+kill $VITE_PID 2>/dev/null || true

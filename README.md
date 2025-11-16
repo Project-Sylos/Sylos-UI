@@ -1,20 +1,22 @@
 # Sylos UI
 
-Sylos UI is a desktop application built with [Wails](https://wails.io/), combining a Go backend with a Vite/React frontend. Platform icons for Linux, Windows, and macOS are bundled with the source.
+Sylos UI is a desktop application built with [Electron](https://www.electronjs.org/), combining a Node.js backend with a Vite/React frontend. Platform icons for Linux, Windows, and macOS are bundled with the source.
 
 ## Prerequisites
 
-- Go 1.21+
 - Node.js 20.19+ (Node 22.x recommended)
-- Wails CLI v2 (`go install github.com/wailsapp/wails/v2/cmd/wails@latest`)
+- npm or yarn
 
 ## Project Structure
 
 ```
 Sylos-UI/
-├── build/                     # Wails build output (generated)
-│   └── bin/                   # Platform binaries land here
-├── build.sh                   # Helper script: build frontend, then run `wails dev`
+├── build/                     # Electron build output (generated)
+│   └── bin/                   # Platform installers land here
+├── build.sh                   # Helper script: start Vite dev server + Electron
+├── main/                      # Electron main process
+│   ├── main.js               # Main process entry point
+│   └── preload.js            # Preload script for secure IPC
 ├── frontend/
 │   ├── dist/                  # Vite production bundle (generated)
 │   ├── index.html
@@ -27,7 +29,7 @@ Sylos-UI/
 │   │   │   ├── backgrounds/
 │   │   │   │   └── main-app-background.png
 │   │   │   └── logos/
-│   │   │       ├── Sylos-Magenta-S.png      # Base artwork / Linux icon
+│   │   │       ├── Sylos-Magenta-S.png      # Linux icon
 │   │   │       ├── Sylos-Magenta-S.ico      # Windows icon
 │   │   │       ├── Sylos-Magenta-S.icns     # macOS icon
 │   │   │       └── main-app-logo*.png
@@ -35,55 +37,75 @@ Sylos-UI/
 │   │   │   └── AnimatedBackground.tsx
 │   │   ├── index.css
 │   │   ├── main.tsx
-│   │   └── pages/             # reserved for future routing
+│   │   ├── pages/
+│   │   └── utils/
+│   │       ├── electron.ts   # Electron API wrapper
+│   │       └── folderPicker.ts
 │   ├── tsconfig.json
 │   ├── tsconfig.node.json
 │   └── vite.config.ts
-├── go.mod
-├── go.sum
-├── main.go                    # Wails bootstrap + static asset embed
-├── README.md
-└── wails.json
+├── electron-builder.yml       # Electron Builder configuration
+├── package.json               # Root package.json with Electron dependencies
+└── README.md
 ```
 
 ## Development Workflow
 
 1. **Install dependencies**
    ```bash
-   cd frontend
    npm install
    ```
+   This will install both root and frontend dependencies.
 
 2. **Start the desktop app in dev mode**
    ```bash
-   cd /home/logan/Documents/GitHub/Sylos-UI
    ./build.sh
    ```
-   The script runs `npm run build` for the frontend, then launches `wails dev`.
+   The script starts the Vite dev server and launches Electron in development mode.
+
+   Alternatively, you can run them separately:
+   ```bash
+   # Terminal 1: Start Vite dev server
+   cd frontend
+   npm run dev
+
+   # Terminal 2: Start Electron
+   npm run dev
+   ```
 
 3. **Frontend-only iteration**
    ```bash
    cd frontend
    npm run dev
    ```
-   Vite serves the React UI while Wails keeps using the dev server.
+   Vite serves the React UI on `http://localhost:5173`.
 
 ## Building Distributables
 
-Use the Wails CLI and pass the correct icon format per platform:
-
+Build for all platforms:
 ```bash
-# Linux (PNG)
-wails build -platform linux/amd64 \
-  -icon frontend/src/assets/logos/Sylos-Magenta-S.png
-
-# Windows (ICO)
-wails build -platform windows/amd64 \
-  -icon frontend/src/assets/logos/Sylos-Magenta-S.ico
-
-# macOS (ICNS)
-wails build -platform darwin/universal \
-  -icon frontend/src/assets/logos/Sylos-Magenta-S.icns
+npm run build
 ```
 
-Artifacts are emitted under `build/bin/`. Adjust `-platform` values to match your target architecture or run the build on the destination OS.
+Build for a specific platform:
+```bash
+# Linux
+npm run build:linux
+
+# Windows
+npm run build:win
+
+# macOS
+npm run build:mac
+```
+
+Build outputs are generated in `build/bin/`:
+- **Linux**: AppImage and .deb packages
+- **Windows**: NSIS installer (.exe)
+- **macOS**: DMG and ZIP archives
+
+## Notes
+
+- The application connects to a Go API service running on `localhost:8080`
+- Electron uses Chromium for rendering, providing full CSS/WebGL support across all platforms
+- Icons are automatically included in builds based on platform

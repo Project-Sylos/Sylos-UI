@@ -1,4 +1,4 @@
-import { OpenDirectoryDialog } from "../../wailsjs/go/main/Bridge";
+import { openDirectoryDialog } from "./electron";
 import { Folder } from "../types/services";
 
 function basename(path: string): string {
@@ -9,7 +9,7 @@ function basename(path: string): string {
 
 export async function pickLocalFolder(title: string): Promise<Folder | null> {
   try {
-    const result = await OpenDirectoryDialog(title);
+    const result = await openDirectoryDialog(title);
     if (!result) {
       return null;
     }
@@ -19,6 +19,7 @@ export async function pickLocalFolder(title: string): Promise<Folder | null> {
     return {
       id: result,
       displayName: name,
+      // locationPath stays "/" for depth-level 0 roots
       locationPath: "/",
       parentId: "",
       parentPath: "",

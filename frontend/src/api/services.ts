@@ -1,8 +1,12 @@
 import {
+  MigrationRootRequest,
+  MigrationRootResponse,
   MigrationResponse,
-  MigrationRootsPayload,
-  MigrationRootsResponse,
   StartMigrationPayload,
+  MigrationDBFile,
+  MigrationUploadResponse,
+  MigrationStatusResponse,
+  MigrationInspectResponse,
 } from "../types/migrations";
 import { ServiceDescriptor } from "../types/services";
 
@@ -55,9 +59,9 @@ export async function fetchServices(): Promise<ServiceDescriptor[]> {
   }
 }
 
-export async function createMigrationRoots(
-  payload: MigrationRootsPayload
-): Promise<MigrationRootsResponse> {
+export async function setMigrationRoot(
+  payload: MigrationRootRequest
+): Promise<MigrationRootResponse> {
   const token = getAuthToken() ?? undefined;
 
   const response = await fetch(`${API_BASE}/api/migrations/roots`, {
@@ -69,13 +73,13 @@ export async function createMigrationRoots(
   if (!response.ok) {
     const message = await response.text();
     throw new Error(
-      `Failed to prepare migration roots (${response.status}): ${
+      `Failed to set migration root (${response.status}): ${
         message || "Unknown error"
       }`
     );
   }
 
-  return (await response.json()) as MigrationRootsResponse;
+  return (await response.json()) as MigrationRootResponse;
 }
 
 export async function startMigration(
@@ -97,5 +101,118 @@ export async function startMigration(
   }
 
   return (await response.json()) as MigrationResponse;
+}
+
+export async function uploadMigrationDB(
+  file: File,
+  filename: string,
+  overwrite = false
+): Promise<MigrationUploadResponse> {
+  const token = getAuthToken() ?? undefined;
+
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("filename", filename);
+  if (overwrite) {
+    formData.append("overwrite", "true");
+  }
+
+  const headers = new Headers();
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+
+  const response = await fetch(`${API_BASE}/api/migrations/db/upload`, {
+    method: "POST",
+    headers,
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const data = (await response.json()) as MigrationUploadResponse;
+    if (data.error) {
+      throw new Error(data.error);
+    }
+    const message = await response.text();
+    throw new Error(
+      `Failed to upload migration DB (${response.status}): ${
+        message || "Unknown error"
+      }`
+    );
+  }
+
+  return (await response.json()) as MigrationUploadResponse;
+}
+
+export async function listMigrationDBs(): Promise<MigrationDBFile[]> {
+  const token = getAuthToken() ?? undefined;
+
+  const response = await fetch(`${API_BASE}/api/migrations/db/list`, {
+    method: "GET",
+    headers: buildHeaders(token),
+  });
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(
+      `Failed to list migration DBs (${response.status}): ${
+        message || "Unknown error"
+      }`
+    );
+  }
+
+  const data = await response.json();
+  // Ensure we always return an array, even if API returns null or undefined
+  return Array.isArray(data) ? data : [];
+}
+
+export async function getMigrationStatus(
+  migrationId: string
+): Promise<MigrationStatusResponse> {
+  const token = getAuthToken() ?? undefined;
+
+  const response = await fetch(
+    `${API_BASE}/api/migrations/${migrationId}`,
+    {
+      method: "GET",
+      headers: buildHeaders(token),
+    }
+  );
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(
+      `Failed to get migration status (${response.status}): ${
+        message || "Unknown error"
+      }`
+    );
+  }
+
+  return (await response.json()) as MigrationStatusResponse;
+}
+
+export async function inspectMigration(
+  migrationId: string
+): Promise<MigrationInspectResponse> {
+  const token = getAuthToken() ?? undefined;
+
+  const response = await fetch(
+    `${API_BASE}/api/migrations/${migrationId}/inspect`,
+    {
+      method: "GET",
+      headers: buildHeaders(token),
+    }
+  );
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(
+      `Failed to inspect migration (${response.status}): ${
+        message || "Unknown error"
+      }`
+    );
+  }
+
+  return (await response.json()) as MigrationInspectResponse;
 }
 

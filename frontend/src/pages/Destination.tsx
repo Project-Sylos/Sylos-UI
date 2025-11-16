@@ -8,12 +8,7 @@ import {
 } from "../data/serviceSelectionOptions";
 import { useSelection } from "../context/SelectionContext";
 import { getPresetRootForServiceType } from "../data/presetRoots";
-import { createMigrationRoots, startMigration } from "../api/services";
-import {
-  MigrationRootsPayload,
-  MigrationRootsResponse,
-  StartMigrationPayload,
-} from "../types/migrations";
+import { setMigrationRoot, startMigration } from "../api/services";
 import { pickLocalFolder } from "../utils/folderPicker";
 
 export default function Destination() {
@@ -25,6 +20,8 @@ export default function Destination() {
     source,
     selectDestination,
     clearSelections,
+    migration,
+    updateMigration,
   } = useSelection();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -48,16 +45,7 @@ export default function Destination() {
     return null;
   }
 
-  const buildRootsPayload = async (
-    destinationId: string
-  ): Promise<MigrationRootsPayload | null> => {
-    if (!source.root) {
-      alert(
-        "Source root is missing. Please reselect the source service or implement root browsing."
-      );
-      return null;
-    }
-
+  const buildDestinationRoot = async (destinationId: string) => {
     const destinationService = services.find(
       (service) => service.id === destinationId
     );
@@ -66,9 +54,7 @@ export default function Destination() {
       return null;
     }
 
-    let destinationRoot = getPresetRootForServiceType(
-      destinationService.type
-    );
+    let destinationRoot = getPresetRootForServiceType(destinationService.type);
 
     if (destinationService.type === "local") {
       const chosen = await pickLocalFolder("Select destination folder");
@@ -85,36 +71,7 @@ export default function Destination() {
       return null;
     }
 
-    selectDestination(destinationService, destinationRoot);
-
-    const migrationId =
-      globalThis.crypto?.randomUUID?.() ?? undefined;
-
-    return {
-      migrationId,
-      source: {
-        serviceId: source.service.id,
-        connectionId: undefined,
-        root: source.root,
-      },
-      destination: {
-        serviceId: destinationService.id,
-        connectionId: undefined,
-        root: destinationRoot,
-      },
-      options: {
-        workerCount: 10,
-        maxRetries: 3,
-        coordinatorLead: 4,
-        logAddress: "127.0.0.1:8081",
-        skipLogListener: true,
-        verification: {
-          allowPending: false,
-          allowFailed: false,
-          allowNotOnSrc: false,
-        },
-      },
-    };
+    return { destinationService, destinationRoot } as const;
   };
 
   const handleSelect = async (id: string) => {
@@ -122,43 +79,44 @@ export default function Destination() {
       return;
     }
 
-    const rootsPayload = await buildRootsPayload(id);
-    if (!rootsPayload) {
+    if (!source.root) {
+      alert("Source root is missing. Please reselect the source service.");
       return;
     }
 
+    const result = await buildDestinationRoot(id);
+    if (!result) {
+      return;
+    }
+
+    const { destinationService, destinationRoot } = result;
+
     try {
       setIsSubmitting(true);
-      const rootsResponse = await createMigrationRoots(rootsPayload);
+      const response = await setMigrationRoot({
+        migrationId: migration.migrationId,
+        role: "destination",
+        serviceId: destinationService.id,
+        root: destinationRoot,
+        connectionId: migration.destinationConnectionId,
+      });
 
-      const startPayload: StartMigrationPayload = {
-        source: {
-          serviceId: rootsPayload.source.serviceId,
-          connectionId:
-            rootsResponse.sourceConnectionId ??
-            rootsPayload.source.connectionId,
-        },
-        destination: {
-          serviceId: rootsPayload.destination.serviceId,
-          connectionId:
-            rootsResponse.destinationConnectionId ??
-            rootsPayload.destination.connectionId,
-        },
-        options: {
-          migrationId: rootsResponse.migrationId ?? rootsPayload.migrationId,
-          sourceConnectionId:
-            rootsResponse.sourceConnectionId ??
-            rootsPayload.options?.sourceConnectionId,
-          destinationConnectionId:
-            rootsResponse.destinationConnectionId ??
-            rootsPayload.options?.destinationConnectionId,
-        },
-      };
+      updateMigration({
+        migrationId: response.migrationId,
+        sourceConnectionId: response.sourceConnectionId,
+        destinationConnectionId: response.destinationConnectionId,
+        ready: response.ready,
+      });
 
-      const response = await startMigration(startPayload);
-      alert(
-        `Migration started!\nID: ${response.id}\nStatus: ${response.status}`
-      );
+      selectDestination(destinationService, destinationRoot);
+
+      if (!response.ready) {
+        alert("Destination root saved. Select a source if you have not already.");
+        return;
+      }
+
+      const run = await startMigration({ migrationId: response.migrationId });
+      alert(`Migration started!\nID: ${run.id}\nStatus: ${run.status}`);
       clearSelections();
       navigate("/");
     } catch (err) {

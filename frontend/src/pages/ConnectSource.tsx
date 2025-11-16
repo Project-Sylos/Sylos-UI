@@ -9,11 +9,19 @@ import {
 import { useSelection } from "../context/SelectionContext";
 import { getPresetRootForServiceType } from "../data/presetRoots";
 import { pickLocalFolder } from "../utils/folderPicker";
+import { setMigrationRoot } from "../api/services";
 
 export default function ConnectSource() {
   const navigate = useNavigate();
-  const { services, loading, error, selectSource, clearSelections } =
-    useSelection();
+  const {
+    services,
+    loading,
+    error,
+    selectSource,
+    clearSelections,
+    migration,
+    updateMigration,
+  } = useSelection();
   const [isPicking, setIsPicking] = useState(false);
 
   const options = useMemo(
@@ -67,8 +75,31 @@ export default function ConnectSource() {
       return;
     }
 
-    selectSource(selected, root);
-    navigate("/destination");
+    try {
+      setIsPicking(true);
+      const response = await setMigrationRoot({
+        migrationId: migration.migrationId,
+        role: "source",
+        serviceId: selected.id,
+        root,
+      });
+
+      updateMigration({
+        migrationId: response.migrationId,
+        sourceConnectionId: response.sourceConnectionId,
+        destinationConnectionId: response.destinationConnectionId,
+        ready: response.ready,
+      });
+
+      selectSource(selected, root);
+      navigate("/destination");
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Failed to set source root.";
+      alert(message);
+    } finally {
+      setIsPicking(false);
+    }
   };
 
   return (

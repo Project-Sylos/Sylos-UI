@@ -1,0 +1,26 @@
+{
+  "name": "sylos-ui",
+  "version": "0.1.0",
+  "description": "Sylos UI Desktop Application",
+  "main": "main/main.js",
+  "author": {
+    "name": "Logan Maupin",
+    "email": "logan@sylos.io"
+  },
+  "scripts": {
+    "dev": "NODE_ENV=development electron .",
+    "dev:win": "set NODE_ENV=development && electron .",
+    "build": "npm run build:frontend && npm run build:electron",
+    "build:frontend": "cd frontend && npm run build",
+    "build:electron": "electron-builder",
+    "build:linux": "npm run build:frontend && electron-builder --linux",
+    "build:win": "npm run build:frontend && electron-builder --win",
+    "build:mac": "npm run build:frontend && electron-builder --mac",
+    "postinstall": "cd frontend && npm install"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^25.1.8"
+  }
+}
+

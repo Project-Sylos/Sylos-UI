@@ -1,42 +1,16 @@
-import { Folder } from "./services";
+import { Folder } from "../types/services";
 
-export interface MigrationEndpointBase {
-  serviceId: string;
+export interface MigrationRootRequest {
+  migrationId?: string;
+  role: "source" | "destination";
+  serviceId?: string;
   connectionId?: string;
-}
-
-export interface MigrationEndpointWithRoot extends MigrationEndpointBase {
   root: Folder;
 }
 
-export interface VerificationOptions {
-  allowPending?: boolean;
-  allowFailed?: boolean;
-  allowNotOnSrc?: boolean;
-}
-
-export interface MigrationOptions {
-  migrationId?: string;
-  workerCount?: number;
-  maxRetries?: number;
-  coordinatorLead?: number;
-  logAddress?: string;
-  skipLogListener?: boolean;
-  verification?: VerificationOptions;
-  sourceConnectionId?: string;
-  destinationConnectionId?: string;
-}
-
-export interface MigrationRootsPayload {
-  migrationId?: string;
-  source: MigrationEndpointWithRoot;
-  destination: MigrationEndpointWithRoot;
-  options?: MigrationOptions;
-}
-
-export interface MigrationRootsResponse {
+export interface MigrationRootResponse {
   migrationId: string;
-  databasePath: string;
+  ready: boolean;
   rootSummary?: {
     srcRoots?: number;
     dstRoots?: number;
@@ -46,12 +20,17 @@ export interface MigrationRootsResponse {
 }
 
 export interface StartMigrationPayload {
-  source: MigrationEndpointBase;
-  destination: MigrationEndpointBase;
+  migrationId: string;
   options?: {
-    migrationId?: string;
+    databasePath?: string;
     sourceConnectionId?: string;
     destinationConnectionId?: string;
+    workerCount?: number;
+    maxRetries?: number;
+    coordinatorLead?: number;
+    logAddress?: string;
+    logLevel?: string;
+    enableLoggingTerminal?: boolean;
   };
 }
 
@@ -62,5 +41,67 @@ export interface MigrationResponse {
   startedAt: string;
   status: string;
   error?: string;
+}
+
+export interface MigrationDBFile {
+  filename: string;
+  path: string;
+  size: number;
+  modifiedAt: string;
+}
+
+export interface MigrationUploadResponse {
+  success: boolean;
+  path?: string;
+  error?: string;
+}
+
+export interface MigrationStatusResponse extends MigrationResponse {
+  completedAt?: string | null;
+  result?: {
+    rootSummary?: {
+      srcRoots?: number;
+      dstRoots?: number;
+    };
+    runtime?: {
+      duration?: string;
+      src?: {
+        name?: string;
+        round?: number;
+        pending?: number;
+        inProgress?: number;
+        totalTracked?: number;
+        workers?: number;
+      };
+      dst?: {
+        name?: string;
+        round?: number;
+        pending?: number;
+        inProgress?: number;
+        totalTracked?: number;
+        workers?: number;
+      };
+    };
+    verification?: {
+      srcTotal?: number;
+      dstTotal?: number;
+      srcPending?: number;
+      dstPending?: number;
+      srcFailed?: number;
+      dstFailed?: number;
+      dstNotOnSrc?: number;
+    };
+  };
+}
+
+export interface MigrationInspectResponse {
+  srcTotal: number;
+  dstTotal: number;
+  srcPending: number;
+  dstPending: number;
+  srcFailed: number;
+  dstFailed: number;
+  minPendingDepthSrc: number;
+  minPendingDepthDst: number;
 }
 

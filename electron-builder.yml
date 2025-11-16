@@ -1,0 +1,50 @@
+appId: io.sylos.ui
+productName: Sylos
+copyright: Copyright © 2024 Logan Maupin
+
+directories:
+  buildResources: build
+  output: build/bin
+
+files:
+  - main/**/*
+  - frontend/dist/**/*
+  - frontend/src/assets/**/*
+  - "!frontend/node_modules/**/*"
+  - "!**/*.{md,ts}"
+
+extraResources:
+  - from: frontend/src/assets/logos
+    to: assets/logos
+    filter: ["**/*"]
+
+linux:
+  target:
+    - AppImage
+    - deb
+  category: Utility
+  icon: frontend/src/assets/logos/Sylos-Magenta-S.png
+  desktop:
+    Name: Sylos
+    Comment: Sylos UI Desktop Application
+    Categories: Utility;
+
+win:
+  target:
+    - nsis
+  icon: frontend/src/assets/logos/Sylos-Magenta-S.ico
+  publisherName: Logan Maupin
+
+mac:
+  target:
+    - dmg
+    - zip
+  category: public.app-category.utilities
+  icon: frontend/src/assets/logos/Sylos-Magenta-S.icns
+  entitlementsInherit: build/entitlements.mac.plist
+  hardenedRuntime: false
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+

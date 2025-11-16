@@ -17,15 +17,24 @@ type SelectedService = {
   root?: Folder;
 };
 
+type MigrationState = {
+  migrationId?: string;
+  sourceConnectionId?: string;
+  destinationConnectionId?: string;
+  ready: boolean;
+};
+
 type SelectionContextValue = {
   services: ServiceDescriptor[];
   loading: boolean;
   error: string | null;
   source?: SelectedService;
   destination?: SelectedService;
+  migration: MigrationState;
   refreshServices: () => Promise<void>;
   selectSource: (service: ServiceDescriptor, root?: Folder) => void;
   selectDestination: (service: ServiceDescriptor, root?: Folder) => void;
+  updateMigration: (update: Partial<MigrationState>) => void;
   clearSelections: () => void;
 };
 
@@ -39,6 +48,7 @@ export function SelectionProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [source, setSource] = useState<SelectedService | undefined>();
   const [destination, setDestination] = useState<SelectedService | undefined>();
+  const [migration, setMigration] = useState<MigrationState>({ ready: false });
 
   const loadServices = useCallback(async () => {
     setLoading(true);
@@ -65,6 +75,12 @@ export function SelectionProvider({ children }: { children: ReactNode }) {
       const preset = root ?? getPresetRootForServiceType(service.type);
       setSource({ service, root: preset });
       setDestination(undefined);
+      setMigration((prev) => ({
+        migrationId: prev.migrationId,
+        ready: false,
+        sourceConnectionId: prev.sourceConnectionId,
+        destinationConnectionId: undefined,
+      }));
     },
     []
   );
@@ -77,9 +93,14 @@ export function SelectionProvider({ children }: { children: ReactNode }) {
     []
   );
 
+  const updateMigration = useCallback((update: Partial<MigrationState>) => {
+    setMigration((prev) => ({ ...prev, ...update }));
+  }, []);
+
   const clearSelections = useCallback(() => {
     setSource(undefined);
     setDestination(undefined);
+    setMigration({ ready: false });
   }, []);
 
   const value = useMemo(
@@ -89,9 +110,11 @@ export function SelectionProvider({ children }: { children: ReactNode }) {
       error,
       source,
       destination,
+      migration,
       refreshServices: loadServices,
       selectSource,
       selectDestination,
+      updateMigration,
       clearSelections,
     }),
     [
@@ -100,9 +123,11 @@ export function SelectionProvider({ children }: { children: ReactNode }) {
       error,
       source,
       destination,
+      migration,
       loadServices,
       selectSource,
       selectDestination,
+      updateMigration,
       clearSelections,
     ]
   );

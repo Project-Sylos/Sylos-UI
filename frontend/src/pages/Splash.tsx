@@ -20,8 +20,8 @@ export default function Splash() {
 
       <div className="App-card">
         <img src={logo} alt="Sylos Logo" className="App-logo" />
-        <button className="App-button" onClick={() => navigate("/connect")}>
-          Start Migration
+        <button className="App-button" onClick={() => navigate("/choose")}>
+          Get Started
         </button>
       </div>
     </div>

@@ -1,15 +1,26 @@
-.sylos-webgl-bg {
+.sylos-bg-container {
   position: fixed;
-  inset: 0;
-  width: 100vw;
-  height: 100vh;
-  z-index: -1;
-  pointer-events: none;
-  display: block;
-  background: transparent;
   top: 0;
   left: 0;
   right: 0;
   bottom: 0;
+  z-index: -1;
+  overflow: hidden;
+  width: 100vw;
+  height: 100vh;
+  background: #0a0a1a;
 }
 
+.sylos-bg-video {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 100vw;
+  height: 100vh;
+  min-width: 100%;
+  min-height: 100%;
+  transform: translate(-50%, -50%) scale(1.01); 
+  object-fit: cover;
+  filter: brightness(1.0) saturate(1.0) blur(2px);
+  pointer-events: none;
+}

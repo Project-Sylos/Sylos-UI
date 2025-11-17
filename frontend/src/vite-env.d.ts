@@ -1,14 +1,8 @@
 /// <reference types="vite/client" />
 
-// Electron API types
+// Web API types
 interface Window {
-  electronAPI?: {
-    openDirectoryDialog: (title?: string) => Promise<string | null>;
-  };
-  sylos?: {
-    gpuDisabled: boolean;
-  };
-  __SYLOS_GPU_DISABLED__?: boolean;
+  showDirectoryPicker?: (options?: { mode?: 'read' | 'readwrite' }) => Promise<FileSystemDirectoryHandle>;
 }
 
 declare module "*.png";

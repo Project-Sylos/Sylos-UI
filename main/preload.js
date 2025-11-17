@@ -8,8 +8,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
 });
 
 // Expose GPU status to renderer
-// Check if GPU is disabled (set by main process via environment variable)
-const gpuDisabled = process.env.SYLOS_GPU_DISABLED === "1";
+// On Windows, always allow WebGL attempts (never disable)
+// On other platforms, check environment variable
+const gpuDisabled = process.platform !== "win32" && process.env.SYLOS_GPU_DISABLED === "1";
 
 contextBridge.exposeInMainWorld("sylos", {
   gpuDisabled: gpuDisabled,

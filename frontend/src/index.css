@@ -15,7 +15,7 @@ body::before {
   content: "";
   position: fixed;
   inset: 0;
-  background-image: url("./assets/backgrounds/main-app-background.png");
+  background-image: url("./assets/backgrounds/static-background.png");
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;

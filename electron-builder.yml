@@ -34,6 +34,7 @@ win:
     - nsis
   icon: frontend/src/assets/logos/Sylos-Magenta-S.ico
   publisherName: Logan Maupin
+  sign: false  # Disable code signing to avoid symlink permission issues on Windows
 
 mac:
   target:

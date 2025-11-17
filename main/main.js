@@ -4,11 +4,27 @@ const { execSync } = require("child_process");
 
 const isDev = process.env.NODE_ENV === "development" || !app.isPackaged;
 
-// Enable GPU features and bypass GPU blocklist for better WebGL performance
-app.commandLine.appendSwitch("ignore-gpu-blocklist");
-app.commandLine.appendSwitch("use-gl", "desktop");
-app.commandLine.appendSwitch("disable-gpu-sandbox");
-app.commandLine.appendSwitch("enable-features", "VaapiVideoDecoder");
+// Also set via commandLine as backup
+if (process.platform === "win32") {
+  app.commandLine.appendSwitch("ignore-gpu-blocklist");
+  app.commandLine.appendSwitch("use-angle", "d3d11");
+  app.commandLine.appendSwitch("use-gl", "angle");
+  app.commandLine.appendSwitch("enable-gpu-rasterization");
+  console.log("🎮 Windows GPU: Forcing D3D11 hardware acceleration");
+} else if (process.platform === "linux") {
+  // Linux: Try desktop OpenGL first, fallback to ANGLE if needed
+  app.commandLine.appendSwitch("disable-gpu-sandbox");
+  app.commandLine.appendSwitch("use-gl", "desktop");
+  // Note: VaapiVideoDecoder and UseSkiaRenderer already set globally above
+  app.commandLine.appendSwitch("enable-webgl");
+  app.commandLine.appendSwitch("enable-webgl2");
+  console.log("🎮 Linux GPU: Using desktop OpenGL");
+} else if (process.platform === "darwin") {
+  // macOS: Use Metal (default)
+  app.commandLine.appendSwitch("enable-webgl");
+  app.commandLine.appendSwitch("enable-webgl2");
+  console.log("🎮 macOS GPU: Using Metal for hardware acceleration");
+}
 
 /**
  * Detects if the system has both NVIDIA and AMD GPUs (hybrid setup)
@@ -68,8 +84,9 @@ function createWindow() {
   });
 
   // Send GPU status to renderer after DOM is ready
+  // On Windows, never disable GPU - always let WebGL try
   mainWindow.webContents.once("dom-ready", () => {
-    const gpuDisabled = process.env.SYLOS_GPU_DISABLED === "1";
+    const gpuDisabled = process.platform !== "win32" && process.env.SYLOS_GPU_DISABLED === "1";
     mainWindow.webContents.executeJavaScript(
       `window.__SYLOS_GPU_DISABLED__ = ${gpuDisabled};`
     );
@@ -120,20 +137,30 @@ ipcMain.handle("open-directory-dialog", async (event, options) => {
 
 app.whenReady().then(async () => {
   // GPU inspection and acceleration detection
-  // Detect if hardware acceleration is actually working
-  const isHardwareAccelerated =
-    gpuInfo.webgl === "enabled" ||
-    gpuInfo["2d_canvas"] === "enabled" ||
-    gpuInfo.gpu_compositing === "enabled" ||
-    gpuInfo.opengl === "enabled";
+  // Get GPU feature status from Electron
+  const gpuInfo = app.getGPUFeatureStatus();
   
   console.log("\n=== Hardware Acceleration Status ===");
-  console.log("Hardware acceleration active:", isHardwareAccelerated);
+  console.log("GPU Feature Status:", gpuInfo);
   
-  // Set environment flag if GPU acceleration is not available
-  if (!isHardwareAccelerated) {
-    process.env.SYLOS_GPU_DISABLED = "1";
-    console.log("⚠️  GPU acceleration not available - animations will be disabled");
+  // On Windows, ALWAYS allow WebGL to attempt initialization
+  // Electron's GPU status can be misleading - ANGLE/D3D11 may still work
+  // even when Electron reports "disabled_software"
+  if (process.platform === "win32") {
+    // Never disable GPU on Windows - let WebGL try and fail gracefully if needed
+    console.log("✅ Windows: Allowing WebGL attempt (ANGLE D3D11 may work even if Electron reports software)");
+  } else {
+    // On other platforms, check if hardware acceleration is available
+    const isHardwareAccelerated =
+      gpuInfo.webgl === "enabled" ||
+      gpuInfo["2d_canvas"] === "enabled" ||
+      gpuInfo.gpu_compositing === "enabled" ||
+      gpuInfo.opengl === "enabled";
+    
+    if (!isHardwareAccelerated) {
+      process.env.SYLOS_GPU_DISABLED = "1";
+      console.log("⚠️  GPU acceleration not available - animations will be disabled");
+    }
   }
   
   createWindow();

@@ -1,28 +1,32 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Upload, Database, CheckCircle2 } from "lucide-react";
+import { Upload, CheckCircle2, RotateCcw, RefreshCw, Square } from "lucide-react";
 
 import "../App.css";
-import AnimatedBackground from "../components/AnimatedBackground";
 import OverwriteDialog from "../components/OverwriteDialog";
 import {
-  listMigrationDBs,
+  listMigrations,
+  loadMigration,
+  stopMigration,
+  getMigrationStatus,
   uploadMigrationDB,
-  startMigration,
 } from "../api/services";
-import { MigrationDBFile } from "../types/migrations";
-import { pickDBFile, formatFileSize, formatDate } from "../utils/fileUpload";
+import { MigrationWithStatus } from "../types/migrations";
+import { pickDBFile, formatDate } from "../utils/fileUpload";
 import "./ResumeMigration.css";
 
 export default function ResumeMigration() {
   const navigate = useNavigate();
-  const [dbFiles, setDbFiles] = useState<MigrationDBFile[]>([]);
-  const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const [migrations, setMigrations] = useState<MigrationWithStatus[]>([]);
+  const [selectedMigrationId, setSelectedMigrationId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [resuming, setResuming] = useState(false);
+  const [stopping, setStopping] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
+  const [resumeSuccess, setResumeSuccess] = useState<string | null>(null);
+  const [stopSuccess, setStopSuccess] = useState<string | null>(null);
   const [showOverwriteDialog, setShowOverwriteDialog] = useState(false);
   const [pendingUpload, setPendingUpload] = useState<{
     file: File;
@@ -30,24 +34,46 @@ export default function ResumeMigration() {
   } | null>(null);
 
   useEffect(() => {
-    loadDBFiles();
+    loadMigrations();
   }, []);
 
-  const loadDBFiles = async () => {
+  const loadMigrations = async () => {
     setLoading(true);
     setError(null);
     try {
-      const files = await listMigrationDBs();
-      // Ensure we always set an array, even if API returns null/undefined
-      setDbFiles(Array.isArray(files) ? files : []);
+      const data = await listMigrations();
+      
+      // Fetch status for each migration
+      const migrationsWithStatus = await Promise.all(
+        data.map(async (migration) => {
+          try {
+            const status = await getMigrationStatus(migration.id);
+            return {
+              ...migration,
+              status: status.status,
+            } as MigrationWithStatus;
+          } catch {
+            // If status fetch fails, just use the migration without status
+            return {
+              ...migration,
+              status: undefined,
+            } as MigrationWithStatus;
+          }
+        })
+      );
+      
+      // Sort by createdAt, newest first
+      const sorted = migrationsWithStatus.sort((a, b) => 
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
+      setMigrations(sorted);
     } catch (err) {
       setError(
         err instanceof Error
           ? err.message
-          : "Failed to load migration databases."
+          : "Failed to load migrations."
       );
-      // Set empty array on error to prevent null issues
-      setDbFiles([]);
+      setMigrations([]);
     } finally {
       setLoading(false);
     }
@@ -70,7 +96,8 @@ export default function ResumeMigration() {
     try {
       await uploadMigrationDB(file, filename, false);
       setUploadSuccess(`Successfully uploaded "${file.name}"`);
-      await loadDBFiles();
+      // Refresh migrations list after upload
+      await loadMigrations();
     } catch (err) {
       const errorMessage =
         err instanceof Error ? err.message : "Failed to upload file.";
@@ -105,7 +132,8 @@ export default function ResumeMigration() {
         `Successfully uploaded "${pendingUpload.file.name}" (overwritten)`
       );
       setPendingUpload(null);
-      await loadDBFiles();
+      // Refresh migrations list after upload
+      await loadMigrations();
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to overwrite file."
@@ -120,62 +148,99 @@ export default function ResumeMigration() {
     setPendingUpload(null);
   };
 
-  const handleResume = async () => {
-    if (!selectedFile) {
-      setError("Please select a database file to resume from.");
+  const handleResume = async (migrationId: string) => {
+    if (!migrationId) {
+      setError("Please select a migration to resume.");
       return;
     }
 
-    const selected = dbFiles.find((f) => f.path === selectedFile);
-    if (!selected) {
-      setError("Selected file not found.");
-      return;
-    }
-
+    setSelectedMigrationId(migrationId);
     setResuming(true);
     setError(null);
+    setResumeSuccess(null);
+    setStopSuccess(null);
 
     try {
-      const migrationId = `resume-${Date.now()}`;
-      const response = await startMigration({
-        migrationId,
-        options: {
-          databasePath: selected.path,
-        },
-      });
-
-      alert(
-        `Migration started!\nID: ${response.id}\nStatus: ${response.status}`
+      const response = await loadMigration(migrationId);
+      
+      setResumeSuccess(
+        `Migration "${response.id}" resumed successfully! Status: ${response.status}`
       );
-      navigate("/");
+      
+      // Refresh the migrations list to get updated status
+      await loadMigrations();
+      
+      // Optionally navigate after a short delay to show success message
+      setTimeout(() => {
+        navigate("/");
+      }, 2000);
     } catch (err) {
       const errorMessage =
         err instanceof Error
           ? err.message
-          : "Failed to start migration. Please check the database file is valid.";
+          : "Failed to resume migration.";
 
-      if (errorMessage.includes("database schema invalid")) {
-        setError(
-          "This database file is not compatible. Please use a valid migration database."
-        );
-      } else if (errorMessage.includes("database is empty")) {
-        setError(
-          "This database is empty. Please set roots first or use a different database."
-        );
-      } else if (errorMessage.includes("database file not found")) {
-        setError("Database file not found. Please upload it first.");
+      // Handle specific error cases
+      if (errorMessage.includes("Migration not found")) {
+        setError("Migration not found. It may have been deleted.");
+        // Refresh the list in case it was deleted
+        await loadMigrations();
+      } else if (errorMessage.includes("Server error")) {
+        setError("Server error while resuming migration. Please try again.");
       } else {
         setError(errorMessage);
       }
     } finally {
       setResuming(false);
+      setSelectedMigrationId(null);
+    }
+  };
+
+  const handleStop = async (migrationId: string) => {
+    if (!migrationId) {
+      setError("Please select a migration to stop.");
+      return;
+    }
+
+    setSelectedMigrationId(migrationId);
+    setStopping(true);
+    setError(null);
+    setResumeSuccess(null);
+    setStopSuccess(null);
+
+    try {
+      const response = await stopMigration(migrationId);
+      
+      setStopSuccess(
+        `Migration "${response.id}" stopped successfully! Status: ${response.status}`
+      );
+      
+      // Refresh the migrations list to get updated status
+      await loadMigrations();
+    } catch (err) {
+      const errorMessage =
+        err instanceof Error
+          ? err.message
+          : "Failed to stop migration.";
+
+      // Handle specific error cases
+      if (errorMessage.includes("Migration not found") || errorMessage.includes("not running")) {
+        setError("Migration not found or not running. It may have already stopped.");
+        // Refresh the list
+        await loadMigrations();
+      } else if (errorMessage.includes("Server error")) {
+        setError("Server error while stopping migration. Please try again.");
+      } else {
+        setError(errorMessage);
+      }
+    } finally {
+      setStopping(false);
+      setSelectedMigrationId(null);
     }
   };
 
   return (
     <section className="resume-migration">
-      <AnimatedBackground />
-
       <button
         type="button"
         className="resume-migration__back"
@@ -187,10 +252,9 @@ export default function ResumeMigration() {
       <div className="resume-migration__content">
         <header className="resume-migration__header">
           <p className="resume-migration__eyebrow">Resume Migration</p>
-          <h1>Select Migration Database</h1>
+          <h1>Select Migration to Resume</h1>
           <p className="resume-migration__summary">
-            Choose an existing migration database file to resume from, or upload
-            a new one.
+            Choose an existing migration to resume from, or upload a new database file.
           </p>
         </header>
 
@@ -202,46 +266,62 @@ export default function ResumeMigration() {
           <div className="resume-migration__success">{uploadSuccess}</div>
         )}
 
+        {resumeSuccess && (
+          <div className="resume-migration__success">{resumeSuccess}</div>
+        )}
+
+        {stopSuccess && (
+          <div className="resume-migration__success">{stopSuccess}</div>
+        )}
+
         <div className="resume-migration__actions">
           <button
             type="button"
             className="resume-migration__upload-button"
             onClick={handleUpload}
-            disabled={uploading || resuming}
+            disabled={uploading || resuming || stopping}
           >
             <Upload size={20} />
             {uploading ? "Uploading..." : "Upload New DB File"}
+          </button>
+          <button
+            type="button"
+            className="resume-migration__refresh-button"
+            onClick={loadMigrations}
+            disabled={loading || resuming || stopping}
+            title="Refresh migrations list"
+          >
+            <RefreshCw size={20} className={loading ? "resume-migration__refresh-icon--spinning" : ""} />
+            Refresh
           </button>
         </div>
 
         <div className="resume-migration__list">
           {loading ? (
-            <div className="resume-migration__empty">Loading databases...</div>
-          ) : !Array.isArray(dbFiles) || dbFiles.length === 0 ? (
+            <div className="resume-migration__empty">Loading migrations...</div>
+          ) : !Array.isArray(migrations) || migrations.length === 0 ? (
             <div className="resume-migration__empty">
-              No migration databases found. Upload a database file to get
-              started, or click <Link to="/choose" className="resume-migration__link">here</Link> to start a new migration from scratch instead.
+              No migrations found. Upload a database file to get started, or click{" "}
+              <Link to="/choose" className="resume-migration__link">here</Link> to
+              start a new migration from scratch instead.
             </div>
           ) : (
-            dbFiles.map((file) => (
-              <button
-                key={file.path}
-                type="button"
+            migrations.map((migration) => (
+              <div
+                key={migration.id}
                 className={`resume-migration__file-card ${
-                  selectedFile === file.path
+                  selectedMigrationId === migration.id
                     ? "resume-migration__file-card--selected"
                     : ""
                 } ${resuming ? "resume-migration__file-card--disabled" : ""}`}
-                onClick={() => !resuming && setSelectedFile(file.path)}
-                disabled={resuming}
               >
                 <div className="resume-migration__file-icon">
-                  <Database size={32} color="#ffffff" />
+                  <RotateCcw size={32} color="#ffffff" />
                 </div>
                 <div className="resume-migration__file-info">
                   <div className="resume-migration__file-name">
-                    {file.filename}
-                    {selectedFile === file.path && (
+                    {migration.name || migration.id}
+                    {selectedMigrationId === migration.id && (
                       <CheckCircle2
                         size={20}
                         color="#00ffff"
@@ -250,24 +330,47 @@ export default function ResumeMigration() {
                     )}
                   </div>
                   <div className="resume-migration__file-meta">
-                    {file.size != null && formatFileSize(file.size)} • Modified:{" "}
-                    {file.modifiedAt && formatDate(file.modifiedAt)}
+                    ID: {migration.id} • Created:{" "}
+                    {formatDate(migration.createdAt)}
+                    {migration.status && (
+                      <> • Status: <span className={`resume-migration__status resume-migration__status--${migration.status.toLowerCase()}`}>{migration.status}</span></>
+                    )}
                   </div>
                 </div>
-              </button>
+                {migration.status === "running" ? (
+                  <button
+                    type="button"
+                    className="resume-migration__stop-button-inline"
+                    onClick={() => !stopping && handleStop(migration.id)}
+                    disabled={stopping || loading}
+                  >
+                    {stopping && selectedMigrationId === migration.id ? (
+                      <>
+                        <Square size={16} />
+                        Stopping...
+                      </>
+                    ) : (
+                      <>
+                        <Square size={16} />
+                        Stop
+                      </>
+                    )}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="resume-migration__resume-button-inline"
+                    onClick={() => !resuming && handleResume(migration.id)}
+                    disabled={resuming || stopping || loading}
+                  >
+                    {resuming && selectedMigrationId === migration.id
+                      ? "Resuming..."
+                      : "Resume"}
+                  </button>
+                )}
+              </div>
             ))
           )}
-        </div>
-
-        <div className="resume-migration__footer">
-          <button
-            type="button"
-            className="resume-migration__resume-button"
-            onClick={handleResume}
-            disabled={!selectedFile || resuming || loading}
-          >
-            {resuming ? "Starting..." : "Resume Migration"}
-          </button>
         </div>
       </div>
 
@@ -281,4 +384,5 @@ export default function ResumeMigration() {
     </section>
   );
 }
+
 

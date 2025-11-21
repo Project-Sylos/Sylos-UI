@@ -7,10 +7,12 @@ import {
   MigrationUploadResponse,
   MigrationStatusResponse,
   MigrationInspectResponse,
+  MigrationMetadata,
+  MigrationWithStatus,
 } from "../types/migrations";
 import { ServiceDescriptor } from "../types/services";
 
-const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8080";
+const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8086";
 const AUTH_STORAGE_KEY = "sylos.authToken";
 
 const fallbackServices: ServiceDescriptor[] = [
@@ -214,5 +216,105 @@ export async function inspectMigration(
   }
 
   return (await response.json()) as MigrationInspectResponse;
+}
+
+export async function listMigrations(): Promise<MigrationMetadata[]> {
+  const token = getAuthToken() ?? undefined;
+
+  const response = await fetch(`${API_BASE}/api/migrations`, {
+    method: "GET",
+    headers: buildHeaders(token),
+  });
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(
+      `Failed to list migrations (${response.status}): ${
+        message || "Unknown error"
+      }`
+    );
+  }
+
+  const data = await response.json();
+  // Ensure we always return an array, even if API returns null or undefined
+  return Array.isArray(data) ? data : [];
+}
+
+export async function loadMigration(
+  migrationId: string
+): Promise<MigrationResponse> {
+  const token = getAuthToken() ?? undefined;
+
+  const response = await fetch(
+    `${API_BASE}/api/migrations/${migrationId}/load`,
+    {
+      method: "POST",
+      headers: buildHeaders(token),
+    }
+  );
+
+  if (!response.ok) {
+    let errorMessage = "Unknown error";
+    try {
+      const errorData = await response.json();
+      errorMessage = errorData.message || errorMessage;
+    } catch {
+      const message = await response.text();
+      errorMessage = message || errorMessage;
+    }
+
+    if (response.status === 400) {
+      throw new Error(`Invalid request: ${errorMessage}`);
+    } else if (response.status === 404) {
+      throw new Error(`Migration not found: ${errorMessage}`);
+    } else if (response.status === 500) {
+      throw new Error(`Server error while resuming migration: ${errorMessage}`);
+    } else {
+      throw new Error(
+        `Failed to load migration (${response.status}): ${errorMessage}`
+      );
+    }
+  }
+
+  return (await response.json()) as MigrationResponse;
+}
+
+export async function stopMigration(
+  migrationId: string
+): Promise<MigrationStatusResponse> {
+  const token = getAuthToken() ?? undefined;
+
+  const response = await fetch(
+    `${API_BASE}/api/migrations/${migrationId}/stop`,
+    {
+      method: "POST",
+      headers: buildHeaders(token),
+    }
+  );
+
+  if (!response.ok) {
+    let errorMessage = "Unknown error";
+    try {
+      const errorData = await response.json();
+      errorMessage = errorData.message || errorMessage;
+    } catch {
+      const message = await response.text();
+      errorMessage = message || errorMessage;
+    }
+
+    if (response.status === 400) {
+      throw new Error(`Invalid request: ${errorMessage}`);
+    } else if (response.status === 404) {
+      throw new Error(`Migration not found or not running: ${errorMessage}`);
+    } else if (response.status === 500) {
+      throw new Error(`Server error while stopping migration: ${errorMessage}`);
+    } else {
+      throw new Error(
+        `Failed to stop migration (${response.status}): ${errorMessage}`
+      );
+    }
+  }
+
+  return (await response.json()) as MigrationStatusResponse;
 }
 

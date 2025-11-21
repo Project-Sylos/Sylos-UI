@@ -72,6 +72,6 @@ Sylos-UI/
 
 ## Notes
 
-- The application connects to a Go API service running on `localhost:8080`
+- The application connects to a Go API service running on `localhost:8086`
 - Directory selection uses the browser's File System Access API (Chrome/Edge) or falls back to a file input element
 - WebGL is used for the animated background - modern browsers have excellent support

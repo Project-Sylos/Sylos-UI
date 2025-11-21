@@ -2,6 +2,7 @@ import "./App.css";
 import { HashRouter, Route, Routes } from "react-router-dom";
 
 import { SelectionProvider } from "./context/SelectionContext";
+import AnimatedBackground from "./components/AnimatedBackground";
 import ConnectSource from "./pages/ConnectSource";
 import Destination from "./pages/Destination";
 import Splash from "./pages/Splash";
@@ -12,6 +13,7 @@ export default function App() {
   return (
     <SelectionProvider>
       <HashRouter>
+        <AnimatedBackground />
         <Routes>
           <Route path="/" element={<Splash />} />
           <Route path="/choose" element={<ChooseMigrationType />} />

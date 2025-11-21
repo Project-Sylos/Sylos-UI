@@ -1,7 +1,6 @@
 import { ReactNode } from "react";
 
 import "./SelectionPage.css";
-import AnimatedBackground from "./AnimatedBackground";
 
 export type SelectionOption = {
   id: string;
@@ -35,7 +34,6 @@ export default function SelectionPage({
 }: SelectionPageProps) {
   return (
     <section className="selection-page">
-      <AnimatedBackground />
 
       {onBack ? (
         <button

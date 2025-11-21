@@ -105,3 +105,14 @@ export interface MigrationInspectResponse {
   minPendingDepthDst: number;
 }
 
+export interface MigrationMetadata {
+  id: string;
+  name: string;
+  configPath: string;
+  createdAt: string;
+}
+
+export interface MigrationWithStatus extends MigrationMetadata {
+  status?: string;
+}
+

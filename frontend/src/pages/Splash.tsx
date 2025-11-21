@@ -2,7 +2,6 @@ import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 
 import "../App.css";
-import AnimatedBackground from "../components/AnimatedBackground";
 import logo from "../assets/logos/main-app-logo-transparent.png";
 import { useSelection } from "../context/SelectionContext";
 
@@ -16,8 +15,6 @@ export default function Splash() {
 
   return (
     <div className="App-root">
-      <AnimatedBackground />
-
       <div className="App-card">
         <img src={logo} alt="Sylos Logo" className="App-logo" />
         <button className="App-button" onClick={() => navigate("/choose")}>

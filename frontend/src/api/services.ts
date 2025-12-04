@@ -447,7 +447,10 @@ export async function getMigrationLogs(
     );
   }
 
-  return (await response.json()) as MigrationLogsResponse;
+  const data = (await response.json()) as MigrationLogsResponse;
+  
+  // Return structured response - may have success=false for non-critical errors
+  return data;
 }
 
 export async function getMigrationQueueMetrics(
@@ -472,6 +475,9 @@ export async function getMigrationQueueMetrics(
     );
   }
 
-  return (await response.json()) as MigrationQueueMetricsResponse;
+  const data = (await response.json()) as MigrationQueueMetricsResponse;
+  
+  // Return structured response - may have success=false for non-critical errors
+  return data;
 }
 

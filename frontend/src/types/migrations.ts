@@ -140,7 +140,10 @@ export interface MigrationLogsRequest {
 }
 
 export interface MigrationLogsResponse {
-  logs: {
+  success: boolean;
+  errorCode?: string;
+  error?: string;
+  logs?: {
     trace: MigrationLog[];
     debug: MigrationLog[];
     info: MigrationLog[];
@@ -164,8 +167,11 @@ export interface QueueMetrics {
 }
 
 export interface MigrationQueueMetricsResponse {
-  srcTraversal: QueueMetrics | null;
-  dstTraversal: QueueMetrics | null;
-  copy: QueueMetrics | null;
+  success: boolean;
+  errorCode?: string;
+  error?: string;
+  srcTraversal?: QueueMetrics | null;
+  dstTraversal?: QueueMetrics | null;
+  copy?: QueueMetrics | null;
 }
 

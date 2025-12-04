@@ -132,9 +132,29 @@ export default function MigrationMonitor() {
     if (!migrationId) return;
 
     try {
-      const metrics = await getMigrationQueueMetrics(migrationId);
-      setQueueMetrics(metrics);
+      const response = await getMigrationQueueMetrics(migrationId);
+      
+      // Handle structured response - ignore non-critical database errors
+      if (!response.success) {
+        if (response.errorCode === "DATABASE_NOT_AVAILABLE") {
+          // Database closed after migration completed - this is expected, ignore it
+          return;
+        }
+        // Other errors - log but don't throw
+        console.warn("Queue metrics error:", response.errorCode, response.error);
+        return;
+      }
+      
+      // Only update if we have valid data
+      if (response.srcTraversal !== undefined || response.dstTraversal !== undefined) {
+        setQueueMetrics({
+          srcTraversal: response.srcTraversal ?? null,
+          dstTraversal: response.dstTraversal ?? null,
+          copy: response.copy ?? null,
+        });
+      }
     } catch (err) {
+      // Only log actual network/HTTP errors
       console.error("Failed to fetch queue metrics:", err);
     }
   }, [migrationId]);
@@ -146,6 +166,22 @@ export default function MigrationMonitor() {
     try {
       // Fetch all logs without lastSeenIds - API returns up to 1K per level
       const response = await getMigrationLogs(migrationId, {});
+
+      // Handle structured response - ignore non-critical database errors
+      if (!response.success) {
+        if (response.errorCode === "DATABASE_NOT_AVAILABLE") {
+          // Database closed after migration completed - this is expected, ignore it
+          return;
+        }
+        // Other errors - log but don't throw
+        console.warn("Logs error:", response.errorCode, response.error);
+        return;
+      }
+
+      // Only process if we have valid logs data
+      if (!response.logs) {
+        return;
+      }
 
       // Collect all logs and filter out duplicates using our in-memory map
       const allLogs: MigrationLog[] = [];
@@ -168,6 +204,7 @@ export default function MigrationMonitor() {
         });
       }
     } catch (err) {
+      // Only log actual network/HTTP errors
       console.error("Failed to fetch logs:", err);
     }
   }, [migrationId, mergeAndSortLogs]);

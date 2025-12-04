@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useMemo, useState, useEffect, useRef } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
 
 import SelectionPage from "../components/SelectionPage";
 import {
@@ -8,11 +8,12 @@ import {
 } from "../data/serviceSelectionOptions";
 import { useSelection } from "../context/SelectionContext";
 import { getPresetRootForServiceType } from "../data/presetRoots";
-import { pickLocalFolder } from "../utils/folderPicker";
 import { setMigrationRoot } from "../api/services";
+import { Folder } from "../types/services";
 
 export default function ConnectSource() {
   const navigate = useNavigate();
+  const location = useLocation();
   const {
     services,
     loading,
@@ -23,6 +24,68 @@ export default function ConnectSource() {
     updateMigration,
   } = useSelection();
   const [isPicking, setIsPicking] = useState(false);
+  const processedStateRef = useRef<string | null>(null);
+
+  const handleFolderSelected = async (serviceId: string, root: Folder) => {
+    const selected = services.find((service) => service.id === serviceId);
+    if (!selected) {
+      alert("Service not found.");
+      return;
+    }
+
+    try {
+      setIsPicking(true);
+      const response = await setMigrationRoot({
+        migrationId: migration.migrationId,
+        role: "source",
+        serviceId: selected.id,
+        root,
+      });
+
+      updateMigration({
+        migrationId: response.migrationId,
+        sourceConnectionId: response.sourceConnectionId,
+        destinationConnectionId: response.destinationConnectionId,
+        ready: response.ready,
+      });
+
+      selectSource(selected, root);
+      navigate("/destination");
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Failed to set source root.";
+      alert(message);
+    } finally {
+      setIsPicking(false);
+    }
+  };
+
+  // Handle return from folder browser
+  useEffect(() => {
+    const state = location.state as { selectedFolder?: Folder; serviceId?: string } | null;
+    console.log("ConnectSource: location.state =", state);
+    
+    if (state?.selectedFolder && state?.serviceId) {
+      // Create a unique key for this state to prevent double processing
+      const stateKey = `${state.serviceId}-${state.selectedFolder.id}`;
+      
+      // Skip if we've already processed this state (prevents double processing from StrictMode)
+      if (processedStateRef.current === stateKey) {
+        console.log("ConnectSource: Skipping duplicate state processing");
+        return;
+      }
+      
+      processedStateRef.current = stateKey;
+      console.log("ConnectSource: Calling handleFolderSelected with:", state.serviceId, state.selectedFolder);
+      handleFolderSelected(state.serviceId, state.selectedFolder);
+      // Clear the state to prevent re-triggering
+      window.history.replaceState({}, document.title);
+    } else {
+      // Reset the ref when state is cleared
+      processedStateRef.current = null;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state]);
 
   const options = useMemo(
     () =>
@@ -56,16 +119,9 @@ export default function ConnectSource() {
         : getPresetRootForServiceType(selected.type);
 
     if (selected.type === "local") {
-      setIsPicking(true);
-      try {
-        const chosen = await pickLocalFolder("Select source folder");
-        if (!chosen) {
-          return;
-        }
-        root = chosen;
-      } finally {
-        setIsPicking(false);
-      }
+      // Navigate to folder browser
+      navigate(`/browse?serviceId=${selected.id}&role=source`);
+      return;
     }
 
     if (!root) {

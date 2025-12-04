@@ -116,3 +116,56 @@ export interface MigrationWithStatus extends MigrationMetadata {
   status?: string;
 }
 
+export type LogLevel = "trace" | "debug" | "info" | "warning" | "error" | "critical";
+
+export interface MigrationLog {
+  id: string;
+  level: LogLevel;
+  data: {
+    message?: string;
+    timestamp?: string;
+    [key: string]: any;
+  };
+}
+
+export interface MigrationLogsRequest {
+  lastSeenIds?: {
+    trace?: string;
+    debug?: string;
+    info?: string;
+    warning?: string;
+    error?: string;
+    critical?: string;
+  };
+}
+
+export interface MigrationLogsResponse {
+  logs: {
+    trace: MigrationLog[];
+    debug: MigrationLog[];
+    info: MigrationLog[];
+    warning: MigrationLog[];
+    error: MigrationLog[];
+    critical: MigrationLog[];
+  };
+}
+
+export interface QueueMetrics {
+  name: string;
+  round: number;
+  pending: number;
+  inProgress: number;
+  totalTracked: number;
+  workers: number;
+  averageExecutionTime?: number;
+  tasksPerSecond?: number;
+  totalCompleted?: number;
+  lastPollTime?: string;
+}
+
+export interface MigrationQueueMetricsResponse {
+  srcTraversal: QueueMetrics | null;
+  dstTraversal: QueueMetrics | null;
+  copy: QueueMetrics | null;
+}
+

@@ -18,3 +18,24 @@ export interface Folder {
   type: string;
 }
 
+export interface Drive {
+  path: string;
+  displayName: string;
+  type: string;
+}
+
+export interface PaginationInfo {
+  offset: number;
+  limit: number;
+  total: number;
+  totalFolders: number;
+  totalFiles: number;
+  hasMore: boolean;
+}
+
+export interface ChildrenResponse {
+  folders: Folder[];
+  files: any[]; // File objects if needed
+  pagination?: PaginationInfo;
+}
+

@@ -9,14 +9,17 @@ import {
   MigrationInspectResponse,
   MigrationMetadata,
   MigrationWithStatus,
+  MigrationLogsRequest,
+  MigrationLogsResponse,
+  MigrationQueueMetricsResponse,
 } from "../types/migrations";
-import { ServiceDescriptor } from "../types/services";
+import { ServiceDescriptor, Drive, ChildrenResponse, Folder } from "../types/services";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8086";
 const AUTH_STORAGE_KEY = "sylos.authToken";
 
 const fallbackServices: ServiceDescriptor[] = [
-  { id: "local-default", displayName: "Local Filesystem", type: "local" },
+  { id: "local", displayName: "Local Filesystem", type: "local" },
   { id: "spectra-primary", displayName: "Spectra Simulator", type: "spectra" },
 ];
 
@@ -316,5 +319,159 @@ export async function stopMigration(
   }
 
   return (await response.json()) as MigrationStatusResponse;
+}
+
+export async function listDrives(
+  serviceId: string
+): Promise<Drive[]> {
+  const token = getAuthToken() ?? undefined;
+
+  const response = await fetch(
+    `${API_BASE}/api/services/${serviceId}/drives`,
+    {
+      method: "GET",
+      headers: buildHeaders(token),
+    }
+  );
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(
+      `Failed to list drives (${response.status}): ${
+        message || "Unknown error"
+      }`
+    );
+  }
+
+  const data = await response.json();
+  return Array.isArray(data) ? data : [];
+}
+
+export async function listChildren(
+  serviceId: string,
+  identifier: string,
+  role?: "source" | "destination",
+  options?: {
+    offset?: number;
+    limit?: number;
+    foldersOnly?: boolean;
+  }
+): Promise<ChildrenResponse> {
+  const token = getAuthToken() ?? undefined;
+
+  const params = new URLSearchParams({ identifier });
+  if (role) {
+    params.append("role", role);
+  }
+  if (options?.offset !== undefined) {
+    params.append("offset", options.offset.toString());
+  }
+  if (options?.limit !== undefined) {
+    params.append("limit", options.limit.toString());
+  }
+  if (options?.foldersOnly !== undefined) {
+    params.append("foldersOnly", options.foldersOnly.toString());
+  }
+
+  const response = await fetch(
+    `${API_BASE}/api/services/${serviceId}/children?${params.toString()}`,
+    {
+      method: "GET",
+      headers: buildHeaders(token),
+    }
+  );
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(
+      `Failed to list children (${response.status}): ${
+        message || "Unknown error"
+      }`
+    );
+  }
+
+  const data = await response.json();
+  
+  // Normalize API response: API returns capitalized fields (Folders, Files, Id, DisplayName)
+  // but frontend expects lowercase (folders, files, id, displayName)
+  const normalizeFolder = (folder: any): Folder => ({
+    id: folder.Id || folder.id,
+    displayName: folder.DisplayName || folder.displayName,
+    locationPath: folder.LocationPath || folder.locationPath,
+    parentId: folder.ParentId || folder.parentId,
+    parentPath: folder.ParentPath || folder.parentPath,
+    lastUpdated: folder.LastUpdated || folder.lastUpdated,
+    depthLevel: folder.DepthLevel || folder.depthLevel,
+    type: folder.Type || folder.type,
+  });
+
+  const folders = (data.Folders || data.folders || []).map(normalizeFolder);
+  const files = data.Files || data.files || [];
+
+  // Normalize pagination info
+  const pagination = data.Pagination || data.pagination;
+  const paginationInfo = pagination ? {
+    offset: pagination.Offset || pagination.offset || 0,
+    limit: pagination.Limit || pagination.limit || 100,
+    total: pagination.Total || pagination.total || 0,
+    totalFolders: pagination.TotalFolders || pagination.totalFolders || 0,
+    totalFiles: pagination.TotalFiles || pagination.totalFiles || 0,
+    hasMore: pagination.HasMore || pagination.hasMore || false,
+  } : undefined;
+
+  return { folders, files, pagination: paginationInfo };
+}
+
+export async function getMigrationLogs(
+  migrationId: string,
+  request: MigrationLogsRequest = {}
+): Promise<MigrationLogsResponse> {
+  const token = getAuthToken() ?? undefined;
+
+  // Don't send lastSeenIds - we filter duplicates on the frontend
+  const response = await fetch(
+    `${API_BASE}/api/migrations/${migrationId}/logs`,
+    {
+      method: "POST",
+      headers: buildHeaders(token),
+      body: JSON.stringify({}),
+    }
+  );
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(
+      `Failed to get migration logs (${response.status}): ${
+        message || "Unknown error"
+      }`
+    );
+  }
+
+  return (await response.json()) as MigrationLogsResponse;
+}
+
+export async function getMigrationQueueMetrics(
+  migrationId: string
+): Promise<MigrationQueueMetricsResponse> {
+  const token = getAuthToken() ?? undefined;
+
+  const response = await fetch(
+    `${API_BASE}/api/migrations/${migrationId}/queue-metrics`,
+    {
+      method: "GET",
+      headers: buildHeaders(token),
+    }
+  );
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(
+      `Failed to get queue metrics (${response.status}): ${
+        message || "Unknown error"
+      }`
+    );
+  }
+
+  return (await response.json()) as MigrationQueueMetricsResponse;
 }
 

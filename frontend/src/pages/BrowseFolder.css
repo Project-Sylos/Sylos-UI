@@ -1,0 +1,301 @@
+.browse-folder {
+  position: relative;
+  height: 100vh;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: clamp(2rem, 5vw, 5rem);
+  box-sizing: border-box;
+  color: #f8fafc;
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  overflow: hidden;
+}
+
+.browse-folder .App-backgroundCanvas {
+  z-index: 0;
+}
+
+.browse-folder__header {
+  position: relative;
+  z-index: 2;
+  margin-bottom: 1.5rem;
+}
+
+.browse-folder__title {
+  font-size: clamp(1.75rem, 4vw, 2.5rem);
+  margin: 0;
+  text-align: center;
+  padding-top: 1rem;
+}
+
+.browse-folder__content {
+  position: relative;
+  z-index: 1;
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  width: min(960px, 100%);
+  margin: 0 auto;
+  backdrop-filter: blur(16px);
+  background: rgba(15, 23, 42, 0.28);
+  border-radius: 32px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  box-shadow: 0 40px 90px rgba(15, 23, 42, 0.35);
+  padding: clamp(2rem, 5vw, 3rem);
+  gap: 1rem;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.browse-folder__error {
+  padding: 1rem;
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 12px;
+  color: #fca5a5;
+  font-size: 0.95rem;
+}
+
+.browse-folder__breadcrumbs-container {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-shrink: 0;
+}
+
+.browse-folder__back-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: rgba(148, 163, 184, 0.15);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  color: #f8fafc;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.browse-folder__back-button:hover {
+  background: rgba(148, 163, 184, 0.25);
+  border-color: rgba(148, 163, 184, 0.5);
+  transform: translateX(-2px);
+}
+
+.browse-folder__breadcrumbs {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  flex: 1;
+  padding: 0.75rem 1rem;
+  background: rgba(15, 23, 42, 0.4);
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  min-width: 0;
+}
+
+.browse-folder__breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.browse-folder__breadcrumb-link {
+  background: transparent;
+  border: none;
+  color: rgba(148, 163, 184, 0.8);
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: color 0.2s ease;
+  padding: 0.25rem 0.5rem;
+  border-radius: 6px;
+}
+
+.browse-folder__breadcrumb-link:hover:not(:disabled) {
+  color: #ffffff;
+  background: rgba(148, 163, 184, 0.1);
+}
+
+.browse-folder__breadcrumb-link:disabled {
+  color: #ffffff;
+  cursor: default;
+}
+
+.browse-folder__breadcrumb-separator {
+  color: rgba(148, 163, 184, 0.5);
+  flex-shrink: 0;
+}
+
+.browse-folder__list-container {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.browse-folder__list {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0.5rem 0;
+  min-height: 0;
+}
+
+.browse-folder__empty {
+  padding: 3rem 2rem;
+  text-align: center;
+  color: rgba(226, 232, 240, 0.65);
+  font-size: 0.95rem;
+}
+
+.browse-folder__item {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1.25rem 1.5rem;
+  background: linear-gradient(
+    160deg,
+    rgba(15, 23, 42, 0.65) 0%,
+    rgba(30, 41, 59, 0.35) 100%
+  );
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 16px;
+  color: inherit;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  text-align: left;
+  width: 100%;
+}
+
+.browse-folder__item:hover {
+  transform: translateY(-3px);
+  border-color: rgba(148, 163, 184, 0.45);
+  background: rgba(15, 23, 42, 0.6);
+  box-shadow: 0 16px 40px rgba(8, 47, 73, 0.3);
+}
+
+.browse-folder__item-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: rgba(0, 172, 255, 0.18);
+  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.25);
+  flex-shrink: 0;
+}
+
+.browse-folder__item-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.browse-folder__item-name {
+  font-size: 1.05rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.browse-folder__item-meta {
+  font-size: 0.85rem;
+  color: rgba(226, 232, 240, 0.6);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.browse-folder__item-arrow {
+  color: rgba(148, 163, 184, 0.5);
+  flex-shrink: 0;
+}
+
+.browse-folder__footer {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.18);
+  flex-shrink: 0;
+}
+
+.browse-folder__select-button {
+  padding: 1rem 2.5rem;
+  background: linear-gradient(
+    135deg,
+    rgba(0, 255, 255, 0.25) 0%,
+    rgba(255, 0, 255, 0.25) 100%
+  );
+  border: 1px solid rgba(0, 255, 255, 0.5);
+  border-radius: 16px;
+  color: #f8fafc;
+  font-size: 1.1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.25s ease;
+}
+
+.browse-folder__select-button:hover {
+  background: linear-gradient(
+    135deg,
+    rgba(0, 255, 255, 0.35) 0%,
+    rgba(255, 0, 255, 0.35) 100%
+  );
+  border-color: rgba(0, 255, 255, 0.7);
+  transform: translateY(-2px);
+  box-shadow: 0 12px 30px rgba(0, 255, 255, 0.3);
+}
+
+.browse-folder__load-more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 1rem 1.5rem;
+  margin-top: 0.5rem;
+  background: rgba(148, 163, 184, 0.1);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 12px;
+  color: #f8fafc;
+  font-size: 0.95rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  width: 100%;
+}
+
+.browse-folder__load-more:hover:not(:disabled) {
+  background: rgba(148, 163, 184, 0.2);
+  border-color: rgba(148, 163, 184, 0.5);
+  transform: translateY(-1px);
+}
+
+.browse-folder__load-more:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.browse-folder__load-more-spinner {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+

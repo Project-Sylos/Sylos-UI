@@ -11,7 +11,7 @@ import ChooseMigrationType from "./pages/ChooseMigrationType";
 import ResumeMigration from "./pages/ResumeMigration";
 import BrowseFolder from "./pages/BrowseFolder";
 import MigrationSummary from "./pages/MigrationSummary";
-import MigrationMonitor from "./pages/DiscoveryProgress";
+import DiscoveryProgress from "./pages/DiscoveryProgress";
 
 export default function App() {
   return (
@@ -25,7 +25,7 @@ export default function App() {
           <Route path="/connect" element={<ConnectSource />} />
           <Route path="/destination" element={<Destination />} />
           <Route path="/summary" element={<MigrationSummary />} />
-          <Route path="/monitor/:migrationId" element={<MigrationMonitor />} />
+          <Route path="/discovery-progress/:migrationId" element={<DiscoveryProgress />} />
           <Route path="/resume" element={<ResumeMigration />} />
           <Route path="/browse" element={<BrowseFolder />} />
         </Routes>

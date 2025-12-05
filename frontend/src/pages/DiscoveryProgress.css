@@ -1,4 +1,4 @@
-.migration-monitor {
+.discovery-progress {
   position: relative;
   min-height: 100vh;
   width: 100%;
@@ -13,15 +13,15 @@
   transition: align-items 0.3s ease;
 }
 
-.migration-monitor--logs-expanded {
+.discovery-progress--logs-expanded {
   align-items: flex-start;
 }
 
-.migration-monitor .App-backgroundCanvas {
+.discovery-progress .App-backgroundCanvas {
   z-index: 0;
 }
 
-.migration-monitor__back {
+.discovery-progress__back {
   position: absolute;
   top: clamp(1.5rem, 4vw, 2.5rem);
   left: clamp(1.5rem, 4vw, 3rem);
@@ -38,11 +38,11 @@
   align-items: center;
 }
 
-.migration-monitor__back:hover {
+.discovery-progress__back:hover {
   color: #ffffff;
 }
 
-.migration-monitor__content {
+.discovery-progress__content {
   position: relative;
   z-index: 1;
   width: min(1400px, 100%);
@@ -61,12 +61,12 @@
   align-items: stretch;
 }
 
-.migration-monitor__content--logs-collapsed {
+.discovery-progress__content--logs-collapsed {
   max-height: fit-content;
   gap: 0.5rem;
 }
 
-.migration-monitor__content--logs-collapsed .migration-monitor__terminal-section {
+.discovery-progress__content--logs-collapsed .discovery-progress__terminal-section {
   margin-top: 0;
   padding-top: 0;
   border-top: none;
@@ -77,7 +77,7 @@
   min-height: 0;
 }
 
-.migration-monitor__header {
+.discovery-progress__header {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -85,12 +85,12 @@
   gap: 1rem;
 }
 
-.migration-monitor__header h1 {
+.discovery-progress__header h1 {
   font-size: clamp(1.75rem, 3vw, 2.25rem);
   margin: 0;
 }
 
-.migration-monitor__status-indicator {
+.discovery-progress__status-indicator {
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -101,13 +101,13 @@
   position: relative;
 }
 
-.migration-monitor__status-text {
+.discovery-progress__status-text {
   font-weight: 600;
   font-size: 0.9rem;
   letter-spacing: 0.05em;
 }
 
-.migration-monitor__pulse {
+.discovery-progress__pulse {
   position: absolute;
   width: 8px;
   height: 8px;
@@ -128,7 +128,7 @@
   }
 }
 
-.migration-monitor__error {
+.discovery-progress__error {
   padding: 1rem 1.5rem;
   background: rgba(239, 68, 68, 0.15);
   border: 1px solid rgba(239, 68, 68, 0.3);
@@ -137,14 +137,14 @@
   font-size: 0.95rem;
 }
 
-.migration-monitor__metrics {
+.discovery-progress__metrics {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 1rem;
   flex-shrink: 0;
 }
 
-.migration-monitor__metric-card {
+.discovery-progress__metric-card {
   padding: 1rem;
   background: linear-gradient(
     160deg,
@@ -156,14 +156,14 @@
   box-shadow: 0 24px 60px rgba(15, 23, 42, 0.35);
 }
 
-.migration-monitor__metric-header {
+.discovery-progress__metric-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 0.75rem;
 }
 
-.migration-monitor__metric-service {
+.discovery-progress__metric-service {
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -172,7 +172,7 @@
   color: #e2e8f0;
 }
 
-.migration-monitor__metric-title {
+.discovery-progress__metric-title {
   font-size: 1.1rem;
   font-weight: 600;
   margin: 0;
@@ -181,7 +181,7 @@
   align-items: center;
 }
 
-.migration-monitor__metric-context {
+.discovery-progress__metric-context {
   margin-bottom: 1rem;
   padding: 0.75rem;
   background: rgba(15, 23, 42, 0.4);
@@ -190,7 +190,7 @@
   min-height: 0;
 }
 
-.migration-monitor__metric-context--empty {
+.discovery-progress__metric-context--empty {
   padding: 0;
   margin-bottom: 1rem;
   background: transparent;
@@ -200,13 +200,13 @@
   overflow: hidden;
 }
 
-.migration-monitor__metric-context-row {
+.discovery-progress__metric-context-row {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
 }
 
-.migration-monitor__metric-context-label {
+.discovery-progress__metric-context-label {
   font-size: 0.75rem;
   color: rgba(148, 163, 184, 0.7);
   text-transform: uppercase;
@@ -214,7 +214,7 @@
   font-weight: 500;
 }
 
-.migration-monitor__metric-context-value {
+.discovery-progress__metric-context-value {
   font-size: 0.9rem;
   color: #e2e8f0;
   font-weight: 500;
@@ -222,42 +222,42 @@
   overflow-wrap: break-word;
 }
 
-.migration-monitor__metric-title--source {
+.discovery-progress__metric-title--source {
   color: #ff00ff;
 }
 
-.migration-monitor__metric-title--destination {
+.discovery-progress__metric-title--destination {
   color: #00ffff;
 }
 
-.migration-monitor__metric-details {
+.discovery-progress__metric-details {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
 }
 
-.migration-monitor__metric-row {
+.discovery-progress__metric-row {
   display: flex;
   justify-content: space-between;
   font-size: 0.95rem;
 }
 
-.migration-monitor__metric-row span:first-child {
+.discovery-progress__metric-row span:first-child {
   color: rgba(148, 163, 184, 0.8);
 }
 
-.migration-monitor__metric-row span:last-child {
+.discovery-progress__metric-row span:last-child {
   color: #f8fafc;
   font-weight: 500;
 }
 
-.migration-monitor__metric-empty {
+.discovery-progress__metric-empty {
   color: rgba(148, 163, 184, 0.6);
   font-size: 0.9rem;
   font-style: italic;
 }
 
-.migration-monitor__terminal-section {
+.discovery-progress__terminal-section {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
@@ -273,7 +273,7 @@
   box-shadow: none;
 }
 
-.migration-monitor__content--logs-collapsed .migration-monitor__terminal-section {
+.discovery-progress__content--logs-collapsed .discovery-progress__terminal-section {
   flex: 0 0 auto;
   min-height: 0;
   max-height: fit-content;
@@ -287,7 +287,7 @@
   overflow: visible;
 }
 
-.migration-monitor__content--logs-collapsed .migration-monitor__terminal-header {
+.discovery-progress__content--logs-collapsed .discovery-progress__terminal-header {
   margin: 0;
   padding: 0;
   border: none;
@@ -297,7 +297,7 @@
   min-height: 0;
 }
 
-.migration-monitor__terminal-header {
+.discovery-progress__terminal-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -312,11 +312,11 @@
   min-height: 0;
 }
 
-.migration-monitor__terminal-header:hover .migration-monitor__terminal-title {
+.discovery-progress__terminal-header:hover .discovery-progress__terminal-title {
   opacity: 0.8;
 }
 
-.migration-monitor__terminal-title {
+.discovery-progress__terminal-title {
   display: flex;
   align-items: center;
   font-size: 1.1rem;
@@ -327,11 +327,11 @@
   user-select: none;
 }
 
-.migration-monitor__terminal-title:hover {
+.discovery-progress__terminal-title:hover {
   opacity: 0.8;
 }
 
-.migration-monitor__terminal-title svg {
+.discovery-progress__terminal-title svg {
   flex-shrink: 0;
   width: 18px;
   height: 18px;
@@ -339,7 +339,7 @@
   vertical-align: middle;
 }
 
-.migration-monitor__log-filter {
+.discovery-progress__log-filter {
   padding: 0.5rem 1rem;
   background: rgba(15, 23, 42, 0.6);
   border: 1px solid rgba(148, 163, 184, 0.3);
@@ -350,18 +350,18 @@
   transition: all 0.2s ease;
 }
 
-.migration-monitor__log-filter:hover {
+.discovery-progress__log-filter:hover {
   border-color: rgba(148, 163, 184, 0.5);
   background: rgba(15, 23, 42, 0.7);
 }
 
-.migration-monitor__log-filter:focus {
+.discovery-progress__log-filter:focus {
   outline: none;
   border-color: rgba(0, 255, 255, 0.5);
   box-shadow: 0 0 0 3px rgba(0, 255, 255, 0.1);
 }
 
-.migration-monitor__terminal {
+.discovery-progress__terminal {
   flex: 1;
   min-height: 0;
   max-height: 300px;
@@ -379,32 +379,32 @@
   scrollbar-color: rgba(148, 163, 184, 0.3) transparent;
 }
 
-.migration-monitor__terminal::-webkit-scrollbar {
+.discovery-progress__terminal::-webkit-scrollbar {
   width: 8px;
 }
 
-.migration-monitor__terminal::-webkit-scrollbar-track {
+.discovery-progress__terminal::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.migration-monitor__terminal::-webkit-scrollbar-thumb {
+.discovery-progress__terminal::-webkit-scrollbar-thumb {
   background: rgba(148, 163, 184, 0.3);
   border-radius: 4px;
 }
 
-.migration-monitor__terminal::-webkit-scrollbar-thumb:hover {
+.discovery-progress__terminal::-webkit-scrollbar-thumb:hover {
   background: rgba(148, 163, 184, 0.5);
 }
 
 
-.migration-monitor__terminal-empty {
+.discovery-progress__terminal-empty {
   color: rgba(148, 163, 184, 0.6);
   text-align: center;
   padding: 2rem;
   font-style: italic;
 }
 
-.migration-monitor__log-line {
+.discovery-progress__log-line {
   display: flex;
   gap: 0.75rem;
   padding: 0.25rem 0.5rem;
@@ -417,11 +417,11 @@
   transition: background 0.1s ease;
 }
 
-.migration-monitor__log-line:hover {
+.discovery-progress__log-line:hover {
   background: rgba(15, 23, 42, 0.35);
 }
 
-.migration-monitor__log-time {
+.discovery-progress__log-time {
   color: rgba(148, 163, 184, 0.7);
   font-size: 0.8rem;
   flex-shrink: 0;
@@ -429,7 +429,7 @@
   font-weight: 500;
 }
 
-.migration-monitor__log-level {
+.discovery-progress__log-level {
   font-weight: 600;
   font-size: 0.8rem;
   flex-shrink: 0;
@@ -437,43 +437,43 @@
   text-shadow: 0 0 8px currentColor;
 }
 
-.migration-monitor__log-message {
+.discovery-progress__log-message {
   color: #e2e8f0;
   flex: 1;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
 }
 
 @media (max-width: 768px) {
-  .migration-monitor__content {
+  .discovery-progress__content {
     padding: 1rem;
   }
 
-  .migration-monitor__header {
+  .discovery-progress__header {
     flex-direction: column;
     align-items: flex-start;
   }
 
-  .migration-monitor__metrics {
+  .discovery-progress__metrics {
     grid-template-columns: 1fr;
   }
 
-  .migration-monitor__terminal {
+  .discovery-progress__terminal {
     max-height: 250px;
     font-size: 0.75rem;
   }
   
-  .migration-monitor__content {
+  .discovery-progress__content {
     max-height: calc(100vh - 2rem);
     padding: 1rem;
   }
 
-  .migration-monitor__log-line {
+  .discovery-progress__log-line {
     flex-direction: column;
     gap: 0.25rem;
   }
 
-  .migration-monitor__log-time,
-  .migration-monitor__log-level {
+  .discovery-progress__log-time,
+  .discovery-progress__log-level {
     min-width: auto;
   }
 }

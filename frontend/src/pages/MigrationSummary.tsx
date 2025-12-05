@@ -39,8 +39,8 @@ export default function MigrationSummary() {
       setError(null);
       const run = await startMigration({ migrationId: migration.migrationId });
       
-      // Navigate to the migration monitor page
-      navigate(`/monitor/${run.id}`);
+      // Navigate to the discovery progress page
+      navigate(`/discovery-progress/${run.id}`);
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Unable to start migration.";

@@ -10,7 +10,7 @@ import {
 } from "../api/services";
 import { MigrationLog, LogLevel } from "../types/migrations";
 import { useSelection } from "../context/SelectionContext";
-import "./MigrationMonitor.css";
+import "./DiscoveryProgress.css";
 
 const LOG_LEVELS: LogLevel[] = ["trace", "debug", "info", "warning", "error", "critical"];
 const MAX_LOG_LINES = 10000;
@@ -22,7 +22,7 @@ interface MergedLog extends MigrationLog {
   displayTime: string;
 }
 
-export default function MigrationMonitor() {
+export default function DiscoveryProgress() {
   const { migrationId } = useParams<{ migrationId: string }>();
   const navigate = useNavigate();
   const { source, destination, services } = useSelection();
@@ -373,22 +373,22 @@ export default function MigrationMonitor() {
   };
 
   return (
-    <section className={`migration-monitor ${!isLogsCollapsed ? 'migration-monitor--logs-expanded' : ''}`}>
+    <section className={`discovery-progress ${!isLogsCollapsed ? 'discovery-progress--logs-expanded' : ''}`}>
       <button
         type="button"
-        className="migration-monitor__back"
+        className="discovery-progress__back"
         onClick={() => navigate("/")}
       >
         <ArrowLeft size={16} style={{ marginRight: "0.5rem" }} />
         Back to home
       </button>
 
-      <div className={`migration-monitor__content ${isLogsCollapsed ? 'migration-monitor__content--logs-collapsed' : ''}`}>
-        <header className="migration-monitor__header">
+      <div className={`discovery-progress__content ${isLogsCollapsed ? 'discovery-progress__content--logs-collapsed' : ''}`}>
+        <header className="discovery-progress__header">
           <h1>
-            Discovery <span className="migration-monitor__highlight">Progress</span>
+            Discovery <span className="discovery-progress__highlight">Progress</span>
           </h1>
-          <div className="migration-monitor__status-indicator">
+          <div className="discovery-progress__status-indicator">
             <Activity
               size={16}
               style={{
@@ -397,143 +397,143 @@ export default function MigrationMonitor() {
               }}
             />
             <span
-              className="migration-monitor__status-text"
+              className="discovery-progress__status-text"
               style={{ color: getStatusColor(status?.status) }}
             >
               {status?.status?.toUpperCase() || "UNKNOWN"}
             </span>
             {status?.status === "running" && (
-              <span className="migration-monitor__pulse" />
+              <span className="discovery-progress__pulse" />
             )}
           </div>
         </header>
 
         {error && (
-          <div className="migration-monitor__error">{error}</div>
+          <div className="discovery-progress__error">{error}</div>
         )}
 
         {/* Metrics Section */}
         {queueMetrics && (
-          <div className="migration-monitor__metrics">
-            <div className="migration-monitor__metric-card">
-              <div className="migration-monitor__metric-header">
-                <div className="migration-monitor__metric-service">
+          <div className="discovery-progress__metrics">
+            <div className="discovery-progress__metric-card">
+              <div className="discovery-progress__metric-header">
+                <div className="discovery-progress__metric-service">
                   {getServiceIcon(getSourceServiceType())}
                   <span>{source?.service?.displayName || status?.sourceId || "Unknown"}</span>
                 </div>
-                <h3 className="migration-monitor__metric-title migration-monitor__metric-title--source">
+                <h3 className="discovery-progress__metric-title discovery-progress__metric-title--source">
                   Source
                 </h3>
               </div>
               {(source?.root?.locationPath && source.root.locationPath !== '/') ? (
-                <div className="migration-monitor__metric-context">
-                  <div className="migration-monitor__metric-context-row">
-                    <span className="migration-monitor__metric-context-label">Root Path:</span>
-                    <span className="migration-monitor__metric-context-value" title={source?.root?.locationPath || source?.root?.displayName || ""}>
+                <div className="discovery-progress__metric-context">
+                  <div className="discovery-progress__metric-context-row">
+                    <span className="discovery-progress__metric-context-label">Root Path:</span>
+                    <span className="discovery-progress__metric-context-value" title={source?.root?.locationPath || source?.root?.displayName || ""}>
                       {source?.root?.locationPath || source?.root?.displayName || "Not specified"}
                     </span>
                   </div>
                 </div>
               ) : (
-                <div className="migration-monitor__metric-context migration-monitor__metric-context--empty" />
+                <div className="discovery-progress__metric-context discovery-progress__metric-context--empty" />
               )}
               {queueMetrics.srcTraversal ? (
-                <div className="migration-monitor__metric-details">
-                  <div className="migration-monitor__metric-row">
+                <div className="discovery-progress__metric-details">
+                  <div className="discovery-progress__metric-row">
                     <span>Round:</span>
                     <span>{queueMetrics.srcTraversal.round}</span>
                   </div>
-                  <div className="migration-monitor__metric-row">
+                  <div className="discovery-progress__metric-row">
                     <span>Pending:</span>
                     <span>{queueMetrics.srcTraversal.pending}</span>
                   </div>
-                  <div className="migration-monitor__metric-row">
+                  <div className="discovery-progress__metric-row">
                     <span>In Progress:</span>
                     <span>{queueMetrics.srcTraversal.inProgress}</span>
                   </div>
-                  <div className="migration-monitor__metric-row">
+                  <div className="discovery-progress__metric-row">
                     <span>Total Tracked:</span>
                     <span>{queueMetrics.srcTraversal.totalTracked}</span>
                   </div>
-                  <div className="migration-monitor__metric-row">
+                  <div className="discovery-progress__metric-row">
                     <span>Workers:</span>
                     <span>{queueMetrics.srcTraversal.workers}</span>
                   </div>
                   {queueMetrics.srcTraversal.tasksPerSecond !== undefined && (
-                    <div className="migration-monitor__metric-row">
+                    <div className="discovery-progress__metric-row">
                       <span>Tasks/sec:</span>
                       <span>{queueMetrics.srcTraversal.tasksPerSecond.toFixed(2)}</span>
                     </div>
                   )}
                 </div>
               ) : (
-                <div className="migration-monitor__metric-empty">Not started</div>
+                <div className="discovery-progress__metric-empty">Not started</div>
               )}
             </div>
 
-            <div className="migration-monitor__metric-card">
-              <div className="migration-monitor__metric-header">
-                <div className="migration-monitor__metric-service">
+            <div className="discovery-progress__metric-card">
+              <div className="discovery-progress__metric-header">
+                <div className="discovery-progress__metric-service">
                   {getServiceIcon(getDestinationServiceType())}
                   <span>{destination?.service?.displayName || status?.destinationId || "Unknown"}</span>
                 </div>
-                <h3 className="migration-monitor__metric-title migration-monitor__metric-title--destination">
+                <h3 className="discovery-progress__metric-title discovery-progress__metric-title--destination">
                   Destination
                 </h3>
               </div>
               {(destination?.root?.locationPath && destination.root.locationPath !== '/') ? (
-                <div className="migration-monitor__metric-context">
-                  <div className="migration-monitor__metric-context-row">
-                    <span className="migration-monitor__metric-context-label">Root Path:</span>
-                    <span className="migration-monitor__metric-context-value" title={destination?.root?.locationPath || destination?.root?.displayName || ""}>
+                <div className="discovery-progress__metric-context">
+                  <div className="discovery-progress__metric-context-row">
+                    <span className="discovery-progress__metric-context-label">Root Path:</span>
+                    <span className="discovery-progress__metric-context-value" title={destination?.root?.locationPath || destination?.root?.displayName || ""}>
                       {destination?.root?.locationPath || destination?.root?.displayName || "Not specified"}
                     </span>
                   </div>
                 </div>
               ) : (
-                <div className="migration-monitor__metric-context migration-monitor__metric-context--empty" />
+                <div className="discovery-progress__metric-context discovery-progress__metric-context--empty" />
               )}
               {queueMetrics.dstTraversal ? (
-                <div className="migration-monitor__metric-details">
-                  <div className="migration-monitor__metric-row">
+                <div className="discovery-progress__metric-details">
+                  <div className="discovery-progress__metric-row">
                     <span>Round:</span>
                     <span>{queueMetrics.dstTraversal.round}</span>
                   </div>
-                  <div className="migration-monitor__metric-row">
+                  <div className="discovery-progress__metric-row">
                     <span>Pending:</span>
                     <span>{queueMetrics.dstTraversal.pending}</span>
                   </div>
-                  <div className="migration-monitor__metric-row">
+                  <div className="discovery-progress__metric-row">
                     <span>In Progress:</span>
                     <span>{queueMetrics.dstTraversal.inProgress}</span>
                   </div>
-                  <div className="migration-monitor__metric-row">
+                  <div className="discovery-progress__metric-row">
                     <span>Total Tracked:</span>
                     <span>{queueMetrics.dstTraversal.totalTracked}</span>
                   </div>
-                  <div className="migration-monitor__metric-row">
+                  <div className="discovery-progress__metric-row">
                     <span>Workers:</span>
                     <span>{queueMetrics.dstTraversal.workers}</span>
                   </div>
                   {queueMetrics.dstTraversal.tasksPerSecond !== undefined && (
-                    <div className="migration-monitor__metric-row">
+                    <div className="discovery-progress__metric-row">
                       <span>Tasks/sec:</span>
                       <span>{queueMetrics.dstTraversal.tasksPerSecond.toFixed(2)}</span>
                     </div>
                   )}
                 </div>
               ) : (
-                <div className="migration-monitor__metric-empty">Not started</div>
+                <div className="discovery-progress__metric-empty">Not started</div>
               )}
             </div>
           </div>
         )}
 
         {/* Log Terminal Section */}
-        <div className="migration-monitor__terminal-section">
-          <div className="migration-monitor__terminal-header">
+        <div className="discovery-progress__terminal-section">
+          <div className="discovery-progress__terminal-header">
             <div 
-              className="migration-monitor__terminal-title"
+              className="discovery-progress__terminal-title"
               onClick={() => setIsLogsCollapsed(!isLogsCollapsed)}
             >
               {isLogsCollapsed ? (
@@ -545,7 +545,7 @@ export default function MigrationMonitor() {
             </div>
             {!isLogsCollapsed && (
               <select
-                className="migration-monitor__log-filter"
+                className="discovery-progress__log-filter"
                 value={filterLevel}
                 onChange={(e) => setFilterLevel(e.target.value as LogLevel | "all")}
                 onClick={(e) => e.stopPropagation()}
@@ -561,33 +561,33 @@ export default function MigrationMonitor() {
           </div>
           {!isLogsCollapsed && (
             <div
-              className="migration-monitor__terminal"
+              className="discovery-progress__terminal"
               ref={logContainerRef}
               onScroll={handleScroll}
             >
             {displayLogs.length === 0 ? (
-              <div className="migration-monitor__terminal-empty">
+              <div className="discovery-progress__terminal-empty">
                 No logs available
               </div>
             ) : (
               displayLogs.map((log) => (
                 <div
                   key={log.id}
-                  className="migration-monitor__log-line"
+                  className="discovery-progress__log-line"
                   style={{
                     borderLeftColor: getLogLevelColor(log.level),
                   }}
                 >
-                  <span className="migration-monitor__log-time">
+                  <span className="discovery-progress__log-time">
                     {log.displayTime || "N/A"}
                   </span>
                   <span
-                    className="migration-monitor__log-level"
+                    className="discovery-progress__log-level"
                     style={{ color: getLogLevelColor(log.level) }}
                   >
                     [{log.level.toUpperCase()}]
                   </span>
-                  <span className="migration-monitor__log-message">
+                  <span className="discovery-progress__log-message">
                     {log.data?.message || JSON.stringify(log.data)}
                   </span>
                 </div>

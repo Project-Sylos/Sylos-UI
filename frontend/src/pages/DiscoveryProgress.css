@@ -3,13 +3,18 @@
   min-height: 100vh;
   width: 100%;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: center;
   padding: clamp(1.5rem, 3vw, 2.5rem);
   box-sizing: border-box;
   color: #f8fafc;
   font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
   overflow: hidden;
+  transition: align-items 0.3s ease;
+}
+
+.migration-monitor--logs-expanded {
+  align-items: flex-start;
 }
 
 .migration-monitor .App-backgroundCanvas {
@@ -52,6 +57,24 @@
   box-shadow: 0 40px 90px rgba(15, 23, 42, 0.35);
   padding: clamp(1rem, 2vw, 1.5rem);
   overflow: hidden;
+  transition: max-height 0.3s ease;
+  align-items: stretch;
+}
+
+.migration-monitor__content--logs-collapsed {
+  max-height: fit-content;
+  gap: 0.5rem;
+}
+
+.migration-monitor__content--logs-collapsed .migration-monitor__terminal-section {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+  border-bottom: none;
+  background: transparent;
+  box-shadow: none;
+  height: auto;
+  min-height: 0;
 }
 
 .migration-monitor__header {
@@ -133,13 +156,70 @@
   box-shadow: 0 24px 60px rgba(15, 23, 42, 0.35);
 }
 
+.migration-monitor__metric-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.migration-monitor__metric-service {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 1rem;
+  font-weight: 500;
+  color: #e2e8f0;
+}
+
 .migration-monitor__metric-title {
   font-size: 1.1rem;
   font-weight: 600;
-  margin: 0 0 1rem 0;
+  margin: 0;
   color: #f8fafc;
   display: flex;
   align-items: center;
+}
+
+.migration-monitor__metric-context {
+  margin-bottom: 1rem;
+  padding: 0.75rem;
+  background: rgba(15, 23, 42, 0.4);
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  min-height: 0;
+}
+
+.migration-monitor__metric-context--empty {
+  padding: 0;
+  margin-bottom: 1rem;
+  background: transparent;
+  border: none;
+  min-height: 0;
+  height: 0;
+  overflow: hidden;
+}
+
+.migration-monitor__metric-context-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.migration-monitor__metric-context-label {
+  font-size: 0.75rem;
+  color: rgba(148, 163, 184, 0.7);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 500;
+}
+
+.migration-monitor__metric-context-value {
+  font-size: 0.9rem;
+  color: #e2e8f0;
+  font-weight: 500;
+  word-break: break-word;
+  overflow-wrap: break-word;
 }
 
 .migration-monitor__metric-title--source {
@@ -184,7 +264,37 @@
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  margin-top: 4.25rem;
+  margin-top: 0rem;
+  position: relative;
+  transition: flex 0.3s ease, min-height 0.3s ease, max-height 0.3s ease;
+  border: none;
+  background: transparent;
+  padding: 0;
+  box-shadow: none;
+}
+
+.migration-monitor__content--logs-collapsed .migration-monitor__terminal-section {
+  flex: 0 0 auto;
+  min-height: 0;
+  max-height: fit-content;
+  height: auto;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  overflow: visible;
+}
+
+.migration-monitor__content--logs-collapsed .migration-monitor__terminal-header {
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  height: auto;
+  min-height: 0;
 }
 
 .migration-monitor__terminal-header {
@@ -193,6 +303,17 @@
   align-items: center;
   flex-wrap: wrap;
   gap: 1rem;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  height: auto;
+  min-height: 0;
+}
+
+.migration-monitor__terminal-header:hover .migration-monitor__terminal-title {
+  opacity: 0.8;
 }
 
 .migration-monitor__terminal-title {
@@ -201,6 +322,21 @@
   font-size: 1.1rem;
   font-weight: 600;
   color: #f8fafc;
+  transition: opacity 0.2s ease;
+  cursor: pointer;
+  user-select: none;
+}
+
+.migration-monitor__terminal-title:hover {
+  opacity: 0.8;
+}
+
+.migration-monitor__terminal-title svg {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  display: inline-block;
+  vertical-align: middle;
 }
 
 .migration-monitor__log-filter {
@@ -234,6 +370,7 @@
   background: rgba(0, 0, 0, 0.4);
   border: 1px solid rgba(148, 163, 184, 0.2);
   border-radius: 12px;
+  margin-top: 0.75rem;
   padding: 0.75rem;
   font-family: "Consolas", "Monaco", "Courier New", monospace;
   font-size: 0.85rem;
@@ -258,6 +395,7 @@
 .migration-monitor__terminal::-webkit-scrollbar-thumb:hover {
   background: rgba(148, 163, 184, 0.5);
 }
+
 
 .migration-monitor__terminal-empty {
   color: rgba(148, 163, 184, 0.6);

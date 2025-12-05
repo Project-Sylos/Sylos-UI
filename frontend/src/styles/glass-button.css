@@ -1,0 +1,51 @@
+/* Glass Button - Reusable button style for primary actions */
+.glass-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem 2.5rem;
+  background: rgba(15, 23, 42, 0.15);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 16px;
+  color: #f8fafc;
+  font-size: 1.1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.1);
+}
+
+.glass-button:hover:not(:disabled) {
+  background: rgba(15, 23, 42, 0.25);
+  border-color: rgba(148, 163, 184, 0.3);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.2);
+}
+
+.glass-button:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.15);
+}
+
+.glass-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* Variant for rounded pill buttons (like Get Started) */
+.glass-button--pill {
+  border-radius: 999px;
+  padding: 0.95rem 3.25rem;
+  font-size: 1.125rem;
+}
+
+/* Variant for smaller inline buttons */
+.glass-button--inline {
+  padding: 0.5rem 1.25rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+  border-radius: 10px;
+}
+

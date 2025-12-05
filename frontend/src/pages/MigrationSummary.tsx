@@ -73,7 +73,7 @@ export default function MigrationSummary() {
             Review your <span className="migration-summary__highlight">migration</span>
           </h1>
           <p className="migration-summary__summary">
-            Verify your source and destination selections before starting discovery.
+            Sylos will map out the differences between the source and destination services and prepare a plan for the migration.
           </p>
         </header>
 
@@ -130,12 +130,12 @@ export default function MigrationSummary() {
         <div className="migration-summary__footer">
           <button
             type="button"
-            className="migration-summary__start-button"
+            className="glass-button"
             onClick={handleStartDiscovery}
             disabled={isStarting}
           >
             <Search size={20} style={{ marginRight: "0.5rem" }} />
-            {isStarting ? "Starting discovery..." : "Start discovery"}
+            {isStarting ? "Starting discovery..." : "Start Discovery"}
           </button>
         </div>
       </div>

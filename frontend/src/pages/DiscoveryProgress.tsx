@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { Activity, ArrowLeft, Terminal, FolderOpen, Cloud } from "lucide-react";
+import { Activity, ArrowLeft, ChevronDown, ChevronRight, FolderOpen, Cloud } from "lucide-react";
 
 import {
   getMigrationStatus,
@@ -33,6 +33,7 @@ export default function MigrationMonitor() {
   const [filterLevel, setFilterLevel] = useState<LogLevel | "all">("all");
   const [isAutoScrolling, setIsAutoScrolling] = useState(true);
   const [isLogPollingPaused, setIsLogPollingPaused] = useState(false);
+  const [isLogsCollapsed, setIsLogsCollapsed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [allServices, setAllServices] = useState(services);
 
@@ -372,7 +373,7 @@ export default function MigrationMonitor() {
   };
 
   return (
-    <section className="migration-monitor">
+    <section className={`migration-monitor ${!isLogsCollapsed ? 'migration-monitor--logs-expanded' : ''}`}>
       <button
         type="button"
         className="migration-monitor__back"
@@ -382,10 +383,10 @@ export default function MigrationMonitor() {
         Back to home
       </button>
 
-      <div className="migration-monitor__content">
+      <div className={`migration-monitor__content ${isLogsCollapsed ? 'migration-monitor__content--logs-collapsed' : ''}`}>
         <header className="migration-monitor__header">
           <h1>
-            Migration <span className="migration-monitor__highlight">Monitor</span>
+            Discovery <span className="migration-monitor__highlight">Progress</span>
           </h1>
           <div className="migration-monitor__status-indicator">
             <Activity
@@ -415,10 +416,27 @@ export default function MigrationMonitor() {
         {queueMetrics && (
           <div className="migration-monitor__metrics">
             <div className="migration-monitor__metric-card">
-              <h3 className="migration-monitor__metric-title migration-monitor__metric-title--source">
-                {getServiceIcon(getSourceServiceType())}
-                Source
-              </h3>
+              <div className="migration-monitor__metric-header">
+                <div className="migration-monitor__metric-service">
+                  {getServiceIcon(getSourceServiceType())}
+                  <span>{source?.service?.displayName || status?.sourceId || "Unknown"}</span>
+                </div>
+                <h3 className="migration-monitor__metric-title migration-monitor__metric-title--source">
+                  Source
+                </h3>
+              </div>
+              {(source?.root?.locationPath && source.root.locationPath !== '/') ? (
+                <div className="migration-monitor__metric-context">
+                  <div className="migration-monitor__metric-context-row">
+                    <span className="migration-monitor__metric-context-label">Root Path:</span>
+                    <span className="migration-monitor__metric-context-value" title={source?.root?.locationPath || source?.root?.displayName || ""}>
+                      {source?.root?.locationPath || source?.root?.displayName || "Not specified"}
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <div className="migration-monitor__metric-context migration-monitor__metric-context--empty" />
+              )}
               {queueMetrics.srcTraversal ? (
                 <div className="migration-monitor__metric-details">
                   <div className="migration-monitor__metric-row">
@@ -454,10 +472,27 @@ export default function MigrationMonitor() {
             </div>
 
             <div className="migration-monitor__metric-card">
-              <h3 className="migration-monitor__metric-title migration-monitor__metric-title--destination">
-                {getServiceIcon(getDestinationServiceType())}
-                Destination
-              </h3>
+              <div className="migration-monitor__metric-header">
+                <div className="migration-monitor__metric-service">
+                  {getServiceIcon(getDestinationServiceType())}
+                  <span>{destination?.service?.displayName || status?.destinationId || "Unknown"}</span>
+                </div>
+                <h3 className="migration-monitor__metric-title migration-monitor__metric-title--destination">
+                  Destination
+                </h3>
+              </div>
+              {(destination?.root?.locationPath && destination.root.locationPath !== '/') ? (
+                <div className="migration-monitor__metric-context">
+                  <div className="migration-monitor__metric-context-row">
+                    <span className="migration-monitor__metric-context-label">Root Path:</span>
+                    <span className="migration-monitor__metric-context-value" title={destination?.root?.locationPath || destination?.root?.displayName || ""}>
+                      {destination?.root?.locationPath || destination?.root?.displayName || "Not specified"}
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <div className="migration-monitor__metric-context migration-monitor__metric-context--empty" />
+              )}
               {queueMetrics.dstTraversal ? (
                 <div className="migration-monitor__metric-details">
                   <div className="migration-monitor__metric-row">
@@ -497,28 +532,39 @@ export default function MigrationMonitor() {
         {/* Log Terminal Section */}
         <div className="migration-monitor__terminal-section">
           <div className="migration-monitor__terminal-header">
-            <div className="migration-monitor__terminal-title">
-              <Terminal size={18} style={{ marginRight: "0.5rem" }} />
+            <div 
+              className="migration-monitor__terminal-title"
+              onClick={() => setIsLogsCollapsed(!isLogsCollapsed)}
+            >
+              {isLogsCollapsed ? (
+                <ChevronRight size={18} style={{ marginRight: "0.5rem" }} />
+              ) : (
+                <ChevronDown size={18} style={{ marginRight: "0.5rem" }} />
+              )}
               Logs ({displayLogs.length.toLocaleString()})
             </div>
-            <select
-              className="migration-monitor__log-filter"
-              value={filterLevel}
-              onChange={(e) => setFilterLevel(e.target.value as LogLevel | "all")}
-            >
-              <option value="all">All Levels</option>
-              {LOG_LEVELS.map((level) => (
-                <option key={level} value={level}>
-                  {level.toUpperCase()}
-                </option>
-              ))}
-            </select>
+            {!isLogsCollapsed && (
+              <select
+                className="migration-monitor__log-filter"
+                value={filterLevel}
+                onChange={(e) => setFilterLevel(e.target.value as LogLevel | "all")}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <option value="all">All Levels</option>
+                {LOG_LEVELS.map((level) => (
+                  <option key={level} value={level}>
+                    {level.toUpperCase()}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
-          <div
-            className="migration-monitor__terminal"
-            ref={logContainerRef}
-            onScroll={handleScroll}
-          >
+          {!isLogsCollapsed && (
+            <div
+              className="migration-monitor__terminal"
+              ref={logContainerRef}
+              onScroll={handleScroll}
+            >
             {displayLogs.length === 0 ? (
               <div className="migration-monitor__terminal-empty">
                 No logs available
@@ -547,7 +593,8 @@ export default function MigrationMonitor() {
                 </div>
               ))
             )}
-          </div>
+            </div>
+          )}
         </div>
       </div>
     </section>

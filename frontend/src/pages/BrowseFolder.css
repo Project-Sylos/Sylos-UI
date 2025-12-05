@@ -230,32 +230,6 @@
   flex-shrink: 0;
 }
 
-.browse-folder__select-button {
-  padding: 1rem 2.5rem;
-  background: linear-gradient(
-    135deg,
-    rgba(0, 255, 255, 0.25) 0%,
-    rgba(255, 0, 255, 0.25) 100%
-  );
-  border: 1px solid rgba(0, 255, 255, 0.5);
-  border-radius: 16px;
-  color: #f8fafc;
-  font-size: 1.1rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.25s ease;
-}
-
-.browse-folder__select-button:hover {
-  background: linear-gradient(
-    135deg,
-    rgba(0, 255, 255, 0.35) 0%,
-    rgba(255, 0, 255, 0.35) 100%
-  );
-  border-color: rgba(0, 255, 255, 0.7);
-  transform: translateY(-2px);
-  box-shadow: 0 12px 30px rgba(0, 255, 255, 0.3);
-}
 
 .browse-folder__load-more {
   display: flex;

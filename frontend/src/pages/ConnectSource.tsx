@@ -171,7 +171,7 @@ export default function ConnectSource() {
       summary={
         error
           ? error
-          : "Choose where Sylos should pull data from. We support on-prem storage and common SaaS providers."
+          : "Where's the data coming from?"
       }
       options={options}
       onSelect={handleSelect}

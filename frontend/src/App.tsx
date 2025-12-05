@@ -11,7 +11,7 @@ import ChooseMigrationType from "./pages/ChooseMigrationType";
 import ResumeMigration from "./pages/ResumeMigration";
 import BrowseFolder from "./pages/BrowseFolder";
 import MigrationSummary from "./pages/MigrationSummary";
-import MigrationMonitor from "./pages/MigrationMonitor";
+import MigrationMonitor from "./pages/DiscoveryProgress";
 
 export default function App() {
   return (

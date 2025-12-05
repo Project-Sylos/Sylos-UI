@@ -18,7 +18,7 @@
 
 .background-credit__text {
   font-size: 0.75rem;
-  color: rgba(148, 163, 184, 0.5);
+  color: rgb(148, 163, 184);
   font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
   font-weight: 400;
   letter-spacing: 0.02em;
@@ -27,16 +27,16 @@
 }
 
 .background-credit__link:hover .background-credit__text {
-  color: rgba(148, 163, 184, 0.7);
+  color: rgb(148, 163, 184);
 }
 
 .background-credit__handle {
-  color: rgba(148, 163, 184, 0.7);
+  color: rgb(148, 163, 184);
   font-weight: 500;
 }
 
 .background-credit__link:hover .background-credit__handle {
-  color: rgba(148, 163, 184, 0.9);
+  color: rgb(148, 163, 184);
 }
 
 @media (max-width: 640px) {

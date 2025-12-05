@@ -45,24 +45,3 @@
   height: auto;
 }
 
-.App-button {
-  border: none;
-  border-radius: 999px;
-  background: linear-gradient(135deg, #6366f1, #22d3ee);
-  color: #ffffff;
-  padding: 0.95rem 3.25rem;
-  font-size: 1.125rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
-}
-
-.App-button:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 16px 32px rgba(99, 102, 241, 0.45);
-}
-
-.App-button:active {
-  transform: translateY(0);
-  box-shadow: none;
-}

@@ -290,7 +290,7 @@ export default function Destination() {
       summary={
         error
           ? error
-          : "Tell Sylos where this migration should land. Pick another instance of the services above or point to a different account."
+          : "Where's the data going?"
       }
       options={options}
       onSelect={handleSelect}

@@ -359,7 +359,7 @@ export default function ResumeMigration() {
                 ) : (
                   <button
                     type="button"
-                    className="resume-migration__resume-button-inline"
+                    className="glass-button glass-button--inline"
                     onClick={() => !resuming && handleResume(migration.id)}
                     disabled={resuming || stopping || loading}
                   >

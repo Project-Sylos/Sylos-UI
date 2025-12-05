@@ -357,10 +357,10 @@ export default function BrowseFolder() {
           <div className="browse-folder__footer">
             <button
               type="button"
-              className="browse-folder__select-button"
+              className="glass-button"
               onClick={handleSelectRoot}
             >
-              Use This Folder
+              Select
             </button>
           </div>
         )}

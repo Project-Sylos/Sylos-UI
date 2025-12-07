@@ -12,6 +12,7 @@ import ResumeMigration from "./pages/ResumeMigration";
 import BrowseFolder from "./pages/BrowseFolder";
 import MigrationSummary from "./pages/MigrationSummary";
 import DiscoveryProgress from "./pages/DiscoveryProgress";
+import PathReview from "./pages/PathReview";
 
 export default function App() {
   return (
@@ -26,6 +27,7 @@ export default function App() {
           <Route path="/destination" element={<Destination />} />
           <Route path="/summary" element={<MigrationSummary />} />
           <Route path="/discovery-progress/:migrationId" element={<DiscoveryProgress />} />
+          <Route path="/path-review/:migrationId" element={<PathReview />} />
           <Route path="/resume" element={<ResumeMigration />} />
           <Route path="/browse" element={<BrowseFolder />} />
         </Routes>

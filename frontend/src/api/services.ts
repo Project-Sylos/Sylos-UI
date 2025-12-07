@@ -481,3 +481,112 @@ export async function getMigrationQueueMetrics(
   return data;
 }
 
+// Diff types for path review
+export interface DiffItem {
+  id: string;
+  parentId: string;
+  parentPath: string;
+  displayName: string;
+  locationPath: string;
+  lastUpdated: string;
+  depthLevel: number;
+  type: "folder" | "file";
+  size?: number;
+  traversalStatus: string;
+  copyStatus: string;
+  inSrc: boolean;
+  inDst: boolean;
+}
+
+export interface DiffsResponse {
+  folders: DiffItem[];
+  files: DiffItem[];
+  pagination: {
+    offset: number;
+    limit: number;
+    total: number;
+    totalFolders: number;
+    totalFiles: number;
+    hasMore: boolean;
+  };
+}
+
+export async function getMigrationDiffs(
+  migrationId: string,
+  options?: {
+    path?: string;
+    offset?: number;
+    limit?: number;
+    foldersOnly?: boolean;
+  }
+): Promise<DiffsResponse> {
+  const token = getAuthToken() ?? undefined;
+
+  const params = new URLSearchParams();
+  if (options?.path) {
+    params.append("path", options.path);
+  }
+  if (options?.offset !== undefined) {
+    params.append("offset", options.offset.toString());
+  }
+  if (options?.limit !== undefined) {
+    params.append("limit", options.limit.toString());
+  }
+  if (options?.foldersOnly !== undefined) {
+    params.append("foldersOnly", options.foldersOnly.toString());
+  }
+
+  const response = await fetch(
+    `${API_BASE}/api/migrations/${migrationId}/diffs?${params.toString()}`,
+    {
+      method: "GET",
+      headers: buildHeaders(token),
+    }
+  );
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(
+      `Failed to get migration diffs (${response.status}): ${
+        message || "Unknown error"
+      }`
+    );
+  }
+
+  return (await response.json()) as DiffsResponse;
+}
+
+// TODO: API endpoint needed - Update item copy status
+// This should update whether an item should be copied or not
+export async function updateItemCopyStatus(
+  migrationId: string,
+  itemId: string,
+  shouldCopy: boolean
+): Promise<void> {
+  // TODO: Implement API call to update item copy status
+  // Expected endpoint: PATCH /api/migrations/{migrationId}/diffs/{itemId}
+  // Body: { shouldCopy: boolean }
+  // This is a placeholder - will be implemented by API team
+  
+  const token = getAuthToken() ?? undefined;
+  
+  // Placeholder implementation - replace with actual API call
+  const response = await fetch(
+    `${API_BASE}/api/migrations/${migrationId}/diffs/${itemId}`,
+    {
+      method: "PATCH",
+      headers: buildHeaders(token),
+      body: JSON.stringify({ shouldCopy }),
+    }
+  );
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(
+      `Failed to update item copy status (${response.status}): ${
+        message || "Unknown error"
+      }`
+    );
+  }
+}
+

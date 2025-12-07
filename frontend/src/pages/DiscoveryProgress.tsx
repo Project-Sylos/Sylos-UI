@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { Activity, ArrowLeft, ChevronDown, ChevronRight, FolderOpen, Cloud } from "lucide-react";
+import { Activity, ArrowLeft, ChevronDown, ChevronRight, FolderOpen, Cloud, Eye } from "lucide-react";
 
 import {
   getMigrationStatus,
@@ -36,6 +36,7 @@ export default function DiscoveryProgress() {
   const [isLogsCollapsed, setIsLogsCollapsed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [allServices, setAllServices] = useState(services);
+  const [showResultsButton, setShowResultsButton] = useState(false);
 
   const logContainerRef = useRef<HTMLDivElement>(null);
   const userScrolledRef = useRef(false);
@@ -244,6 +245,13 @@ export default function DiscoveryProgress() {
       container.scrollTop = container.scrollHeight;
     }
   }, [logs, isAutoScrolling]);
+
+  // Check if migration is completed to show results button
+  useEffect(() => {
+    if (status?.status === "completed") {
+      setShowResultsButton(true);
+    }
+  }, [status?.status]);
 
   // Set up polling intervals
   useEffect(() => {
@@ -595,6 +603,25 @@ export default function DiscoveryProgress() {
             )}
             </div>
           )}
+        </div>
+
+        {/* See Results Button */}
+        <div className="discovery-progress__footer">
+          <button
+            type="button"
+            className={`discovery-progress__see-results ${
+              showResultsButton ? "discovery-progress__see-results--enabled" : ""
+            }`}
+            onClick={() => {
+              if (showResultsButton && migrationId) {
+                navigate(`/path-review/${migrationId}`);
+              }
+            }}
+            disabled={!showResultsButton}
+          >
+            <Eye size={20} style={{ marginRight: "0.5rem" }} />
+            See Results
+          </button>
         </div>
       </div>
     </section>

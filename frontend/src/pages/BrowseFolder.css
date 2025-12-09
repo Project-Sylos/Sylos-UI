@@ -19,6 +19,10 @@
   position: relative;
   z-index: 2;
   margin-bottom: 1.5rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
 }
 
 .browse-folder__title {

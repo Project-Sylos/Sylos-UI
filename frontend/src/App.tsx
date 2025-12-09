@@ -2,6 +2,7 @@ import "./App.css";
 import { HashRouter, Route, Routes } from "react-router-dom";
 
 import { SelectionProvider } from "./context/SelectionContext";
+import { ZoomProvider } from "./contexts/ZoomContext";
 import AnimatedBackground from "./components/AnimatedBackground";
 import BackgroundCredit from "./components/BackgroundCredit";
 import ConnectSource from "./pages/ConnectSource";
@@ -17,21 +18,23 @@ import PathReview from "./pages/PathReview";
 export default function App() {
   return (
     <SelectionProvider>
-      <HashRouter>
-        <AnimatedBackground />
-        <BackgroundCredit />
-        <Routes>
-          <Route path="/" element={<Splash />} />
-          <Route path="/choose" element={<ChooseMigrationType />} />
-          <Route path="/connect" element={<ConnectSource />} />
-          <Route path="/destination" element={<Destination />} />
-          <Route path="/summary" element={<MigrationSummary />} />
-          <Route path="/discovery-progress/:migrationId" element={<DiscoveryProgress />} />
-          <Route path="/path-review/:migrationId" element={<PathReview />} />
-          <Route path="/resume" element={<ResumeMigration />} />
-          <Route path="/browse" element={<BrowseFolder />} />
-        </Routes>
-      </HashRouter>
+      <ZoomProvider>
+        <HashRouter>
+          <AnimatedBackground />
+          <BackgroundCredit />
+          <Routes>
+            <Route path="/" element={<Splash />} />
+            <Route path="/choose" element={<ChooseMigrationType />} />
+            <Route path="/connect" element={<ConnectSource />} />
+            <Route path="/destination" element={<Destination />} />
+            <Route path="/summary" element={<MigrationSummary />} />
+            <Route path="/discovery-progress/:migrationId" element={<DiscoveryProgress />} />
+            <Route path="/path-review/:migrationId" element={<PathReview />} />
+            <Route path="/resume" element={<ResumeMigration />} />
+            <Route path="/browse" element={<BrowseFolder />} />
+          </Routes>
+        </HashRouter>
+      </ZoomProvider>
     </SelectionProvider>
   );
 }

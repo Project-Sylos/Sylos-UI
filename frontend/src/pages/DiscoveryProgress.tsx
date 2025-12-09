@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Activity, ArrowLeft, ChevronDown, ChevronRight, FolderOpen, Cloud, Eye } from "lucide-react";
 
 import {
@@ -26,6 +26,14 @@ export default function DiscoveryProgress() {
   const { migrationId } = useParams<{ migrationId: string }>();
   const navigate = useNavigate();
   const { source, destination, services } = useSelection();
+  const [searchParams] = useSearchParams();
+
+  // Sweep monitoring state
+  const phase = searchParams.get("phase");
+  const sweepType = searchParams.get("type");
+  const isMonitoringSweep = phase === "sweep" && (sweepType === "exclusion" || sweepType === "retry");
+  const [reviewIteration, setReviewIteration] = useState(1);
+  const prevStatusRef = useRef<string | null>(null);
 
   const [status, setStatus] = useState<any>(null);
   const [queueMetrics, setQueueMetrics] = useState<any>(null);
@@ -42,9 +50,9 @@ export default function DiscoveryProgress() {
   const userScrolledRef = useRef(false);
   const isLogPollingPausedRef = useRef(false);
   const isTerminalStateRef = useRef(false);
-  const statusIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const queueMetricsIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const logIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const statusIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const queueMetricsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const logIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Check if migration is in a terminal state (no longer running)
   const isTerminalState = (status?: string) => {
@@ -247,11 +255,41 @@ export default function DiscoveryProgress() {
   }, [logs, isAutoScrolling]);
 
   // Check if migration is completed to show results button
+  // But block it if we're monitoring a retry sweep (wait for retry to complete)
   useEffect(() => {
     if (status?.status === "completed") {
-      setShowResultsButton(true);
+      // If monitoring a retry sweep, don't show results button yet
+      // Wait for the retry to complete and navigate back to path review
+      if (isMonitoringSweep && sweepType === "retry") {
+        setShowResultsButton(false);
+      } else {
+        setShowResultsButton(true);
+      }
+    } else {
+      setShowResultsButton(false);
     }
-  }, [status?.status]);
+  }, [status?.status, isMonitoringSweep, sweepType]);
+  
+  // Handle sweep completion - navigate back to path review
+  useEffect(() => {
+    if (!isMonitoringSweep || !status?.status) return;
+    
+    const currentStatus = status.status;
+    const prevStatus = prevStatusRef.current;
+    
+    // Only navigate when status changes from running to completed
+    if (prevStatus === "running" && currentStatus === "completed") {
+      // Sweep completed successfully - navigate back to path review
+      const nextIteration = reviewIteration + 1;
+      setReviewIteration(nextIteration);
+      navigate(`/path-review/${migrationId}?reviewIteration=${nextIteration}`);
+    } else if (prevStatus === "running" && currentStatus === "failed") {
+      // Sweep failed - show error but stay on monitor page
+      setError("Sweep failed. Please check the logs for details.");
+    }
+    
+    prevStatusRef.current = currentStatus;
+  }, [isMonitoringSweep, status?.status, migrationId, navigate, reviewIteration]);
 
   // Set up polling intervals
   useEffect(() => {
@@ -408,7 +446,13 @@ export default function DiscoveryProgress() {
               className="discovery-progress__status-text"
               style={{ color: getStatusColor(status?.status) }}
             >
-              {status?.status?.toUpperCase() || "UNKNOWN"}
+              {isMonitoringSweep
+                ? sweepType === "exclusion"
+                  ? "Exclusion sweep in progress..."
+                  : sweepType === "retry"
+                  ? "Retry sweep in progress..."
+                  : status?.status?.toUpperCase() || "UNKNOWN"
+                : status?.status?.toUpperCase() || "UNKNOWN"}
             </span>
             {status?.status === "running" && (
               <span className="discovery-progress__pulse" />
@@ -605,23 +649,43 @@ export default function DiscoveryProgress() {
           )}
         </div>
 
-        {/* See Results Button */}
+        {/* Footer Buttons */}
         <div className="discovery-progress__footer">
-          <button
-            type="button"
-            className={`discovery-progress__see-results ${
-              showResultsButton ? "discovery-progress__see-results--enabled" : ""
-            }`}
-            onClick={() => {
-              if (showResultsButton && migrationId) {
-                navigate(`/path-review/${migrationId}`);
-              }
-            }}
-            disabled={!showResultsButton}
-          >
-            <Eye size={20} style={{ marginRight: "0.5rem" }} />
-            See Results
-          </button>
+          {/* Return to Path Review Button (when monitoring sweep) */}
+          {isMonitoringSweep && (
+            <button
+              type="button"
+              className="discovery-progress__return-button glass-button glass-button--secondary"
+              onClick={() => {
+                if (migrationId) {
+                  navigate(`/path-review/${migrationId}`);
+                }
+              }}
+              title={status?.status === "running" ? "Sweep is still in progress. You can return to review, but the sweep will continue." : "Return to path review"}
+            >
+              <ArrowLeft size={20} style={{ marginRight: "0.5rem" }} />
+              Return to Path Review
+            </button>
+          )}
+          
+          {/* See Results Button (when discovery completed) */}
+          {!isMonitoringSweep && (
+            <button
+              type="button"
+              className={`discovery-progress__see-results ${
+                showResultsButton ? "discovery-progress__see-results--enabled" : ""
+              }`}
+              onClick={() => {
+                if (showResultsButton && migrationId) {
+                  navigate(`/path-review/${migrationId}`);
+                }
+              }}
+              disabled={!showResultsButton}
+            >
+              <Eye size={20} style={{ marginRight: "0.5rem" }} />
+              See Results
+            </button>
+          )}
         </div>
       </div>
     </section>

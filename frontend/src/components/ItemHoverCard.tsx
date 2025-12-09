@@ -62,26 +62,26 @@ export default function ItemHoverCard({
               <span className="item-hover-card__side-status">Present</span>
             )}
           </div>
-          {item.inSrc ? (
+          {item.inSrc && item.src ? (
             <div className="item-hover-card__side-content">
               <div className="item-hover-card__detail">
                 <span className="item-hover-card__detail-label">Last Modified:</span>
                 <span className="item-hover-card__detail-value">
-                  {formatDate(item.lastUpdated)}
+                  {formatDate(item.src.lastUpdated)}
                 </span>
               </div>
-              {item.type === "file" && item.size !== undefined && (
+              {item.src.type === "file" && item.src.size !== undefined && (
                 <div className="item-hover-card__detail">
                   <span className="item-hover-card__detail-label">Size:</span>
                   <span className="item-hover-card__detail-value">
-                    {formatSize(item.size)}
+                    {formatSize(item.src.size)}
                   </span>
                 </div>
               )}
               <div className="item-hover-card__detail">
                 <span className="item-hover-card__detail-label">Path:</span>
-                <span className="item-hover-card__detail-value" title={item.locationPath}>
-                  {item.locationPath}
+                <span className="item-hover-card__detail-value" title={item.src.locationPath}>
+                  {item.src.locationPath}
                 </span>
               </div>
             </div>
@@ -98,28 +98,26 @@ export default function ItemHoverCard({
               <span className="item-hover-card__side-status">Present</span>
             )}
           </div>
-          {item.inDst ? (
+          {item.inDst && item.dst ? (
             <div className="item-hover-card__side-content">
               <div className="item-hover-card__detail">
                 <span className="item-hover-card__detail-label">Last Modified:</span>
                 <span className="item-hover-card__detail-value">
-                  {/* TODO: Get destination item details from API */}
-                  N/A
+                  {formatDate(item.dst.lastUpdated)}
                 </span>
               </div>
-              {item.type === "file" && (
+              {item.dst.type === "file" && item.dst.size !== undefined && (
                 <div className="item-hover-card__detail">
                   <span className="item-hover-card__detail-label">Size:</span>
                   <span className="item-hover-card__detail-value">
-                    {/* TODO: Get destination item size from API */}
-                    N/A
+                    {formatSize(item.dst.size)}
                   </span>
                 </div>
               )}
               <div className="item-hover-card__detail">
                 <span className="item-hover-card__detail-label">Path:</span>
-                <span className="item-hover-card__detail-value" title={item.locationPath}>
-                  {item.locationPath}
+                <span className="item-hover-card__detail-value" title={item.dst.locationPath}>
+                  {item.dst.locationPath}
                 </span>
               </div>
             </div>

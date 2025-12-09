@@ -5,6 +5,8 @@ import { FolderOpen, ChevronRight, ArrowLeft, HardDrive, Loader2 } from "lucide-
 import "../App.css";
 import { listDrives, listChildren } from "../api/services";
 import { Drive, Folder, PaginationInfo } from "../types/services";
+import ZoomControl from "../components/ZoomControl";
+import { useZoom } from "../contexts/ZoomContext";
 import "./BrowseFolder.css";
 
 interface BreadcrumbItem {
@@ -17,6 +19,7 @@ export default function BrowseFolder() {
   const [searchParams] = useSearchParams();
   const serviceId = searchParams.get("serviceId") || "";
   const role = (searchParams.get("role") as "source" | "destination") || "source";
+  const { zoomLevel } = useZoom();
 
   const [drives, setDrives] = useState<Drive[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
@@ -238,6 +241,7 @@ export default function BrowseFolder() {
         <h1 className="browse-folder__title">
           {role === "source" ? "Select Source Folder" : "Select Destination Folder"}
         </h1>
+        <ZoomControl />
       </div>
 
       <div className="browse-folder__content">
@@ -283,7 +287,7 @@ export default function BrowseFolder() {
         </div>
 
         {/* Content area */}
-        <div className="browse-folder__list-container">
+        <div className="browse-folder__list-container" style={{ fontSize: `${zoomLevel}rem` }}>
           <div className="browse-folder__list">
           {loading ? (
             <div className="browse-folder__empty">Loading...</div>

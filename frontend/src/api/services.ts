@@ -481,34 +481,59 @@ export async function getMigrationQueueMetrics(
   return data;
 }
 
-// Diff types for path review
-export interface DiffItem {
-  id: string;
-  parentId: string;
-  parentPath: string;
-  displayName: string;
-  locationPath: string;
-  lastUpdated: string;
-  depthLevel: number;
-  type: "folder" | "file";
-  size?: number;
-  traversalStatus: string;
-  copyStatus: string;
-  inSrc: boolean;
-  inDst: boolean;
+// Diff types for path review - matching new API structure
+export interface PathNodeItem {
+  queue: string;              // "SRC" or "DST"
+  id: string;                 // Unique node identifier
+  parentId?: string;          // Parent node ID (optional)
+  parentPath?: string;        // Parent node path (optional)
+  displayName: string;        // Display name (basename of the path)
+  locationPath: string;       // Full path to the item
+  lastUpdated?: string;       // Last updated timestamp (RFC3339 format)
+  depthLevel: number;         // Depth in the directory tree (0 = root)
+  type: string;               // "folder" or "file"
+  size?: number;              // File size in bytes (only present for files)
+  traversalStatus: string;    // "pending", "successful", "failed", or "not_on_src"
+  copyStatus?: string;        // "pending", "successful", or "failed" (for future copy phase)
 }
 
-export interface DiffsResponse {
-  folders: DiffItem[];
-  files: DiffItem[];
-  pagination: {
-    offset: number;
-    limit: number;
-    total: number;
-    totalFolders: number;
-    totalFiles: number;
-    hasMore: boolean;
-  };
+export interface PathNodes {
+  src?: PathNodeItem;  // Source node (present if item exists in SRC queue)
+  dst?: PathNodeItem;  // Destination node (present if item exists in DST queue)
+}
+
+export interface PaginationInfo {
+  offset: number;       // Current pagination offset
+  limit: number;        // Current pagination limit
+  total: number;        // Total number of items (folders + files, or just folders if foldersOnly=true)
+  totalFolders: number; // Total number of folders across all pages
+  totalFiles: number;   // Total number of files across all pages
+  hasMore: boolean;     // Whether there are more items beyond the current page
+}
+
+export interface ListChildrenDiffsResponse {
+  items: { [path: string]: PathNodes };  // Map of path -> { src?, dst? }
+  pagination: PaginationInfo;
+}
+
+// Transformed item for UI consumption
+export interface DiffItem {
+  path: string;              // The path key from items map
+  id: string;                // ID from src if available, otherwise dst
+  parentId?: string;
+  parentPath?: string;
+  displayName: string;       // From src if available, otherwise dst
+  locationPath: string;      // From src if available, otherwise dst
+  lastUpdated?: string;      // From src if available, otherwise dst
+  depthLevel: number;        // From src if available, otherwise dst
+  type: "folder" | "file";   // From src if available, otherwise dst
+  size?: number;             // From src if available, otherwise dst
+  traversalStatus: string;   // From src if available, otherwise dst
+  copyStatus?: string;       // From src if available, otherwise dst
+  inSrc: boolean;            // Whether src node exists
+  inDst: boolean;            // Whether dst node exists
+  src?: PathNodeItem;        // Full src node (for hover card)
+  dst?: PathNodeItem;        // Full dst node (for hover card)
 }
 
 export async function getMigrationDiffs(
@@ -519,7 +544,7 @@ export async function getMigrationDiffs(
     limit?: number;
     foldersOnly?: boolean;
   }
-): Promise<DiffsResponse> {
+): Promise<{ items: DiffItem[]; pagination: PaginationInfo }> {
   const token = getAuthToken() ?? undefined;
 
   const params = new URLSearchParams();
@@ -553,40 +578,373 @@ export async function getMigrationDiffs(
     );
   }
 
-  return (await response.json()) as DiffsResponse;
+  const data = (await response.json()) as any;
+
+  // Handle different response structures:
+  // 1. { items: {...}, pagination: {...} } - expected structure
+  // 2. Just the items object directly - fallback
+  const itemsMap = data.items || data;
+  
+  if (!itemsMap || typeof itemsMap !== "object") {
+    console.error("getMigrationDiffs: Invalid response structure", data);
+    throw new Error("Invalid API response: items not found");
+  }
+  const paginationData = data.pagination || {
+    offset: options?.offset || 0,
+    limit: options?.limit || 100,
+    total: Object.keys(itemsMap).length,
+    totalFolders: 0,
+    totalFiles: 0,
+    hasMore: false,
+  };
+
+  // Count folders and files for pagination if not provided
+  if (!data.pagination) {
+    let folderCount = 0;
+    let fileCount = 0;
+    for (const pathNodes of Object.values(itemsMap)) {
+      const nodes = pathNodes as PathNodes;
+      const type = nodes.src?.type || nodes.dst?.type;
+      if (type === "folder") {
+        folderCount++;
+      } else if (type === "file") {
+        fileCount++;
+      }
+    }
+    paginationData.totalFolders = folderCount;
+    paginationData.totalFiles = fileCount;
+  }
+
+  // Transform the API response into a flat array of DiffItems for UI consumption
+  const transformedItems: DiffItem[] = [];
+
+  for (const [path, pathNodes] of Object.entries(itemsMap)) {
+    const nodes = pathNodes as PathNodes;
+    const hasSrc = nodes.src !== undefined;
+    const hasDst = nodes.dst !== undefined;
+
+    // Skip DST-only items (items that don't exist in source)
+    // We only show items that exist in source
+    if (!hasSrc) {
+      continue;
+    }
+
+    // Use src as primary, fallback to dst if src doesn't exist (shouldn't happen due to filter above)
+    const primaryNode = nodes.src || nodes.dst!;
+    
+    const diffItem: DiffItem = {
+      path,
+      id: primaryNode.id,
+      parentId: primaryNode.parentId,
+      parentPath: primaryNode.parentPath,
+      displayName: primaryNode.displayName,
+      locationPath: primaryNode.locationPath,
+      lastUpdated: primaryNode.lastUpdated,
+      depthLevel: primaryNode.depthLevel,
+      type: primaryNode.type as "folder" | "file",
+      size: primaryNode.size,
+      traversalStatus: primaryNode.traversalStatus,
+      copyStatus: primaryNode.copyStatus,
+      inSrc: hasSrc,
+      inDst: hasDst,
+      src: nodes.src,
+      dst: nodes.dst,
+    };
+
+    transformedItems.push(diffItem);
+  }
+
+  return {
+    items: transformedItems,
+    pagination: paginationData,
+  };
 }
 
 // TODO: API endpoint needed - Update item copy status
 // This should update whether an item should be copied or not
+// Exclusion API types
+export interface ExclusionResponse {
+  success: boolean;
+  error?: string;
+}
+
+/**
+ * Exclude a node from the migration
+ * @param migrationId The ID of the migration
+ * @param nodeId The ID of the node to exclude (from PathNodeItem.id)
+ * @returns Promise resolving to ExclusionResponse
+ */
+export async function excludeNode(
+  migrationId: string,
+  nodeId: string
+): Promise<ExclusionResponse> {
+  const token = getAuthToken() ?? undefined;
+
+  const response = await fetch(
+    `${API_BASE}/api/migrations/${migrationId}/node/${encodeURIComponent(nodeId)}/exclude`,
+    {
+      method: "POST",
+      headers: buildHeaders(token),
+    }
+  );
+
+  if (!response.ok) {
+    let errorMessage = "Failed to exclude node";
+    try {
+      const errorData = await response.json();
+      errorMessage = errorData.error || errorMessage;
+    } catch {
+      errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+    }
+    return {
+      success: false,
+      error: errorMessage,
+    };
+  }
+
+  const data = await response.json();
+  return data;
+}
+
+/**
+ * Unexclude a node from the migration
+ * @param migrationId The ID of the migration
+ * @param nodeId The ID of the node to unexclude (from PathNodeItem.id)
+ * @returns Promise resolving to ExclusionResponse
+ */
+export async function unexcludeNode(
+  migrationId: string,
+  nodeId: string
+): Promise<ExclusionResponse> {
+  const token = getAuthToken() ?? undefined;
+
+  const response = await fetch(
+    `${API_BASE}/api/migrations/${migrationId}/node/${encodeURIComponent(nodeId)}/unexclude`,
+    {
+      method: "POST",
+      headers: buildHeaders(token),
+    }
+  );
+
+  if (!response.ok) {
+    let errorMessage = "Failed to unexclude node";
+    try {
+      const errorData = await response.json();
+      errorMessage = errorData.error || errorMessage;
+    } catch {
+      errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+    }
+    return {
+      success: false,
+      error: errorMessage,
+    };
+  }
+
+  const data = await response.json();
+  return data;
+}
+
+/**
+ * Mark a node for retry (re-traversal)
+ * @param migrationId The ID of the migration
+ * @param nodeId The ID of the node to mark for retry (from PathNodeItem.id)
+ * @returns Promise resolving to ExclusionResponse
+ */
+export async function markNodeForRetry(
+  migrationId: string,
+  nodeId: string
+): Promise<ExclusionResponse> {
+  const token = getAuthToken() ?? undefined;
+
+  const response = await fetch(
+    `${API_BASE}/api/migrations/${migrationId}/node/${encodeURIComponent(nodeId)}/mark-retry`,
+    {
+      method: "POST",
+      headers: buildHeaders(token),
+    }
+  );
+
+  if (!response.ok) {
+    let errorMessage = "Failed to mark node for retry";
+    try {
+      const errorData = await response.json();
+      errorMessage = errorData.error || errorMessage;
+    } catch {
+      errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+    }
+    return {
+      success: false,
+      error: errorMessage,
+    };
+  }
+
+  const data = await response.json();
+  return data;
+}
+
+/**
+ * Unmark a node for retry (remove from retry queue)
+ * @param migrationId The ID of the migration
+ * @param nodeId The locationPath of the node to unmark for retry
+ * @returns Promise resolving to ExclusionResponse
+ */
+export async function unmarkNodeForRetry(
+  migrationId: string,
+  nodeId: string
+): Promise<ExclusionResponse> {
+  const token = getAuthToken() ?? undefined;
+
+  const response = await fetch(
+    `${API_BASE}/api/migrations/${migrationId}/node/${encodeURIComponent(nodeId)}/unmark-retry`,
+    {
+      method: "POST",
+      headers: buildHeaders(token),
+    }
+  );
+
+  if (!response.ok) {
+    let errorMessage = "Failed to unmark node for retry";
+    try {
+      const errorData = await response.json();
+      errorMessage = errorData.error || errorMessage;
+    } catch {
+      errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+    }
+    return {
+      success: false,
+      error: errorMessage,
+    };
+  }
+
+  const data = await response.json();
+  return data;
+}
+
+// Legacy function - kept for backwards compatibility but should use exclude/unexclude instead
 export async function updateItemCopyStatus(
   migrationId: string,
   itemId: string,
   shouldCopy: boolean
 ): Promise<void> {
-  // TODO: Implement API call to update item copy status
-  // Expected endpoint: PATCH /api/migrations/{migrationId}/diffs/{itemId}
-  // Body: { shouldCopy: boolean }
-  // This is a placeholder - will be implemented by API team
-  
+  // This function is deprecated - use excludeNode/unexcludeNode instead
+  // Keeping for backwards compatibility
+  if (shouldCopy) {
+    await unexcludeNode(migrationId, itemId);
+  } else {
+    await excludeNode(migrationId, itemId);
+  }
+}
+
+// Phase change API types and functions
+export interface PhaseChangeRequest {
+  phase: "traversal" | "copy";
+  migrationId: string;
+  options?: {
+    workerCount?: number;
+    maxRetries?: number;
+    maxKnownDepth?: number;
+    logAddress?: string;
+    logLevel?: string;
+    skipListener?: boolean;
+    startupDelaySeconds?: number;
+    progressTickMillis?: number;
+  };
+}
+
+export interface PhaseChangeResponse {
+  success: boolean;
+  message?: string;
+  error?: string;
+}
+
+/**
+ * Change migration phase (traversal or copy)
+ * This endpoint checks pending work, runs exclusion sweep if needed,
+ * blocks copy phase if there are pending retries, then starts the phase.
+ * @param migrationId The ID of the migration
+ * @param phase The phase to change to ("traversal" or "copy")
+ * @param options Optional configuration options
+ * @returns Promise resolving to PhaseChangeResponse
+ */
+export async function changePhase(
+  migrationId: string,
+  phase: "traversal" | "copy",
+  options?: PhaseChangeRequest["options"]
+): Promise<PhaseChangeResponse> {
   const token = getAuthToken() ?? undefined;
-  
-  // Placeholder implementation - replace with actual API call
+
+  const requestBody: PhaseChangeRequest = {
+    phase,
+    migrationId,
+    options,
+  };
+
   const response = await fetch(
-    `${API_BASE}/api/migrations/${migrationId}/diffs/${itemId}`,
+    `${API_BASE}/api/migrations/${migrationId}/phase-change`,
     {
-      method: "PATCH",
+      method: "POST",
+      headers: {
+        ...buildHeaders(token),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(requestBody),
+    }
+  );
+
+  if (!response.ok) {
+    let errorMessage = `Failed to change phase to ${phase}`;
+    try {
+      const errorData = await response.json();
+      errorMessage = errorData.error || errorMessage;
+    } catch {
+      errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+    }
+    return {
+      success: false,
+      error: errorMessage,
+    };
+  }
+
+  const data = await response.json();
+  return data;
+}
+
+// Pending work API types and functions
+export interface PendingWorkResponse {
+  hasPendingExclusions: boolean;
+  hasPendingRetries: boolean;
+  hasPathReviewChanges: boolean;
+  pendingExclusionsCount: number;
+  pendingRetriesCount: number;
+}
+
+/**
+ * Get pending work status for a migration
+ * @param migrationId The ID of the migration
+ * @returns Promise resolving to PendingWorkResponse
+ */
+export async function getPendingWork(
+  migrationId: string
+): Promise<PendingWorkResponse> {
+  const token = getAuthToken() ?? undefined;
+
+  const response = await fetch(
+    `${API_BASE}/api/migrations/${migrationId}/pending-work`,
+    {
+      method: "GET",
       headers: buildHeaders(token),
-      body: JSON.stringify({ shouldCopy }),
     }
   );
 
   if (!response.ok) {
     const message = await response.text();
     throw new Error(
-      `Failed to update item copy status (${response.status}): ${
+      `Failed to get pending work (${response.status}): ${
         message || "Unknown error"
       }`
     );
   }
+
+  return (await response.json()) as PendingWorkResponse;
 }
 

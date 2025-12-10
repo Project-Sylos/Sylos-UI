@@ -6,17 +6,18 @@ import "../App.css";
 import OverwriteDialog from "../components/OverwriteDialog";
 import {
   listMigrations,
-  loadMigration,
   stopMigration,
   getMigrationStatus,
   uploadMigrationDB,
 } from "../api/services";
 import { MigrationWithStatus } from "../types/migrations";
 import { pickDBFile, formatDate } from "../utils/fileUpload";
+import { useSelection } from "../context/SelectionContext";
 import "./ResumeMigration.css";
 
 export default function ResumeMigration() {
   const navigate = useNavigate();
+  const { updateMigration } = useSelection();
   const [migrations, setMigrations] = useState<MigrationWithStatus[]>([]);
   const [selectedMigrationId, setSelectedMigrationId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -41,31 +42,31 @@ export default function ResumeMigration() {
     setLoading(true);
     setError(null);
     try {
-      const data = await listMigrations();
+      const response = await listMigrations();
       
-      // Fetch status for each migration
-      const migrationsWithStatus = await Promise.all(
-        data.map(async (migration) => {
-          try {
-            const status = await getMigrationStatus(migration.id);
-            return {
-              ...migration,
-              status: status.status,
-            } as MigrationWithStatus;
-          } catch {
-            // If status fetch fails, just use the migration without status
-            return {
-              ...migration,
-              status: undefined,
-            } as MigrationWithStatus;
-          }
-        })
-      );
+      // Transform the API response to MigrationWithStatus format
+      const migrationsWithStatus: MigrationWithStatus[] = response.migrations.map((migration) => {
+        return {
+          id: migration.id,
+          name: migration.id, // Use ID as name since API doesn't return name
+          configPath: "", // API doesn't return configPath
+          createdAt: migration.startedAt || new Date().toISOString(),
+          status: migration.status,
+          sourceId: migration.sourceId,
+          destinationId: migration.destinationId,
+          startedAt: migration.startedAt,
+          completedAt: migration.completedAt,
+          error: migration.error,
+          result: migration.result,
+        } as MigrationWithStatus;
+      });
       
-      // Sort by createdAt, newest first
-      const sorted = migrationsWithStatus.sort((a, b) => 
-        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-      );
+      // Sort by createdAt or startedAt, newest first
+      const sorted = migrationsWithStatus.sort((a, b) => {
+        const dateA = new Date(a.createdAt || a.startedAt || 0).getTime();
+        const dateB = new Date(b.createdAt || b.startedAt || 0).getTime();
+        return dateB - dateA;
+      });
       setMigrations(sorted);
     } catch (err) {
       setError(
@@ -148,6 +149,75 @@ export default function ResumeMigration() {
     setPendingUpload(null);
   };
 
+  /**
+   * Determines the appropriate page to navigate to based on migration state
+   */
+  const determineNavigationTarget = (statusData: any): string => {
+    const status = statusData.status;
+    const statusLower = status?.toLowerCase();
+    const hasRoots = statusData.result?.rootSummary !== undefined;
+    const hasRuntime = statusData.result?.runtime !== undefined;
+    const migrationId = statusData.id;
+
+    // Checkpoint statuses that come from the API
+    const checkpointStatuses = [
+      "Roots-Set",
+      "Filters-Set",
+      "Traversal-In-Progress",
+      "Awaiting-Path-Review",
+      "Copy-In-Progress",
+      "Complete"
+    ];
+
+    // Priority 1: Check checkpoint status (now in status field)
+    if (status && checkpointStatuses.includes(status)) {
+      switch (status) {
+        case "Awaiting-Path-Review":
+          return `/path-review/${migrationId}`;
+        case "Traversal-In-Progress":
+        case "Copy-In-Progress":
+          return `/discovery-progress/${migrationId}`;
+        case "Complete":
+          return `/path-review/${migrationId}`; // Completed migrations can still review paths
+        case "Roots-Set":
+        case "Filters-Set":
+          // Roots are set but traversal hasn't started - go to summary to review and start
+          return `/summary`;
+        default:
+          // Unknown checkpoint status, fall through
+          break;
+      }
+    }
+
+    // Priority 2: Check fallback statuses
+    if (statusLower === "running") {
+      return `/discovery-progress/${migrationId}`;
+    }
+
+    if (statusLower === "completed") {
+      return `/path-review/${migrationId}`;
+    }
+
+    // Priority 3: Check runtime data to infer state
+    if (hasRuntime) {
+      // If status is suspended/failed but traversal might have completed, try path review
+      // (path review page will handle if traversal isn't actually complete)
+      if (statusLower === "suspended" || statusLower === "failed") {
+        return `/path-review/${migrationId}`;
+      }
+      // Otherwise, if it has runtime but isn't running/completed, go to discovery to restart
+      return `/discovery-progress/${migrationId}`;
+    }
+
+    // Priority 4: Check if roots are set
+    if (hasRoots) {
+      return `/summary`;
+    }
+
+    // Default: no roots set, go to connect page to set up
+    return "/connect";
+  };
+
   const handleResume = async (migrationId: string) => {
     if (!migrationId) {
       setError("Please select a migration to resume.");
@@ -161,24 +231,27 @@ export default function ResumeMigration() {
     setStopSuccess(null);
 
     try {
-      const response = await loadMigration(migrationId);
+      // Get full migration status to determine where we are in the pipeline
+      const statusData = await getMigrationStatus(migrationId);
       
-      setResumeSuccess(
-        `Migration "${response.id}" resumed successfully! Status: ${response.status}`
-      );
+      // Update the migration context with the migration info
+      // The migrationId is the most important - source/destination will be reselected if needed
+      updateMigration({
+        migrationId: statusData.id,
+        ready: statusData.result?.rootSummary !== undefined,
+      });
       
-      // Refresh the migrations list to get updated status
-      await loadMigrations();
+      // Determine the appropriate page to navigate to
+      const targetPath = determineNavigationTarget(statusData);
       
-      // Optionally navigate after a short delay to show success message
-      setTimeout(() => {
-        navigate("/");
-      }, 2000);
+      // Navigate directly to the appropriate page - no need to "load" the migration
+      // The target page will handle loading the migration data it needs
+      navigate(targetPath);
     } catch (err) {
       const errorMessage =
         err instanceof Error
           ? err.message
-          : "Failed to resume migration.";
+          : "Failed to get migration status.";
 
       // Handle specific error cases
       if (errorMessage.includes("Migration not found")) {
@@ -186,7 +259,7 @@ export default function ResumeMigration() {
         // Refresh the list in case it was deleted
         await loadMigrations();
       } else if (errorMessage.includes("Server error")) {
-        setError("Server error while resuming migration. Please try again.");
+        setError("Server error while getting migration status. Please try again.");
       } else {
         setError(errorMessage);
       }
@@ -316,28 +389,29 @@ export default function ResumeMigration() {
                 } ${resuming ? "resume-migration__file-card--disabled" : ""}`}
               >
                 <div className="resume-migration__file-icon">
-                  <RotateCcw size={32} color="#ffffff" />
+                  <RotateCcw size={24} color="#ffffff" />
                 </div>
                 <div className="resume-migration__file-info">
                   <div className="resume-migration__file-name">
-                    {migration.name || migration.id}
+                    <span>{migration.name || migration.id}</span>
                     {selectedMigrationId === migration.id && (
                       <CheckCircle2
-                        size={20}
+                        size={16}
                         color="#00ffff"
                         className="resume-migration__check-icon"
+                        style={{ flexShrink: 0 }}
                       />
                     )}
                   </div>
                   <div className="resume-migration__file-meta">
-                    ID: {migration.id} • Created:{" "}
-                    {formatDate(migration.createdAt)}
                     {migration.status && (
-                      <> • Status: <span className={`resume-migration__status resume-migration__status--${migration.status.toLowerCase()}`}>{migration.status}</span></>
+                      <span className={`resume-migration__status resume-migration__status--${(migration.status || '').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')}`}>{migration.status}</span>
                     )}
+                    {migration.status && <span> • </span>}
+                    Created: {formatDate(migration.createdAt)}
                   </div>
                 </div>
-                {migration.status === "running" ? (
+                {(migration.status === "running" || migration.status === "Traversal-In-Progress" || migration.status === "Copy-In-Progress") ? (
                   <button
                     type="button"
                     className="resume-migration__stop-button-inline"

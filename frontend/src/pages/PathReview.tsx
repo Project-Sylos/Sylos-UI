@@ -625,7 +625,7 @@ export default function PathReview() {
             Path <span className="path-review__highlight">Review</span>
           </h1>
           <p className="path-review__summary">
-            Review the folder structure to be copied. Tip: Click pending item icons to mark them for exclusion. Click failed items to mark them to be retried.
+            Review the folder structure to be copied. Tip: Click pending item icons to mark them to be excluded from copying over. Click failed item icons to mark them to be retried.
           </p>
         </header>
 

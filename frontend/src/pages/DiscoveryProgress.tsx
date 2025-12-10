@@ -56,7 +56,7 @@ export default function DiscoveryProgress() {
 
   // Check if migration is in a terminal state (no longer running)
   const isTerminalState = (status?: string) => {
-    return status === "completed" || status === "failed" || status === "suspended";
+    return status === "Awaiting-Path-Review" || status === "Complete" || status === "failed" || status === "suspended";
   };
 
   // Format timestamp for display
@@ -254,10 +254,10 @@ export default function DiscoveryProgress() {
     }
   }, [logs, isAutoScrolling]);
 
-  // Check if migration is completed to show results button
+  // Check if migration is ready for path review to show results button
   // But block it if we're monitoring a retry sweep (wait for retry to complete)
   useEffect(() => {
-    if (status?.status === "completed") {
+    if (status?.status === "Awaiting-Path-Review" || status?.status === "Complete") {
       // If monitoring a retry sweep, don't show results button yet
       // Wait for the retry to complete and navigate back to path review
       if (isMonitoringSweep && sweepType === "retry") {
@@ -277,8 +277,8 @@ export default function DiscoveryProgress() {
     const currentStatus = status.status;
     const prevStatus = prevStatusRef.current;
     
-    // Only navigate when status changes from running to completed
-    if (prevStatus === "running" && currentStatus === "completed") {
+    // Navigate when status changes to Awaiting-Path-Review (traversal complete)
+    if (prevStatus !== "Awaiting-Path-Review" && currentStatus === "Awaiting-Path-Review") {
       // Sweep completed successfully - navigate back to path review
       const nextIteration = reviewIteration + 1;
       setReviewIteration(nextIteration);
@@ -347,9 +347,14 @@ export default function DiscoveryProgress() {
   const getStatusColor = (status?: string) => {
     switch (status) {
       case "running":
+      case "Traversal-In-Progress":
+      case "Copy-In-Progress":
         return "#60a5fa";
-      case "completed":
+      case "Awaiting-Path-Review":
+      case "Complete":
         return "#34d399";
+      case "completed":
+        return "#34d399"; // Legacy support
       case "suspended":
         return "#fbbf24";
       case "failed":

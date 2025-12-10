@@ -12,6 +12,7 @@ import {
   MigrationLogsRequest,
   MigrationLogsResponse,
   MigrationQueueMetricsResponse,
+  ListMigrationsResponse,
 } from "../types/migrations";
 import { ServiceDescriptor, Drive, ChildrenResponse, Folder } from "../types/services";
 
@@ -221,10 +222,23 @@ export async function inspectMigration(
   return (await response.json()) as MigrationInspectResponse;
 }
 
-export async function listMigrations(): Promise<MigrationMetadata[]> {
+export async function listMigrations(options?: {
+  offset?: number;
+  limit?: number;
+}): Promise<ListMigrationsResponse> {
   const token = getAuthToken() ?? undefined;
 
-  const response = await fetch(`${API_BASE}/api/migrations`, {
+  const params = new URLSearchParams();
+  if (options?.offset !== undefined) {
+    params.append("offset", options.offset.toString());
+  }
+  if (options?.limit !== undefined) {
+    params.append("limit", options.limit.toString());
+  }
+
+  const url = `${API_BASE}/api/migrations${params.toString() ? `?${params.toString()}` : ""}`;
+
+  const response = await fetch(url, {
     method: "GET",
     headers: buildHeaders(token),
   });
@@ -238,9 +252,7 @@ export async function listMigrations(): Promise<MigrationMetadata[]> {
     );
   }
 
-  const data = await response.json();
-  // Ensure we always return an array, even if API returns null or undefined
-  return Array.isArray(data) ? data : [];
+  return (await response.json()) as ListMigrationsResponse;
 }
 
 export async function loadMigration(

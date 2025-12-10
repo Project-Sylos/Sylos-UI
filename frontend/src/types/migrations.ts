@@ -114,6 +114,29 @@ export interface MigrationMetadata {
 
 export interface MigrationWithStatus extends MigrationMetadata {
   status?: string;
+  sourceId?: string;
+  destinationId?: string;
+  startedAt?: string;
+  completedAt?: string | null;
+  error?: string;
+  result?: MigrationStatusResponse["result"];
+}
+
+export interface ListMigrationsResponse {
+  migrations: Array<{
+    id: string;
+    sourceId: string;
+    destinationId: string;
+    startedAt: string;
+    status: string;
+    completedAt: string | null;
+    error: string;
+    result?: MigrationStatusResponse["result"];
+  }>;
+  total: number;
+  offset: number;
+  limit: number;
+  hasMore: boolean;
 }
 
 export type LogLevel = "trace" | "debug" | "info" | "warning" | "error" | "critical";

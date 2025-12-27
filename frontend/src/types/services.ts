@@ -8,8 +8,9 @@ export interface ServiceDescriptor {
 }
 
 export interface Folder {
-  id: string;
-  displayName: string;
+  ServiceID: string;
+  Id: string;
+  name: string;
   locationPath: string;
   parentId?: string;
   parentPath?: string;
@@ -20,7 +21,7 @@ export interface Folder {
 
 export interface Drive {
   path: string;
-  displayName: string;
+  name: string;
   type: string;
 }
 

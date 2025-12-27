@@ -4,8 +4,9 @@ const nowIso = () => new Date().toISOString();
 
 export const presetRootsByType: Record<string, Folder> = {
   local: {
-    id: "/",
-    displayName: "Local Root",
+    ServiceID: "/",
+    Id: "/",
+    name: "Local Root",
     locationPath: "/",
     parentId: "",
     parentPath: "",
@@ -14,8 +15,9 @@ export const presetRootsByType: Record<string, Folder> = {
     type: "folder",
   },
   spectra: {
-    id: "root",
-    displayName: "Spectra Root",
+    ServiceID: "root",
+    Id: "root",
+    name: "Spectra Root",
     locationPath: "/",
     parentId: "",
     parentPath: "",

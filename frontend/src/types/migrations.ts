@@ -1,11 +1,23 @@
 import { Folder } from "../types/services";
 
+// Root object format for API requests (camelCase, id = ServiceID)
+export interface MigrationRootRequestRoot {
+  id: string;              // Service's native identifier (e.g., "C:\\Program Files (x86)") - this is the ServiceID value
+  parentId?: string;
+  parentPath?: string;
+  displayName?: string;
+  locationPath?: string;
+  lastUpdated?: string;
+  depthLevel?: number;
+  type?: string;
+}
+
 export interface MigrationRootRequest {
   migrationId?: string;
   role: "source" | "destination";
-  serviceId?: string;
+  serviceId?: string;       // Service identifier (e.g., "local")
   connectionId?: string;
-  root: Folder;
+  root: MigrationRootRequestRoot;
 }
 
 export interface MigrationRootResponse {

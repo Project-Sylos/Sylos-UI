@@ -1,0 +1,64 @@
+.path-review-footer-info {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1.5rem;
+  font-size: 0.75rem;
+  flex-wrap: wrap;
+  justify-self: center;
+}
+
+.path-review-footer-info__stat {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: rgba(226, 232, 240, 0.7);
+}
+
+.path-review-footer-info__stat--ratio {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.path-review-footer-info__stat-label {
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.path-review-footer-info__stat-value {
+  color: #f8fafc;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.path-review-footer-info__ratio-bar {
+  display: flex;
+  width: 80px;
+  height: 12px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: rgba(148, 163, 184, 0.1);
+}
+
+.path-review-footer-info__ratio-segment {
+  height: 100%;
+  transition: width 0.3s ease;
+  flex-shrink: 0;
+}
+
+.path-review-footer-info__ratio-segment--folders {
+  background: #00ffff;
+}
+
+.path-review-footer-info__ratio-segment--files {
+  background: #ff00ff;
+}
+
+.path-review-footer-info__ratio-labels {
+  font-size: 0.7rem;
+  color: rgba(226, 232, 240, 0.6);
+  white-space: nowrap;
+}
+

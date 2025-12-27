@@ -47,7 +47,7 @@ export default function ItemHoverCard({
       onMouseLeave={onClose}
     >
       <div className="item-hover-card__header">
-        <h3 className="item-hover-card__title">{item.displayName}</h3>
+        <h3 className="item-hover-card__title">{item.name}</h3>
         <div className="item-hover-card__type">
           {item.type === "folder" ? "Folder" : "File"}
         </div>

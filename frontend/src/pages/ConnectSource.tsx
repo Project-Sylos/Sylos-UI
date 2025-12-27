@@ -35,11 +35,23 @@ export default function ConnectSource() {
 
     try {
       setIsPicking(true);
+      // Transform Folder to API request format
+      const rootForApi = {
+        id: root.ServiceID,  // Service's native identifier
+        parentId: root.parentId,
+        parentPath: root.parentPath,
+        displayName: root.displayName,
+        locationPath: root.locationPath,
+        lastUpdated: root.lastUpdated,
+        depthLevel: root.depthLevel,
+        type: root.type || "folder",
+      };
+
       const response = await setMigrationRoot({
         migrationId: migration.migrationId,
         role: "source",
         serviceId: selected.id,
-        root,
+        root: rootForApi,
       });
 
       updateMigration({
@@ -67,7 +79,7 @@ export default function ConnectSource() {
     
     if (state?.selectedFolder && state?.serviceId) {
       // Create a unique key for this state to prevent double processing
-      const stateKey = `${state.serviceId}-${state.selectedFolder.id}`;
+      const stateKey = `${state.serviceId}-${state.selectedFolder.ServiceID}`;
       
       // Skip if we've already processed this state (prevents double processing from StrictMode)
       if (processedStateRef.current === stateKey) {
@@ -133,11 +145,23 @@ export default function ConnectSource() {
 
     try {
       setIsPicking(true);
+      // Transform Folder to API request format
+      const rootForApi = {
+        id: root.ServiceID,  // Service's native identifier
+        parentId: root.parentId,
+        parentPath: root.parentPath,
+        displayName: root.displayName,
+        locationPath: root.locationPath,
+        lastUpdated: root.lastUpdated,
+        depthLevel: root.depthLevel,
+        type: root.type || "folder",
+      };
+
       const response = await setMigrationRoot({
         migrationId: migration.migrationId,
         role: "source",
         serviceId: selected.id,
-        root,
+        root: rootForApi,
       });
 
       updateMigration({

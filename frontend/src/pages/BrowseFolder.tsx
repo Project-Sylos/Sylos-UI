@@ -11,13 +11,13 @@ import "./BrowseFolder.css";
 
 interface BreadcrumbItem {
   path: string;
-  displayName: string;
+  name: string;
 }
 
 export default function BrowseFolder() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const serviceId = searchParams.get("serviceId") || "";
+  const serviceIdentifier = searchParams.get("serviceId") || "";
   const role = (searchParams.get("role") as "source" | "destination") || "source";
   const { zoomLevel } = useZoom();
 
@@ -32,20 +32,20 @@ export default function BrowseFolder() {
   const [pagination, setPagination] = useState<PaginationInfo | null>(null);
 
   useEffect(() => {
-    if (!serviceId) {
+    if (!serviceIdentifier) {
       setError("Service ID is required");
       setLoading(false);
       return;
     }
 
     loadDrives();
-  }, [serviceId]);
+  }, [serviceIdentifier]);
 
   const loadDrives = async () => {
     setLoading(true);
     setError(null);
     try {
-      const drivesList = await listDrives(serviceId);
+      const drivesList = await listDrives(serviceIdentifier);
       setDrives(drivesList);
       setIsDriveView(true);
       setCurrentPath(null);
@@ -63,7 +63,7 @@ export default function BrowseFolder() {
     }
   };
 
-  const loadChildren = async (path: string, displayName: string, append = false) => {
+  const loadChildren = async (path: string, name: string, append = false) => {
     if (!append) {
       setLoading(true);
       setError(null);
@@ -73,7 +73,7 @@ export default function BrowseFolder() {
     
     try {
       const offset = append && pagination ? pagination.offset + pagination.limit : 0;
-      const response = await listChildren(serviceId, path, role, {
+      const response = await listChildren(serviceIdentifier, path, role, {
         offset,
         limit: 100,
         foldersOnly: true, // Only show folders in the browser
@@ -89,7 +89,7 @@ export default function BrowseFolder() {
         setIsDriveView(false);
         
         // Update breadcrumbs
-        const newBreadcrumb: BreadcrumbItem = { path, displayName };
+        const newBreadcrumb: BreadcrumbItem = { path, name };
         setBreadcrumbs((prev) => {
           // Find if this path is already in breadcrumbs (for back navigation)
           const index = prev.findIndex((b) => b.path === path);
@@ -124,22 +124,22 @@ export default function BrowseFolder() {
     }
     
     const currentBreadcrumb = breadcrumbs[breadcrumbs.length - 1];
-    loadChildren(currentPath, currentBreadcrumb.displayName, true);
+    loadChildren(currentPath, currentBreadcrumb.name, true);
   };
 
   const handleDriveSelect = (drive: Drive) => {
-    loadChildren(drive.path, drive.displayName);
+    loadChildren(drive.path, drive.name);
   };
 
   const handleFolderClick = (folder: Folder) => {
-    loadChildren(folder.id, folder.displayName);
+    loadChildren(folder.ServiceID, folder.name);
   };
 
   const handleBack = () => {
     if (breadcrumbs.length > 1) {
       // Go back to previous breadcrumb
       const previous = breadcrumbs[breadcrumbs.length - 2];
-      loadChildren(previous.path, previous.displayName);
+      loadChildren(previous.path, previous.name);
     } else if (breadcrumbs.length === 1) {
       // Go back to drives view
       loadDrives();
@@ -171,7 +171,7 @@ export default function BrowseFolder() {
     if (breadcrumbs.length > 1) {
       // Skip the first breadcrumb (drive), build path from children
       const childBreadcrumbs = breadcrumbs.slice(1);
-      locationPath = "/" + childBreadcrumbs.map(c => c.displayName).join("/");
+      locationPath = "/" + childBreadcrumbs.map(c => c.name).join("/");
     } else if (breadcrumbs.length === 1) {
       // We're at the drive root, locationPath is "/"
       locationPath = "/";
@@ -202,11 +202,12 @@ export default function BrowseFolder() {
 
     // Create folder object from current path
     // normalizedId is the absolute path in OS-native format (e.g., "C:\Users\golde\Documents")
-    // This comes from the folder.id or drive.path from the API
+    // This comes from the folder.ServiceID or drive.path from the API
     const currentBreadcrumb = breadcrumbs[breadcrumbs.length - 1];
     const selectedFolder: Folder = {
-      id: normalizedId, // Absolute path in OS-native format (e.g., "C:\Users\golde\Documents" or "C:\")
-      displayName: currentBreadcrumb.displayName,
+      ServiceID: normalizedId, // Absolute path in OS-native format (e.g., "C:\Users\golde\Documents" or "C:\")
+      Id: normalizedId,
+      name: currentBreadcrumb.name,
       locationPath: locationPath, // Relative path (e.g., "/Users/golde/Documents" or "/" for drive root)
       parentId: normalizedParentId,
       parentPath: normalizedParentPath,
@@ -215,21 +216,18 @@ export default function BrowseFolder() {
       type: "folder",
     };
 
-    console.log("Selected folder:", selectedFolder);
-    console.log("Navigating to route with state:", { selectedFolder, serviceId, role });
-
     // Navigate to the appropriate route based on role
     // Pass role in state so the destination component knows how to handle it
     if (role === "source") {
       // After selecting source root, go to destination selection
-      navigate("/destination", { state: { selectedFolder, serviceId, role: "source" } });
+      navigate("/destination", { state: { selectedFolder, serviceId: serviceIdentifier, role: "source" } });
     } else if (role === "destination") {
       // After selecting destination root, stay on destination page (it will handle the migration start)
-      navigate("/destination", { state: { selectedFolder, serviceId, role: "destination" } });
+      navigate("/destination", { state: { selectedFolder, serviceId: serviceIdentifier, role: "destination" } });
     } else {
       // Fallback to going back
       console.warn("Unknown role, navigating back:", role);
-      navigate(-1 as any, { state: { selectedFolder, serviceId, role } });
+      navigate(-1 as any, { state: { selectedFolder, serviceId: serviceIdentifier, role } });
     }
   };
 
@@ -270,12 +268,12 @@ export default function BrowseFolder() {
                     className="browse-folder__breadcrumb-link"
                     onClick={() => {
                       if (index < breadcrumbs.length - 1) {
-                        loadChildren(crumb.path, crumb.displayName);
+                        loadChildren(crumb.path, crumb.name);
                       }
                     }}
                     disabled={index === breadcrumbs.length - 1}
                   >
-                    {crumb.displayName}
+                    {crumb.name}
                   </button>
                   {index < breadcrumbs.length - 1 && (
                     <ChevronRight size={16} className="browse-folder__breadcrumb-separator" />
@@ -306,7 +304,7 @@ export default function BrowseFolder() {
                     <HardDrive size={32} color="#ffffff" />
                   </div>
                   <div className="browse-folder__item-info">
-                    <div className="browse-folder__item-name">{drive.displayName}</div>
+                    <div className="browse-folder__item-name">{drive.name}</div>
                     <div className="browse-folder__item-meta">{drive.path}</div>
                   </div>
                   <ChevronRight size={20} className="browse-folder__item-arrow" />
@@ -319,7 +317,7 @@ export default function BrowseFolder() {
             <>
               {folders.map((folder) => (
                 <button
-                  key={folder.id}
+                  key={folder.ServiceID}
                   type="button"
                   className="browse-folder__item"
                   onClick={() => handleFolderClick(folder)}
@@ -328,8 +326,8 @@ export default function BrowseFolder() {
                     <FolderOpen size={32} color="#ffffff" />
                   </div>
                   <div className="browse-folder__item-info">
-                    <div className="browse-folder__item-name">{folder.displayName}</div>
-                    <div className="browse-folder__item-meta">{folder.id}</div>
+                    <div className="browse-folder__item-name">{folder.name}</div>
+                    <div className="browse-folder__item-meta">{folder.ServiceID}</div>
                   </div>
                   <ChevronRight size={20} className="browse-folder__item-arrow" />
                 </button>

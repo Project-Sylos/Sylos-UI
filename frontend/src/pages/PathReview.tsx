@@ -6,10 +6,6 @@ import {
   Folder,
   File,
   Copy,
-  Clock,
-  X,
-  Check,
-  AlertCircle,
   RotateCw,
 } from "lucide-react";
 import { 
@@ -20,9 +16,11 @@ import {
   unmarkNodeForRetry,
   DiffItem,
   getPendingWork,
-  getMigrationStatus,
   changePhase,
   PendingWorkResponse,
+  getPathReviewStats,
+  PathReviewStats,
+  PaginationInfo,
 } from "../api/services";
 import { MigrationStatusResponse } from "../types/migrations";
 import ItemHoverCard from "../components/ItemHoverCard";
@@ -30,12 +28,16 @@ import Toast from "../components/Toast";
 import ConfirmDialog from "../components/ConfirmDialog";
 import ZoomControl from "../components/ZoomControl";
 import { useZoom } from "../contexts/ZoomContext";
+import PathReviewListView from "./PathReviewListView";
+import PathReviewStatusIcon from "../components/PathReviewStatusIcon";
+import PathReviewLegend from "../components/PathReviewLegend";
+import PathReviewFooterInfo from "../components/PathReviewFooterInfo";
 import "../App.css";
 import "./PathReview.css";
 
 interface BreadcrumbItem {
-  path: string;
-  displayName: string;
+  path: string;      // locationPath for navigation and display
+  name: string;
 }
 
 interface ToastState {
@@ -47,8 +49,9 @@ export default function PathReview() {
   const { migrationId } = useParams<{ migrationId: string }>();
   const navigate = useNavigate();
   const { zoomLevel } = useZoom();
+  const [activeTab, setActiveTab] = useState<"tree" | "list">("tree");
   const [items, setItems] = useState<DiffItem[]>([]);
-  const [currentPath, setCurrentPath] = useState<string>("/");
+  const [currentNodeId, setCurrentNodeId] = useState<string | undefined>(undefined);  // undefined for root
   const [breadcrumbs, setBreadcrumbs] = useState<BreadcrumbItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -71,6 +74,11 @@ export default function PathReview() {
   const [pendingWork, setPendingWork] = useState<PendingWorkResponse | null>(null);
   const [migrationStatus, setMigrationStatus] = useState<MigrationStatusResponse | null>(null);
   const [isTriggeringSweep, setIsTriggeringSweep] = useState(false);
+  const [stats, setStats] = useState<PathReviewStats | null>(null);
+  const [showSelectionWarning, setShowSelectionWarning] = useState(false);
+  const [listPagination, setListPagination] = useState<PaginationInfo | null>(null);
+  const [listItemsPerPage, setListItemsPerPage] = useState<number>(100);
+  const [highlightedItemId, setHighlightedItemId] = useState<string | null>(null);
   
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -83,6 +91,18 @@ export default function PathReview() {
       setRetryItemsCount(work.pendingRetriesCount || 0);
     } catch (err) {
       console.error("Failed to fetch pending work:", err);
+    }
+  };
+
+  const fetchStats = async () => {
+    if (!migrationId) return;
+    try {
+      const statsData = await getPathReviewStats(migrationId);
+      // Always update stats from polling, but list view selection stats will override when items are selected
+      // This ensures stats are always fresh when user deselects items
+      setStats(statsData);
+    } catch (err) {
+      console.error("Failed to fetch stats:", err);
     }
   };
   
@@ -118,10 +138,13 @@ export default function PathReview() {
     setRetryItemsCount(0);
     
     // Only load once when component mounts or migrationId changes
-    loadItems("/");
+    loadItems(undefined);  // undefined for root (children of all roots)
     
     // Fetch pending work on startup to load state (will update retryItemsCount from API)
     fetchPendingWork();
+    
+    // Fetch stats on startup
+    fetchStats();
     
     // Check for review iteration query param
     const iterationParam = searchParams.get("reviewIteration");
@@ -131,7 +154,7 @@ export default function PathReview() {
         setReviewIteration(iteration);
         // Refresh pending work status (API will have cleared hasPathReviewChanges automatically)
         fetchPendingWork();
-        loadItems(currentPath);
+        loadItems("/");
         setToast({
           message: "Sweep completed. Review updated paths.",
           type: "success",
@@ -145,8 +168,50 @@ export default function PathReview() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [migrationId]);
 
+  // Poll stats every 5 seconds (only when no items are selected)
+  useEffect(() => {
+    if (!migrationId) return;
+    
+    fetchStats(); // Initial fetch
+    
+    const interval = setInterval(() => {
+      fetchStats();
+    }, 5000); // Poll every 5 seconds
+    
+    return () => clearInterval(interval);
+  }, [migrationId, activeTab]);
 
-  const loadItems = async (path: string, append = false) => {
+  // Handle stats change from list view (from API polling)
+  const handleStatsChange = (newStats: PathReviewStats | null) => {
+    if (newStats) {
+      setStats(newStats);
+    }
+  };
+
+  // Handle pagination change from list view
+  const handlePaginationChange = (pagination: PaginationInfo | null, itemsPerPage: number) => {
+    setListPagination(pagination);
+    setListItemsPerPage(itemsPerPage);
+  };
+
+  // Handle selection warning from list view
+  const handleSelectionWarning = (hasWarning: boolean) => {
+    const wasWarning = showSelectionWarning;
+    setShowSelectionWarning(hasWarning);
+    
+    // Show toast when warning first appears
+    if (hasWarning && !wasWarning) {
+      setToast({
+        message: "Stats at the bottom may not reflect all data. Some items may be beyond the current view.",
+        type: "info",
+      });
+    }
+  };
+
+  // Handle selection state change from list view
+
+
+  const loadItems = async (locationPath: string | undefined, append = false) => {
     if (!migrationId) return;
 
     if (!append) {
@@ -159,7 +224,7 @@ export default function PathReview() {
     try {
       const offset = append && pagination ? pagination.offset + pagination.limit : 0;
       const response = await getMigrationDiffs(migrationId, {
-        path,
+        locationPath: locationPath || "/",
         offset,
         limit: 100,
       });
@@ -177,7 +242,7 @@ export default function PathReview() {
           return 1;
         }
         // If same type, sort alphabetically by displayName
-        return a.displayName.localeCompare(b.displayName, undefined, { 
+        return a.name.localeCompare(b.name, undefined, { 
           numeric: true, 
           sensitivity: 'base' 
         });
@@ -201,7 +266,6 @@ export default function PathReview() {
         setItems((prev) => [...prev, ...filteredItems]);
       } else {
         setItems(filteredItems);
-        setCurrentPath(path);
       }
 
       setPagination(response.pagination);
@@ -237,35 +301,91 @@ export default function PathReview() {
     }
     
     const newBreadcrumb: BreadcrumbItem = {
-      path: item.locationPath,
-      displayName: item.displayName,
+      path: item.locationPath,  // locationPath for navigation
+      name: item.name,
     };
     setBreadcrumbs((prev) => [...prev, newBreadcrumb]);
-    loadItems(item.locationPath);
+    loadItems(item.locationPath);  // Use locationPath
   };
 
   const handleBack = () => {
     if (breadcrumbs.length > 0) {
       const newBreadcrumbs = breadcrumbs.slice(0, -1);
       setBreadcrumbs(newBreadcrumbs);
-      const targetPath =
+      const targetLocationPath =
         newBreadcrumbs.length > 0
           ? newBreadcrumbs[newBreadcrumbs.length - 1].path
-          : "/";
-      loadItems(targetPath);
+          : undefined;
+      loadItems(targetLocationPath);
     } else {
-      loadItems("/");
+      loadItems(undefined);  // Root (children of all roots)
     }
   };
 
   const handleBreadcrumbClick = (index: number) => {
     const newBreadcrumbs = breadcrumbs.slice(0, index + 1);
     setBreadcrumbs(newBreadcrumbs);
-    const targetPath =
+    const targetLocationPath =
       newBreadcrumbs.length > 0
         ? newBreadcrumbs[newBreadcrumbs.length - 1].path
-        : "/";
-    loadItems(targetPath);
+        : undefined;
+    loadItems(targetLocationPath);
+  };
+
+  // Helper function to extract parent path from a locationPath
+  const getParentPath = (locationPath: string): string | undefined => {
+    if (!locationPath || locationPath === "/") {
+      return undefined; // Root has no parent
+    }
+    // Remove trailing slash if present
+    const normalizedPath = locationPath.endsWith("/") ? locationPath.slice(0, -1) : locationPath;
+    // Find the last slash
+    const lastSlashIndex = normalizedPath.lastIndexOf("/");
+    if (lastSlashIndex === 0) {
+      return "/"; // Parent is root
+    } else if (lastSlashIndex > 0) {
+      return normalizedPath.substring(0, lastSlashIndex) || "/";
+    }
+    return undefined;
+  };
+
+  // Navigate to tree view and highlight an item
+  const navigateToTreeView = async (item: DiffItem) => {
+    // Extract parent path from item's locationPath
+    const parentPath = item.parentPath || getParentPath(item.locationPath);
+    
+    // Build breadcrumbs to parent folder
+    if (parentPath) {
+      // Parse the parent path into breadcrumbs
+      const pathParts = parentPath.split("/").filter(p => p !== "");
+      const newBreadcrumbs: BreadcrumbItem[] = [];
+      
+      let currentPath = "";
+      for (const part of pathParts) {
+        currentPath += (currentPath === "" ? "" : "/") + part;
+        newBreadcrumbs.push({
+          path: "/" + currentPath,
+          name: part,
+        });
+      }
+      
+      setBreadcrumbs(newBreadcrumbs);
+    } else {
+      // Root folder
+      setBreadcrumbs([]);
+    }
+    
+    // Switch to tree view tab
+    setActiveTab("tree");
+    
+    // Load items for the parent folder
+    await loadItems(parentPath || undefined);
+    
+    // Highlight the item for 2 seconds
+    setHighlightedItemId(item.id);
+    setTimeout(() => {
+      setHighlightedItemId(null);
+    }, 2000);
   };
 
   const handleCheckboxChange = async (
@@ -286,20 +406,16 @@ export default function PathReview() {
     // If currently checked (pending), clicking should EXCLUDE it
     // If currently unchecked (excluded), clicking should UNEXCLUDE it (back to pending)
     const isExcluding = currentChecked;
-    // Create a map of node id to path for src and dst, if they exist and are different
-    const nodeIdToPath: Record<string, string> = {};
-    if (item.src?.id && item.src?.locationPath) {
-      nodeIdToPath[item.src.id] = item.src.locationPath;
+    // Collect ULIDs for src and dst nodes (use id field, not locationPath)
+    const nodeULIDs: string[] = [];
+    if (item.src?.id) {
+      nodeULIDs.push(item.src.id);
     }
-    if (
-      item.dst?.id &&
-      item.dst?.locationPath &&
-      (!item.src?.id || item.dst.id !== item.src.id)
-    ) {
-      nodeIdToPath[item.dst.id] = item.dst.locationPath;
+    if (item.dst?.id && (!item.src?.id || item.dst.id !== item.src.id)) {
+      nodeULIDs.push(item.dst.id);
     }
 
-    if (Object.keys(nodeIdToPath).length === 0) {
+    if (nodeULIDs.length === 0) {
       setToast({
         message: "No node ID available for this item.",
         type: "error",
@@ -323,12 +439,12 @@ export default function PathReview() {
     pendingUpdatesRef.current.set(item.id, newChecked);
 
     try {
-      // Make API calls for both src and dst paths if they exist
-      // Note: excludeNode and unexcludeNode were previously passed IDs; now pass the .path property
-      const promises = Object.values(nodeIdToPath).map((nodePath) =>
+      // Make API calls for both src and dst nodes if they exist
+      // Use ULID (id field) directly, not locationPath
+      const promises = nodeULIDs.map((nodeULID) =>
         isExcluding
-          ? excludeNode(migrationId, nodePath)
-          : unexcludeNode(migrationId, nodePath)
+          ? excludeNode(migrationId, nodeULID)
+          : unexcludeNode(migrationId, nodeULID)
       );
 
       const results = await Promise.all(promises);
@@ -362,6 +478,9 @@ export default function PathReview() {
 
       // Success - remove from pending updates
       pendingUpdatesRef.current.delete(item.id);
+      
+      // Refresh stats after exclusion change
+      fetchStats();
     } catch (err) {
       // Revert optimistic update on network error
       setCheckedItems((prev) => {
@@ -392,16 +511,16 @@ export default function PathReview() {
     if (!migrationId) return;
     
     const isMarkedForRetry = retryItems.has(item.id);
-    // Create a map of nodeId -> locationPath for both src and dst if they exist
-    const nodeIdToLocation: Record<string, string> = {};
-
+    // Collect ULIDs for src and dst nodes (use id field, not locationPath)
+    const nodeULIDs: string[] = [];
     if (item.src?.id) {
-      nodeIdToLocation[item.src.id] = item.src.locationPath || "";
+      nodeULIDs.push(item.src.id);
     }
-    if (item.dst?.id && item.dst.id !== item.src?.id) {
-      nodeIdToLocation[item.dst.id] = item.dst.locationPath || "";
+    if (item.dst?.id && (!item.src?.id || item.dst.id !== item.src.id)) {
+      nodeULIDs.push(item.dst.id);
     }
-    if (Object.keys(nodeIdToLocation).length === 0) {
+
+    if (nodeULIDs.length === 0) {
       setToast({
         message: "No node ID available for this item.",
         type: "error",
@@ -425,11 +544,11 @@ export default function PathReview() {
     
     try {
       // Mark or unmark for retry based on current state
-      // Pass locationPath (values) instead of nodeId (keys), matching exclusion behavior
-      const promises = Object.values(nodeIdToLocation).map((nodePath) =>
+      // Use ULID (id field) directly, not locationPath
+      const promises = nodeULIDs.map((nodeULID) =>
         isMarkedForRetry
-          ? unmarkNodeForRetry(migrationId, nodePath)
-          : markNodeForRetry(migrationId, nodePath)
+          ? unmarkNodeForRetry(migrationId, nodeULID)
+          : markNodeForRetry(migrationId, nodeULID)
       );
       const results = await Promise.all(promises);
       
@@ -459,6 +578,9 @@ export default function PathReview() {
       
       // Update retry items count (increment when marking, decrement when unmarking)
       setRetryItemsCount((prev) => newRetryState ? prev + 1 : Math.max(0, prev - 1));
+      
+      // Refresh stats after retry change
+      fetchStats();
       
       // Show success message
       setToast({
@@ -608,6 +730,14 @@ export default function PathReview() {
 
   const hoveredItem = items.find((item) => item.id === hoveredItemId);
 
+  const formatBytes = (bytes: number): string => {
+    if (bytes === 0) return "0 Bytes";
+    const k = 1024;
+    const sizes = ["Bytes", "KB", "MB", "GB", "TB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return Math.round(bytes / Math.pow(k, i) * 100) / 100 + " " + sizes[i];
+  };
+
   return (
     <section className="path-review">
       <button
@@ -622,14 +752,36 @@ export default function PathReview() {
       <div className="path-review__content path-review__content--with-button">
         <header className="path-review__header">
           <h1>
-            Path <span className="path-review__highlight">Review</span>
+            Review the <span className="path-review__highlight">Action Plan</span>
           </h1>
           <p className="path-review__summary">
             Review the folder structure to be copied. Tip: Click pending item icons to mark them to be excluded from copying over. Click failed item icons to mark them to be retried.
           </p>
         </header>
 
+        {/* Tabs */}
+        <div className="path-review__tabs">
+          <button
+            type="button"
+            className={`path-review__tab ${activeTab === "tree" ? "path-review__tab--active" : ""}`}
+            onClick={() => setActiveTab("tree")}
+          >
+            Tree View
+          </button>
+          <button
+            type="button"
+            className={`path-review__tab ${activeTab === "list" ? "path-review__tab--active" : ""}`}
+            onClick={() => setActiveTab("list")}
+          >
+            List View
+          </button>
+        </div>
+
         {error && <div className="path-review__error">{error}</div>}
+
+        {/* Tree View Content */}
+        <div className={activeTab === "tree" ? "path-review__tab-content" : "path-review__tab-content path-review__tab-content--hidden"}>
+          <>
 
         {/* Breadcrumbs */}
         <div className="path-review__breadcrumbs-container">
@@ -649,7 +801,7 @@ export default function PathReview() {
               className="path-review__breadcrumb-link"
               onClick={() => {
                 setBreadcrumbs([]);
-                loadItems("/");
+                loadItems(undefined);  // undefined for root (children of all roots)
               }}
               disabled={breadcrumbs.length === 0}
             >
@@ -664,7 +816,7 @@ export default function PathReview() {
                   onClick={() => handleBreadcrumbClick(index)}
                   disabled={index === breadcrumbs.length - 1}
                 >
-                  {crumb.displayName}
+                  {crumb.name}
                 </button>
               </div>
             ))}
@@ -673,28 +825,7 @@ export default function PathReview() {
 
         {/* Status Legend */}
         {!loading && items.length > 0 && (
-          <div className="path-review__legend" style={{ fontSize: `${zoomLevel * 0.85}rem` }}>
-            <div className="path-review__legend-item">
-              <Clock size={16 * zoomLevel} className="path-review__legend-icon path-review__legend-icon--pending" />
-              <span className="path-review__legend-label">Pending</span>
-            </div>
-            <div className="path-review__legend-item">
-              <X size={16 * zoomLevel} className="path-review__legend-icon path-review__legend-icon--excluded" />
-              <span className="path-review__legend-label">Excluded</span>
-            </div>
-            <div className="path-review__legend-item">
-              <Check size={16 * zoomLevel} className="path-review__legend-icon path-review__legend-icon--exists" />
-              <span className="path-review__legend-label">Exists</span>
-            </div>
-            <div className="path-review__legend-item">
-              <AlertCircle size={16 * zoomLevel} className="path-review__legend-icon path-review__legend-icon--failed" />
-              <span className="path-review__legend-label">Failed</span>
-            </div>
-            <div className="path-review__legend-item">
-              <RotateCw size={16 * zoomLevel} className="path-review__legend-icon path-review__legend-icon--retry" />
-              <span className="path-review__legend-label">Retry</span>
-            </div>
-          </div>
+          <PathReviewLegend zoomLevel={zoomLevel} />
         )}
 
         {/* Items List */}
@@ -720,55 +851,26 @@ export default function PathReview() {
                   const isExcluded = !isChecked && !existsOnBoth; // Excluded if not checked and not existing on both
                   const isFailed = item.traversalStatus === "failed";
                   const isMarkedForRetry = retryItems.has(item.id);
+                  const isHighlighted = highlightedItemId === item.id;
 
                   return (
                     <div
                       key={item.id}
-                      className={`path-review__item ${isExcluded ? "path-review__item--excluded" : ""}`}
+                      className={`path-review__item ${isExcluded ? "path-review__item--excluded" : ""} ${isHighlighted ? "path-review__item--highlighted" : ""}`}
                       onMouseEnter={(e) => handleItemHover(item.id, e)}
                       onMouseLeave={handleItemLeave}
                     >
                       <div className="path-review__item-status-icon-container">
-                        {/* Status icons - clickable */}
-                        {isFailed && !isMarkedForRetry && (
-                          <AlertCircle 
-                            size={20 * zoomLevel} 
-                            className="path-review__item-status-icon path-review__item-status-icon--failed" 
-                            onClick={() => handleRetryClick(item)}
-                            style={{ cursor: "pointer" }}
-                          />
-                        )}
-                        {isMarkedForRetry && (
-                          <RotateCw 
-                            size={20 * zoomLevel} 
-                            className="path-review__item-status-icon path-review__item-status-icon--retry" 
-                            onClick={() => handleRetryClick(item)}
-                            style={{ cursor: "pointer" }}
-                          />
-                        )}
-                        {!isFailed && !isMarkedForRetry && isChecked && !isAlreadyExists && (
-                          <Clock 
-                            size={20 * zoomLevel} 
-                            className="path-review__item-status-icon path-review__item-status-icon--pending" 
-                            onClick={() => !isLocked && handleCheckboxChange(item, isChecked)}
-                            style={{ cursor: isLocked ? "not-allowed" : "pointer" }}
-                          />
-                        )}
-                        {!isFailed && !isMarkedForRetry && !isChecked && !isAlreadyExists && (
-                          <X 
-                            size={20 * zoomLevel} 
-                            className="path-review__item-status-icon path-review__item-status-icon--excluded" 
-                            onClick={() => !isLocked && handleCheckboxChange(item, isChecked)}
-                            style={{ cursor: isLocked ? "not-allowed" : "pointer" }}
-                          />
-                        )}
-                        {!isFailed && !isMarkedForRetry && isAlreadyExists && (
-                          <Check 
-                            size={20 * zoomLevel} 
-                            className="path-review__item-status-icon path-review__item-status-icon--exists" 
-                            style={{ cursor: "default" }}
-                          />
-                        )}
+                        <PathReviewStatusIcon
+                          item={item}
+                          isMarkedForRetry={isMarkedForRetry}
+                          isChecked={isChecked}
+                          existsOnBoth={isAlreadyExists}
+                          isLocked={isLocked}
+                          zoomLevel={zoomLevel}
+                          onRetryClick={handleRetryClick}
+                          onExcludeClick={handleCheckboxChange}
+                        />
                       </div>
 
                       <div className="path-review__item-icon">
@@ -794,7 +896,7 @@ export default function PathReview() {
                             : "default" 
                         }}
                       >
-                        <div className={`path-review__item-name ${isFolder ? "path-review__item-name--folder" : ""}`}>{item.displayName}</div>
+                        <div className={`path-review__item-name ${isFolder ? "path-review__item-name--folder" : ""}`}>{item.name}</div>
                         {!isFolder && item.size !== undefined && (
                           <div className="path-review__item-meta">
                             {(item.size / 1024 / 1024).toFixed(2)} MB
@@ -816,7 +918,7 @@ export default function PathReview() {
                   <button
                     type="button"
                     className="path-review__load-more"
-                    onClick={() => loadItems(currentPath, true)}
+                    onClick={() => loadItems(currentNodeId, true)}
                     disabled={loadingMore}
                   >
                     {loadingMore ? "Loading..." : "Load More"}
@@ -826,6 +928,26 @@ export default function PathReview() {
             )}
           </div>
         </div>
+          </>
+        </div>
+
+        {/* List View Content */}
+        {migrationId && (
+          <div 
+            className={`path-review__list-view-container ${activeTab === "list" ? "" : "path-review__tab-content--hidden"}`}
+          >
+            <PathReviewListView
+              migrationId={migrationId}
+              onItemUpdate={() => {
+                // Reload items will trigger stats update automatically
+              }}
+              onStatsChange={handleStatsChange}
+              onSelectionStatsWarning={handleSelectionWarning}
+              onPaginationChange={handlePaginationChange}
+              onNavigateToTreeView={navigateToTreeView}
+            />
+          </div>
+        )}
 
         {/* Hover Card */}
         {hoveredItem && hoverPosition && (
@@ -839,9 +961,43 @@ export default function PathReview() {
           />
         )}
 
-        {/* Footer with Zoom Control, Sweep Buttons, and Start Copying Button */}
+        {/* Footer with Stats, Zoom Control, Sweep Buttons, and Start Copying Button */}
         <div className="path-review__footer">
           <ZoomControl />
+          {/* Stats - Only show on tree view */}
+          {stats && activeTab === "tree" && (
+            <PathReviewFooterInfo
+              items={[
+                { label: "Folders", value: stats.foldersCount.toLocaleString() },
+                { label: "Files", value: stats.filesCount.toLocaleString() },
+                {
+                  label: "Folders/Files",
+                  isRatio: true,
+                  ratioValues: {
+                    folders: stats.foldersRatio,
+                    files: stats.filesRatio,
+                  },
+                },
+                { label: "Size (Src)", value: formatBytes(stats.totalFileSize.src) },
+                { label: "Size (Dst)", value: formatBytes(stats.totalFileSize.dst) },
+                { label: "Pending", value: stats.pendingCount.toLocaleString() },
+                { label: "Failed", value: stats.failedCount.toLocaleString() },
+                { label: "Excluded", value: stats.excludedCount.toLocaleString() },
+              ]}
+            />
+          )}
+          {/* Pagination Info - Only show on list view */}
+          {activeTab === "list" && listPagination && (
+            <PathReviewFooterInfo
+              items={[
+                {
+                  label: "Showing",
+                  value: `${listPagination.offset + 1} to ${Math.min(listPagination.offset + listItemsPerPage, listPagination.total)} of ${listPagination.total.toLocaleString()} item${listPagination.total !== 1 ? "s" : ""}`,
+                },
+              ]}
+            />
+          )}
+          {!(stats && activeTab === "tree") && !(activeTab === "list" && listPagination) && <div></div>}
           <div className="path-review__footer-actions">
             {/* Review Iteration Counter */}
             {reviewIteration > 1 && (

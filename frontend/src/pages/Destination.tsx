@@ -43,11 +43,23 @@ export default function Destination() {
 
     try {
       setIsSubmitting(true);
+      // Transform Folder to API request format
+      const rootForApi = {
+        id: destinationRoot.ServiceID,  // Service's native identifier
+        parentId: destinationRoot.parentId,
+        parentPath: destinationRoot.parentPath,
+        displayName: destinationRoot.displayName,
+        locationPath: destinationRoot.locationPath,
+        lastUpdated: destinationRoot.lastUpdated,
+        depthLevel: destinationRoot.depthLevel,
+        type: destinationRoot.type || "folder",
+      };
+
       const response = await setMigrationRoot({
         migrationId: migration.migrationId,
         role: "destination",
         serviceId: destinationService.id,
-        root: destinationRoot,
+        root: rootForApi,
         connectionId: migration.destinationConnectionId,
       });
 
@@ -87,7 +99,7 @@ export default function Destination() {
     if (state?.selectedFolder && state?.serviceId) {
       // Create a unique key for this state to prevent double processing
       const folderRole = state.role || "destination"; // Default to destination if not specified
-      const stateKey = `${state.serviceId}-${state.selectedFolder.id}-${folderRole}`;
+      const stateKey = `${state.serviceId}-${state.selectedFolder.ServiceID}-${folderRole}`;
       
       // Skip if we've already processed this state (prevents double processing from StrictMode)
       if (processedStateRef.current === stateKey) {
@@ -145,11 +157,23 @@ export default function Destination() {
 
     try {
       setIsSubmitting(true);
+      // Transform Folder to API request format
+      const rootForApi = {
+        id: sourceRoot.ServiceID,  // Service's native identifier
+        parentId: sourceRoot.parentId,
+        parentPath: sourceRoot.parentPath,
+        displayName: sourceRoot.displayName,
+        locationPath: sourceRoot.locationPath,
+        lastUpdated: sourceRoot.lastUpdated,
+        depthLevel: sourceRoot.depthLevel,
+        type: sourceRoot.type || "folder",
+      };
+
       const response = await setMigrationRoot({
         migrationId: migration.migrationId,
         role: "source",
         serviceId: sourceService.id,
-        root: sourceRoot,
+        root: rootForApi,
       });
 
       updateMigration({
@@ -244,11 +268,23 @@ export default function Destination() {
 
     try {
       setIsSubmitting(true);
+      // Transform Folder to API request format
+      const rootForApi = {
+        id: destinationRoot.ServiceID,  // Service's native identifier
+        parentId: destinationRoot.parentId,
+        parentPath: destinationRoot.parentPath,
+        displayName: destinationRoot.displayName,
+        locationPath: destinationRoot.locationPath,
+        lastUpdated: destinationRoot.lastUpdated,
+        depthLevel: destinationRoot.depthLevel,
+        type: destinationRoot.type || "folder",
+      };
+
       const response = await setMigrationRoot({
         migrationId: migration.migrationId,
         role: "destination",
         serviceId: destinationService.id,
-        root: destinationRoot,
+        root: rootForApi,
         connectionId: migration.destinationConnectionId,
       });
 

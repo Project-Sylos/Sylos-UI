@@ -1,0 +1,96 @@
+/* Glass Container - Base reusable glass container component */
+
+.glass-container {
+  backdrop-filter: blur(var(--glass-blur-primary));
+  background: rgba(
+    var(--glass-bg-base-r),
+    var(--glass-bg-base-g),
+    var(--glass-bg-base-b),
+    var(--glass-bg-opacity-primary)
+  );
+  border: 1px solid rgba(
+    var(--color-base-slate-r),
+    var(--color-base-slate-g),
+    var(--color-base-slate-b),
+    var(--glass-border-opacity-default)
+  );
+  border-radius: 32px;
+  box-shadow: 0 var(--glass-shadow-spread-lg) var(--glass-shadow-blur-lg) rgba(
+    var(--glass-bg-base-r),
+    var(--glass-bg-base-g),
+    var(--glass-bg-base-b),
+    var(--glass-shadow-opacity-lg)
+  );
+  transition: all 0.25s ease;
+}
+
+/* Variants */
+.glass-container--primary {
+  backdrop-filter: blur(var(--glass-blur-primary));
+  background: rgba(
+    var(--glass-bg-base-r),
+    var(--glass-bg-base-g),
+    var(--glass-bg-base-b),
+    var(--glass-bg-opacity-primary)
+  );
+}
+
+.glass-container--secondary {
+  backdrop-filter: blur(var(--glass-blur-secondary));
+  background: rgba(
+    var(--glass-bg-base-r),
+    var(--glass-bg-base-g),
+    var(--glass-bg-base-b),
+    var(--glass-bg-opacity-secondary)
+  );
+  border-color: rgba(
+    var(--color-base-slate-r),
+    var(--color-base-slate-g),
+    var(--color-base-slate-b),
+    var(--glass-border-opacity-subtle)
+  );
+  box-shadow: 0 var(--glass-shadow-spread-md) var(--glass-shadow-blur-md) rgba(
+    var(--glass-bg-base-r),
+    var(--glass-bg-base-g),
+    var(--glass-bg-base-b),
+    var(--glass-shadow-opacity-md)
+  );
+}
+
+.glass-container--tertiary {
+  backdrop-filter: blur(var(--glass-blur-tertiary));
+  background: rgba(
+    var(--glass-bg-base-r),
+    var(--glass-bg-base-g),
+    var(--glass-bg-base-b),
+    var(--glass-bg-opacity-tertiary)
+  );
+  border-color: rgba(
+    var(--color-base-slate-r),
+    var(--color-base-slate-g),
+    var(--color-base-slate-b),
+    var(--glass-border-opacity-subtle)
+  );
+  box-shadow: 0 var(--glass-shadow-spread-sm) var(--glass-shadow-blur-sm) rgba(
+    var(--glass-bg-base-r),
+    var(--glass-bg-base-g),
+    var(--glass-bg-base-b),
+    var(--glass-shadow-opacity-sm)
+  );
+}
+
+/* Hover state */
+.glass-container:hover {
+  background: rgba(
+    var(--glass-bg-base-r),
+    var(--glass-bg-base-g),
+    var(--glass-bg-base-b),
+    var(--glass-bg-opacity-hover)
+  );
+  border-color: rgba(
+    var(--color-base-slate-r),
+    var(--color-base-slate-g),
+    var(--color-base-slate-b),
+    var(--glass-border-opacity-hover)
+  );
+}

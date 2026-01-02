@@ -1,3 +1,8 @@
+@import "../styles/components/glass-container.css";
+@import "../styles/components/glass-card.css";
+@import "../styles/components/back-button.css";
+@import "../styles/components/text-styles.css";
+
 .selection-page {
   position: relative;
   min-height: 100vh;
@@ -7,7 +12,7 @@
   justify-content: center;
   padding: clamp(2rem, 5vw, 5rem);
   box-sizing: border-box;
-  color: #f8fafc;
+  color: var(--text-primary);
   font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
   overflow: hidden;
 }
@@ -21,9 +26,10 @@
   top: clamp(1.5rem, 4vw, 2.5rem);
   left: clamp(1.5rem, 4vw, 3rem);
   z-index: 2;
+  /* Apply back-button base styles */
   background: transparent;
-  color: #d1d5db;
   border: none;
+  color: var(--text-secondary);
   font-size: 0.95rem;
   font-weight: 500;
   letter-spacing: 0.02em;
@@ -32,7 +38,7 @@
 }
 
 .selection-page__back:hover {
-  color: #ffffff;
+  color: var(--text-hover);
 }
 
 .selection-page__content {
@@ -43,12 +49,28 @@
   flex-direction: column;
   gap: 2.5rem;
   text-align: center;
-  backdrop-filter: blur(16px);
-  background: rgba(15, 23, 42, 0.28);
-  border-radius: 32px;
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  box-shadow: 0 40px 90px rgba(15, 23, 42, 0.35);
   padding: clamp(2rem, 5vw, 3rem) clamp(2rem, 5vw, 4rem);
+  /* Apply glass-container base styles */
+  backdrop-filter: blur(var(--glass-blur-primary));
+  background: rgba(
+    var(--glass-bg-base-r),
+    var(--glass-bg-base-g),
+    var(--glass-bg-base-b),
+    var(--glass-bg-opacity-primary)
+  );
+  border-radius: 32px;
+  border: 1px solid rgba(
+    var(--color-base-slate-r),
+    var(--color-base-slate-g),
+    var(--color-base-slate-b),
+    var(--glass-border-opacity-default)
+  );
+  box-shadow: 0 var(--glass-shadow-spread-lg) var(--glass-shadow-blur-lg) rgba(
+    var(--glass-bg-base-r),
+    var(--glass-bg-base-g),
+    var(--glass-bg-base-b),
+    var(--glass-shadow-opacity-lg)
+  );
 }
 
 .selection-page__header h1 {
@@ -60,14 +82,14 @@
   text-transform: uppercase;
   font-size: 0.8rem;
   letter-spacing: 0.3em;
-  color: rgba(148, 163, 184, 0.8);
+  color: var(--text-tertiary);
   margin: 0;
 }
 
 .selection-page__summary {
   margin: 0.75rem auto 0;
   max-width: 520px;
-  color: rgba(226, 232, 240, 0.75);
+  color: var(--text-tertiary);
   line-height: 1.6;
 }
 
@@ -77,16 +99,16 @@
   align-items: center;
   justify-content: center;
   padding: 2rem;
-  color: rgba(226, 232, 240, 0.65);
+  color: var(--text-muted);
   font-size: 0.95rem;
 }
 
 .selection-page__highlight--magenta {
-  color: #ff00ff;
+  color: var(--accent-magenta);
 }
 
 .selection-page__highlight--cyan {
-  color: #00ffff;
+  color: var(--accent-cyan);
 }
 
 .selection-page__grid {
@@ -137,8 +159,13 @@
   width: 72px;
   height: 72px;
   border-radius: 50%;
-  background: rgba(15, 172, 255, 0.18);
-  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.25);
+  background: var(--accent-cyan-opacity-20);
+  box-shadow: inset 0 0 0 1px rgba(
+    var(--color-base-slate-r),
+    var(--color-base-slate-g),
+    var(--color-base-slate-b),
+    var(--glass-border-opacity-default)
+  );
 }
 
 .selection-page__name {
@@ -148,7 +175,7 @@
 
 .selection-page__description {
   font-size: 0.95rem;
-  color: rgba(226, 232, 240, 0.76);
+  color: var(--text-tertiary);
   line-height: 1.5;
 }
 

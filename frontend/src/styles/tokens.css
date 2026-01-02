@@ -1,0 +1,86 @@
+/* Design Token System - CSS Variables for Theming */
+
+/* Glass Container Tokens */
+:root {
+  /* Background opacity levels */
+  --glass-bg-opacity-primary: 0.28;
+  --glass-bg-opacity-secondary: 0.15;
+  --glass-bg-opacity-tertiary: 0.1;
+  --glass-bg-opacity-hover: 0.35;
+  --glass-bg-opacity-active: 0.4;
+  
+  /* Backdrop blur levels */
+  --glass-blur-primary: 16px;
+  --glass-blur-secondary: 12px;
+  --glass-blur-tertiary: 8px;
+  
+  /* Border opacity levels */
+  --glass-border-opacity-default: 0.18;
+  --glass-border-opacity-subtle: 0.1;
+  --glass-border-opacity-strong: 0.3;
+  --glass-border-opacity-hover: 0.3;
+  
+  /* Shadow opacity and intensity */
+  --glass-shadow-opacity-sm: 0.1;
+  --glass-shadow-opacity-md: 0.2;
+  --glass-shadow-opacity-lg: 0.35;
+  --glass-shadow-blur-sm: 16px;
+  --glass-shadow-blur-md: 24px;
+  --glass-shadow-blur-lg: 90px;
+  --glass-shadow-spread-sm: 4px;
+  --glass-shadow-spread-md: 8px;
+  --glass-shadow-spread-lg: 40px;
+  
+  /* Text Color Tokens */
+  --text-primary: #f8fafc;
+  --text-secondary: rgba(148, 163, 184, 0.9);
+  --text-tertiary: rgba(148, 163, 184, 0.8);
+  --text-muted: rgba(148, 163, 184, 0.6);
+  --text-disabled: rgba(148, 163, 184, 0.5);
+  --text-hover: #ffffff;
+  
+  /* Button Tokens */
+  --button-bg-opacity-default: 0.15;
+  --button-bg-opacity-hover: 0.25;
+  --button-bg-opacity-active: 0.3;
+  --button-bg-opacity-secondary: 0.1;
+  --button-bg-opacity-secondary-hover: 0.2;
+  --button-border-opacity-default: 0.2;
+  --button-border-opacity-hover: 0.3;
+  --button-border-opacity-secondary: 0.15;
+  --button-border-opacity-secondary-hover: 0.25;
+  --button-shadow-opacity: 0.1;
+  --button-shadow-opacity-hover: 0.2;
+  
+  /* Accent Colors */
+  --accent-magenta: #ff00ff;
+  --accent-cyan: #00ffff;
+  --accent-magenta-opacity-10: rgba(255, 0, 255, 0.1);
+  --accent-magenta-opacity-20: rgba(255, 0, 255, 0.2);
+  --accent-cyan-opacity-10: rgba(0, 255, 255, 0.1);
+  --accent-cyan-opacity-20: rgba(0, 255, 255, 0.2);
+  
+  /* Base Colors (RGB values for rgba usage) */
+  --color-base-dark-r: 15;
+  --color-base-dark-g: 23;
+  --color-base-dark-b: 42;
+  --color-base-light-r: 248;
+  --color-base-light-g: 250;
+  --color-base-light-b: 252;
+  --color-base-slate-r: 148;
+  --color-base-slate-g: 163;
+  --color-base-slate-b: 184;
+  --color-base-e2-r: 226;
+  --color-base-e2-g: 232;
+  --color-base-e2-b: 240;
+  
+  /* Background Base Colors */
+  --bg-base-dark: #0f172a;
+  --bg-base-light: #f8fafc;
+  --bg-base-container: #0a0a1a;
+  
+  /* Glass Container Base Colors (default - will be overridden by theme packs) */
+  --glass-bg-base-r: 15;
+  --glass-bg-base-g: 23;
+  --glass-bg-base-b: 42;
+}

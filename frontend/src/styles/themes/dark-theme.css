@@ -1,0 +1,77 @@
+/* Dark Theme Pack - Variable values for dark mode */
+
+:root[data-theme="dark"] {
+  /* Glass Container - Lighter with minimal tinting for dark mode */
+  --glass-bg-opacity-primary: 0.12;
+  --glass-bg-opacity-secondary: 0.08;
+  --glass-bg-opacity-tertiary: 0.05;
+  --glass-bg-opacity-hover: 0.16;
+  --glass-bg-opacity-active: 0.2;
+  
+  /* Backdrop blur - moderate blur for glass effect */
+  --glass-blur-primary: 16px;
+  --glass-blur-secondary: 12px;
+  --glass-blur-tertiary: 8px;
+  
+  /* Border opacity - subtle borders */
+  --glass-border-opacity-default: 0.2;
+  --glass-border-opacity-subtle: 0.1;
+  --glass-border-opacity-strong: 0.3;
+  --glass-border-opacity-hover: 0.3;
+  
+  /* Shadow opacity - soft shadows for depth */
+  --glass-shadow-opacity-sm: 0.1;
+  --glass-shadow-opacity-md: 0.2;
+  --glass-shadow-opacity-lg: 0.3;
+  --glass-shadow-blur-sm: 16px;
+  --glass-shadow-blur-md: 24px;
+  --glass-shadow-blur-lg: 90px;
+  --glass-shadow-spread-sm: 4px;
+  --glass-shadow-spread-md: 8px;
+  --glass-shadow-spread-lg: 40px;
+  
+  /* Text Colors - White text for all main text */
+  --text-primary: #ffffff;
+  --text-secondary: rgba(255, 255, 255, 0.85);
+  --text-tertiary: rgba(255, 255, 255, 0.75);
+  --text-muted: rgba(255, 255, 255, 0.6);
+  --text-disabled: rgba(255, 255, 255, 0.5);
+  --text-hover: #ffffff;
+  
+  /* Button Colors - Minimal tinting */
+  --button-bg-opacity-default: 0.08;
+  --button-bg-opacity-hover: 0.14;
+  --button-bg-opacity-active: 0.18;
+  --button-bg-opacity-secondary: 0.06;
+  --button-bg-opacity-secondary-hover: 0.12;
+  --button-border-opacity-default: 0.2;
+  --button-border-opacity-hover: 0.3;
+  --button-border-opacity-secondary: 0.15;
+  --button-border-opacity-secondary-hover: 0.25;
+  --button-shadow-opacity: 0.1;
+  --button-shadow-opacity-hover: 0.2;
+  
+  /* Glass Container Base Colors - Use lighter colors for minimal tinting */
+  --glass-bg-base-r: 30;
+  --glass-bg-base-g: 41;
+  --glass-bg-base-b: 59;
+  
+  /* Base Colors RGB */
+  --color-base-dark-r: 15;
+  --color-base-dark-g: 23;
+  --color-base-dark-b: 42;
+  --color-base-light-r: 248;
+  --color-base-light-g: 250;
+  --color-base-light-b: 252;
+  --color-base-slate-r: 148;
+  --color-base-slate-g: 163;
+  --color-base-slate-b: 184;
+  --color-base-e2-r: 226;
+  --color-base-e2-g: 232;
+  --color-base-e2-b: 240;
+  
+  /* Background Base Colors */
+  --bg-base-dark: #0f172a;
+  --bg-base-light: #f8fafc;
+  --bg-base-container: #0a0a1a;
+}

@@ -34,18 +34,16 @@ export default function SelectionPage({
 }: SelectionPageProps) {
   return (
     <section className="selection-page">
-
-      {onBack ? (
-        <button
-          type="button"
-          className="selection-page__back"
-          onClick={onBack}
-        >
-          {backLabel}
-        </button>
-      ) : null}
-
       <div className="selection-page__content">
+        {onBack ? (
+          <button
+            type="button"
+            className="selection-page__back"
+            onClick={onBack}
+          >
+            {backLabel}
+          </button>
+        ) : null}
         <header className="selection-page__header">
           {eyebrow ? (
             <p className="selection-page__eyebrow">{eyebrow}</p>

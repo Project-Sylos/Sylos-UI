@@ -4,28 +4,63 @@
   align-items: center;
   justify-content: center;
   padding: 1rem 2.5rem;
-  background: rgba(15, 23, 42, 0.15);
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: rgba(
+    var(--glass-bg-base-r),
+    var(--glass-bg-base-g),
+    var(--glass-bg-base-b),
+    var(--button-bg-opacity-default)
+  );
+  backdrop-filter: blur(var(--glass-blur-secondary));
+  border: 1px solid rgba(
+    var(--color-base-slate-r),
+    var(--color-base-slate-g),
+    var(--color-base-slate-b),
+    var(--button-border-opacity-default)
+  );
   border-radius: 16px;
-  color: #f8fafc;
+  color: var(--text-primary);
   font-size: 1.1rem;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.25s ease;
-  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.1);
+  box-shadow: 0 var(--glass-shadow-spread-sm) var(--glass-shadow-blur-sm) rgba(
+    var(--glass-bg-base-r),
+    var(--glass-bg-base-g),
+    var(--glass-bg-base-b),
+    var(--button-shadow-opacity)
+  );
 }
 
 .glass-button:hover:not(:disabled) {
-  background: rgba(15, 23, 42, 0.25);
-  border-color: rgba(148, 163, 184, 0.3);
+  background: rgba(
+    var(--glass-bg-base-r),
+    var(--glass-bg-base-g),
+    var(--glass-bg-base-b),
+    var(--button-bg-opacity-hover)
+  );
+  border-color: rgba(
+    var(--color-base-slate-r),
+    var(--color-base-slate-g),
+    var(--color-base-slate-b),
+    var(--button-border-opacity-hover)
+  );
   transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.2);
+  box-shadow: 0 var(--glass-shadow-spread-md) var(--glass-shadow-blur-md) rgba(
+    var(--glass-bg-base-r),
+    var(--glass-bg-base-g),
+    var(--glass-bg-base-b),
+    var(--button-shadow-opacity-hover)
+  );
 }
 
 .glass-button:active:not(:disabled) {
   transform: translateY(0);
-  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.15);
+  box-shadow: 0 var(--glass-shadow-spread-sm) var(--glass-shadow-blur-sm) rgba(
+    var(--glass-bg-base-r),
+    var(--glass-bg-base-g),
+    var(--glass-bg-base-b),
+    var(--button-shadow-opacity)
+  );
 }
 
 .glass-button:disabled {
@@ -53,14 +88,34 @@
 
 /* Variant for secondary actions */
 .glass-button--secondary {
-  background: rgba(15, 23, 42, 0.1);
-  border-color: rgba(148, 163, 184, 0.15);
-  color: rgba(248, 250, 252, 0.9);
+  background: rgba(
+    var(--glass-bg-base-r),
+    var(--glass-bg-base-g),
+    var(--glass-bg-base-b),
+    var(--button-bg-opacity-secondary)
+  );
+  border-color: rgba(
+    var(--color-base-slate-r),
+    var(--color-base-slate-g),
+    var(--color-base-slate-b),
+    var(--button-border-opacity-secondary)
+  );
+  color: var(--text-secondary);
 }
 
 .glass-button--secondary:hover:not(:disabled) {
-  background: rgba(15, 23, 42, 0.2);
-  border-color: rgba(148, 163, 184, 0.25);
-  color: #f8fafc;
+  background: rgba(
+    var(--glass-bg-base-r),
+    var(--glass-bg-base-g),
+    var(--glass-bg-base-b),
+    var(--button-bg-opacity-secondary-hover)
+  );
+  border-color: rgba(
+    var(--color-base-slate-r),
+    var(--color-base-slate-g),
+    var(--color-base-slate-b),
+    var(--button-border-opacity-secondary-hover)
+  );
+  color: var(--text-primary);
 }
 

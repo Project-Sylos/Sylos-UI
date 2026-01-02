@@ -73,8 +73,9 @@ export async function pickLocalFolder(title: string): Promise<Folder | null> {
     const name = basename(path);
 
     return {
-      id: path,
-      displayName: name,
+      Id: path,
+      ServiceID: path,
+      name: name,
       locationPath: "/",
       parentId: "",
       parentPath: "",

@@ -1,0 +1,34 @@
+/* Text Styles - Reusable text color utilities */
+
+.text-primary {
+  color: var(--text-primary);
+}
+
+.text-secondary {
+  color: var(--text-secondary);
+}
+
+.text-tertiary {
+  color: var(--text-tertiary);
+}
+
+.text-muted {
+  color: var(--text-muted);
+}
+
+.text-disabled {
+  color: var(--text-disabled);
+}
+
+.text-hover:hover {
+  color: var(--text-hover);
+}
+
+/* Accent colors */
+.text-accent-magenta {
+  color: var(--accent-magenta);
+}
+
+.text-accent-cyan {
+  color: var(--accent-cyan);
+}

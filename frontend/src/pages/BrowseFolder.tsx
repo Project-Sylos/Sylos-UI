@@ -89,7 +89,7 @@ export default function BrowseFolder() {
         setIsDriveView(false);
         
         // Update breadcrumbs
-        const newBreadcrumb: BreadcrumbItem = { path, name };
+        const newBreadcrumb: BreadcrumbItem = { path, name: name };
         setBreadcrumbs((prev) => {
           // Find if this path is already in breadcrumbs (for back navigation)
           const index = prev.findIndex((b) => b.path === path);

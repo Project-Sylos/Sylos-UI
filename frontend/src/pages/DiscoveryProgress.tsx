@@ -425,16 +425,15 @@ export default function DiscoveryProgress() {
 
   return (
     <section className={`discovery-progress ${!isLogsCollapsed ? 'discovery-progress--logs-expanded' : ''}`}>
-      <button
-        type="button"
-        className="discovery-progress__back"
-        onClick={() => navigate("/")}
-      >
-        <ArrowLeft size={16} style={{ marginRight: "0.5rem" }} />
-        Back to home
-      </button>
-
       <div className={`discovery-progress__content ${isLogsCollapsed ? 'discovery-progress__content--logs-collapsed' : ''}`}>
+        <button
+          type="button"
+          className="discovery-progress__back"
+          onClick={() => navigate("/")}
+        >
+          <ArrowLeft size={16} style={{ marginRight: "0.5rem" }} />
+          Back to home
+        </button>
         <header className="discovery-progress__header">
           <h1>
             Discovery <span className="discovery-progress__highlight">Progress</span>
@@ -486,8 +485,8 @@ export default function DiscoveryProgress() {
                 <div className="discovery-progress__metric-context">
                   <div className="discovery-progress__metric-context-row">
                     <span className="discovery-progress__metric-context-label">Root Path:</span>
-                    <span className="discovery-progress__metric-context-value" title={source?.root?.locationPath || source?.root?.displayName || ""}>
-                      {source?.root?.locationPath || source?.root?.displayName || "Not specified"}
+                    <span className="discovery-progress__metric-context-value" title={source?.root?.locationPath || source?.root?.name || ""}>
+                      {source?.root?.locationPath || source?.root?.name || "Not specified"}
                     </span>
                   </div>
                 </div>
@@ -542,8 +541,8 @@ export default function DiscoveryProgress() {
                 <div className="discovery-progress__metric-context">
                   <div className="discovery-progress__metric-context-row">
                     <span className="discovery-progress__metric-context-label">Root Path:</span>
-                    <span className="discovery-progress__metric-context-value" title={destination?.root?.locationPath || destination?.root?.displayName || ""}>
-                      {destination?.root?.locationPath || destination?.root?.displayName || "Not specified"}
+                    <span className="discovery-progress__metric-context-value" title={destination?.root?.locationPath || destination?.root?.name || ""}>
+                      {destination?.root?.locationPath || destination?.root?.name || "Not specified"}
                     </span>
                   </div>
                 </div>

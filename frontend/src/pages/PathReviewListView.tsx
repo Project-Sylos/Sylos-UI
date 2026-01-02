@@ -288,6 +288,35 @@ export default function PathReviewListView({
       const parsedDepth = depthFilter.trim() !== "" ? parseInt(depthFilter, 10) : null;
       const parsedSizeBytes = sizeFilter.trim() !== "" ? parseFileSize(sizeFilter, sizeDisplayUnit) : null;
       
+      // Automatically determine statusSearchType and filter field based on selected status
+      // "failed" is the only traversal status, everything else is copy status
+      let statusSearchType: "traversal" | "copy" | "both" | undefined = undefined;
+      let traversalStatusFilterValue: string | undefined = undefined;
+      let copyStatusFilterValue: string | undefined = undefined;
+      
+      if (traversalStatusFilter === "failed") {
+        // Failed is a traversal status
+        statusSearchType = "traversal";
+        traversalStatusFilterValue = "failed";
+      } else if (traversalStatusFilter === "excluded") {
+        // Excluded is a copy status (maps to exclusion_explicit/exclusion_inherited)
+        statusSearchType = "copy";
+        copyStatusFilterValue = "excluded";
+      } else if (traversalStatusFilter === "pending") {
+        // Pending is a copy status
+        statusSearchType = "copy";
+        copyStatusFilterValue = "pending";
+      } else if (traversalStatusFilter === "successful") {
+        // Successful is a copy status
+        statusSearchType = "copy";
+        copyStatusFilterValue = "successful";
+      } else if (traversalStatusFilter === "NotOnSrc") {
+        // Destination only - this might need special handling
+        // For now, treat as a copy status filter
+        statusSearchType = "traversal";
+        copyStatusFilterValue = "NotOnSrc";
+      }
+
       const response = await searchPathReviewItems(migrationId, {
         offset,
         limit: itemsPerPage,
@@ -300,7 +329,9 @@ export default function PathReviewListView({
         depthOperator: parsedDepth !== null && !isNaN(parsedDepth) && parsedDepth >= 0 ? depthOperator : undefined,
         sizeFilter: parsedSizeBytes !== null && parsedSizeBytes >= 0 ? parsedSizeBytes : undefined,
         sizeOperator: parsedSizeBytes !== null && parsedSizeBytes >= 0 ? sizeOperator : undefined,
-        traversalStatusFilter: traversalStatusFilter || undefined,
+        traversalStatusFilter: traversalStatusFilterValue,
+        copyStatusFilter: copyStatusFilterValue,
+        statusSearchType: statusSearchType,
       });
 
       if (append) {
@@ -310,7 +341,6 @@ export default function PathReviewListView({
       }
 
       setPagination(response.pagination);
-      setApiStats(response.stats);
       // Stats will be updated via useEffect hook when apiStats changes
     } catch (err) {
       setError(
@@ -400,20 +430,7 @@ export default function PathReviewListView({
     // loadItems will be called automatically via useEffect when activeSearchQuery changes
   };
 
-  const handleSort = (field: string) => {
-    if (sortField === field) {
-      // Toggle direction if same field
-      setSortDir(sortDir === "asc" ? "desc" : "asc");
-    } else {
-      setSortField(field);
-      setSortDir("asc");
-    }
-    setCurrentPage(0); // Reset to first page when sorting changes
-    setShowSortMenu(false);
-  };
-
   const handleSelectAll = () => {
-    const allItemIds = new Set(items.map((item) => item.id));
     if (explicitSelected.size === items.length && 
         items.every(item => explicitSelected.has(item.id))) {
       // Deselect all items on current page
@@ -520,16 +537,18 @@ export default function PathReviewListView({
   ) => {
     if (!migrationId) return;
 
+    const status = getItemStatus(item);
     const isFolder = item.type === "folder";
-    const existsOnBoth = item.inSrc && item.inDst;
 
     // Items that exist on both are locked (not clickable)
-    if (existsOnBoth && isFolder) {
+    if (status.existsOnBoth && isFolder) {
       return;
     }
 
-    // Determine if we're excluding or unexcluding
-    const isExcluding = currentChecked;
+    // Determine if we're excluding or unexcluding based on copyStatus
+    // If currently pending (not excluded), clicking should EXCLUDE it
+    // If currently excluded, clicking should UNEXCLUDE it (back to pending)
+    const isExcluding = !status.isExcluded;
     const nodeULIDs: string[] = [];
     if (item.src?.id) {
       nodeULIDs.push(item.src.id);
@@ -542,6 +561,22 @@ export default function PathReviewListView({
       return;
     }
 
+    // Store original item state for rollback
+    const originalItem = { ...item };
+
+    // Optimistic update: immediately update item's copyStatus
+    setItems((prevItems) =>
+      prevItems.map((i) => {
+        if (i.id === item.id) {
+          return {
+            ...i,
+            copyStatus: isExcluding ? "exclusion_explicit" : "pending",
+          };
+        }
+        return i;
+      })
+    );
+
     try {
       const promises = nodeULIDs.map((nodeULID) =>
         isExcluding
@@ -552,14 +587,34 @@ export default function PathReviewListView({
       const results = await Promise.all(promises);
       const failed = results.filter((r) => !r.success);
 
-      if (failed.length === 0) {
-        // Reload items to reflect changes
-        loadItems();
-        if (onItemUpdate) {
-          onItemUpdate();
-        }
+      if (failed.length > 0) {
+        // Revert optimistic update on error
+        setItems((prevItems) =>
+          prevItems.map((i) => {
+            if (i.id === item.id) {
+              return originalItem;
+            }
+            return i;
+          })
+        );
+        return;
+      }
+
+      // Success - reload items to ensure consistency with backend
+      loadItems();
+      if (onItemUpdate) {
+        onItemUpdate();
       }
     } catch (err) {
+      // Revert optimistic update on network error
+      setItems((prevItems) =>
+        prevItems.map((i) => {
+          if (i.id === item.id) {
+            return originalItem;
+          }
+          return i;
+        })
+      );
       console.error("Failed to update item:", err);
     }
   };
@@ -579,44 +634,113 @@ export default function PathReviewListView({
       return;
     }
 
+    // Check current retry status (marked for retry means traversalStatus is not "failed")
+    const isMarkedForRetry = item.traversalStatus !== "failed";
+
+    // Store original item state for rollback
+    const originalItem = { ...item };
+
+    // Optimistic update: immediately update item's traversalStatus
+    setItems((prevItems) =>
+      prevItems.map((i) => {
+        if (i.id === item.id) {
+          // Toggle: if currently failed, mark for retry (set to pending)
+          // If currently marked for retry, unmark (set back to failed)
+          return {
+            ...i,
+            traversalStatus: isMarkedForRetry ? "failed" : "pending",
+          };
+        }
+        return i;
+      })
+    );
+
     try {
-      // For now, we only handle single node retry (bulk retry not implemented in API yet)
+      // Mark or unmark for retry based on current state
       const promises = nodeULIDs.map((nodeULID) =>
-        markNodeForRetry(migrationId, nodeULID)
+        isMarkedForRetry
+          ? unmarkNodeForRetry(migrationId, nodeULID)
+          : markNodeForRetry(migrationId, nodeULID)
       );
 
       const results = await Promise.all(promises);
       const failed = results.filter((r) => !r.success);
 
-      if (failed.length === 0) {
-        // Reload items to reflect changes
-        loadItems();
-        if (onItemUpdate) {
-          onItemUpdate();
-        }
+      if (failed.length > 0) {
+        // Revert optimistic update on error
+        setItems((prevItems) =>
+          prevItems.map((i) => {
+            if (i.id === item.id) {
+              return originalItem;
+            }
+            return i;
+          })
+        );
+        return;
+      }
+
+      // Success - reload items to ensure consistency with backend
+      loadItems();
+      if (onItemUpdate) {
+        onItemUpdate();
       }
     } catch (err) {
+      // Revert optimistic update on network error
+      setItems((prevItems) =>
+        prevItems.map((i) => {
+          if (i.id === item.id) {
+            return originalItem;
+          }
+          return i;
+        })
+      );
       console.error("Failed to mark item for retry:", err);
     }
   };
 
 
-  // Determine item status (same logic as tree view)
+  // Determine item status based on copyStatus (for traversal review mode)
   const getItemStatus = (item: DiffItem) => {
-    const existsOnBoth = item.inSrc && item.inDst;
-    const isExcluded =
-      item.traversalStatus === "exclusion_explicit" ||
-      item.traversalStatus === "exclusion_inherited";
+    // Failed items use traversalStatus
     const isFailed = item.traversalStatus === "failed";
-    const isPending =
-      item.traversalStatus === "pending" && !isExcluded && !isFailed;
-
+    
+    // If dst exists but src doesn't, it's already successful
+    if (!item.inSrc && item.inDst) {
+      return {
+        isExcluded: false,
+        isPending: false,
+        isSuccessful: true,
+        existsOnBoth: true,
+        isFailed,
+        isChecked: false, // Items that already exist are not checked
+      };
+    }
+    
+    // If src exists, check copyStatus
+    if (item.inSrc) {
+      const copyStatus = item.copyStatus || "pending"; // Default to pending if not set
+      const isExcluded = copyStatus === "exclusion_explicit" || copyStatus === "exclusion_inherited";
+      const isPending = copyStatus === "pending";
+      const isSuccessful = copyStatus === "successful";
+      
+      return {
+        isExcluded,
+        isPending,
+        isSuccessful,
+        existsOnBoth: item.inSrc && item.inDst,
+        isFailed,
+        isChecked: !isExcluded && !isSuccessful, // Checked if not excluded and not successful
+      };
+    }
+    
+    // Default case (shouldn't happen in normal flow)
     return {
-      isExcluded,
+      isExcluded: false,
+      isPending: true,
+      isSuccessful: false,
+      existsOnBoth: false,
       isFailed,
-      isPending,
-      existsOnBoth,
-      isChecked: !isExcluded && !existsOnBoth,
+      isChecked: true,
     };
   };
 
@@ -643,6 +767,22 @@ export default function PathReviewListView({
   const totalPages = pagination
     ? Math.ceil(pagination.total / itemsPerPage)
     : 0;
+
+  // Check if any filters are active
+  const hasActiveFilters = () => {
+    return (
+      activeSearchQuery.trim() !== "" ||
+      typeFilter !== "both" ||
+      depthFilter.trim() !== "" ||
+      sizeFilter.trim() !== "" ||
+      traversalStatusFilter !== ""
+    );
+  };
+
+  const isFilterActive = hasActiveFilters();
+
+  // Check if sort is active (not default: "path" with "asc")
+  const isSortActive = sortField !== "path" || sortDir !== "asc";
 
   return (
     <div 
@@ -679,22 +819,28 @@ export default function PathReviewListView({
           <button
             ref={filterButtonRef}
             type="button"
-            className="path-review-list__filter-button"
+            className={`path-review-list__filter-button ${isFilterActive ? "path-review-list__filter-button--active" : ""}`}
             onClick={() => setShowFilterMenu(true)}
-            title="Filter"
-            aria-label="Filter"
+            title={isFilterActive ? "Filter (active)" : "Filter"}
+            aria-label={isFilterActive ? "Filter (active)" : "Filter"}
           >
             <Filter size={18} />
+            {isFilterActive && (
+              <span className="path-review-list__filter-indicator" aria-hidden="true" />
+            )}
           </button>
           <button
             ref={sortButtonRef}
             type="button"
-            className="path-review-list__filter-button"
+            className={`path-review-list__filter-button ${isSortActive ? "path-review-list__filter-button--active" : ""}`}
             onClick={() => setShowSortMenu(true)}
-            title="Sort"
-            aria-label="Sort"
+            title={isSortActive ? "Sort (active)" : "Sort"}
+            aria-label={isSortActive ? "Sort (active)" : "Sort"}
           >
             <ArrowUpDown size={18} />
+            {isSortActive && (
+              <span className="path-review-list__filter-indicator" aria-hidden="true" />
+            )}
           </button>
           {showFilterMenu && (
             <div className="path-review-list__filter-modal-overlay" onClick={() => setShowFilterMenu(false)}>
@@ -760,35 +906,6 @@ export default function PathReviewListView({
                   </div>
                 </div>
 
-                {/* Depth Filter */}
-                <div className="path-review-list__filter-menu-section">
-                  <label className="path-review-list__filter-menu-label" htmlFor="depth-filter">
-                    Depth
-                  </label>
-                  <div className="path-review-list__filter-menu-numeric-controls">
-                    <select
-                      className="path-review-list__filter-menu-operator"
-                      value={depthOperator}
-                      onChange={(e) => setDepthOperator(e.target.value as "equals" | "gt" | "gte" | "lt" | "lte")}
-                    >
-                      <option value="equals">=</option>
-                      <option value="gt">&gt;</option>
-                      <option value="gte">≥</option>
-                      <option value="lt">&lt;</option>
-                      <option value="lte">≤</option>
-                    </select>
-                    <input
-                      id="depth-filter"
-                      type="number"
-                      className="path-review-list__filter-menu-input"
-                      placeholder="Any"
-                      value={depthFilter}
-                      onChange={(e) => setDepthFilter(e.target.value)}
-                      min="0"
-                    />
-                  </div>
-                </div>
-
                 {/* Size Filter */}
                 <div className="path-review-list__filter-menu-section">
                   <label className="path-review-list__filter-menu-label" htmlFor="size-filter">
@@ -832,7 +949,7 @@ export default function PathReviewListView({
                   </div>
                 </div>
 
-                {/* Traversal Status Filter */}
+                {/* Status Filter */}
                 <div className="path-review-list__filter-menu-section">
                   <label className="path-review-list__filter-menu-label" htmlFor="status-filter">
                     Status
@@ -844,10 +961,11 @@ export default function PathReviewListView({
                     onChange={(e) => setTraversalStatusFilter(e.target.value)}
                   >
                     <option value="">All</option>
-                    <option value="pending">Pending</option>
-                    <option value="failed">Failed</option>
-                    <option value="NotOnSrc">Destination Only</option>
-                    <option value="excluded">Excluded</option>
+                    <option value="pending">Pending (will be copied over)</option>
+                    <option value="excluded">Excluded (will not be copied over)</option>
+                    <option value="failed">Failed (discovery of items inside failed)</option>
+                    <option value="successful">Exists (on both)</option>
+                    <option value="NotOnSrc">Exists (on destination only)</option>
                   </select>
                 </div>
 
@@ -896,50 +1014,84 @@ export default function PathReviewListView({
                   </button>
                 </div>
                 <div className="path-review-list__sort-modal-content">
-                  <div className="path-review-list__filter-menu-options">
-                    {[
-                      { value: "name", label: "Name" },
-                      { value: "path", label: "Path" },
-                      { value: "depth", label: "Depth" },
-                      { value: "size", label: "Size" },
-                      { value: "type", label: "Type" },
-                      { value: "traversalStatus", label: "Status" },
-                    ].map(({ value, label }) => (
-                      <button
-                        key={value}
-                        type="button"
-                        className={`path-review-list__filter-menu-option ${
-                          sortField === value ? "path-review-list__filter-menu-option--active" : ""
-                        }`}
-                        onClick={() => handleSort(value)}
-                      >
-                        {label}
-                        {sortField === value && (
-                          <span className="path-review-list__filter-menu-direction">
-                            {sortDir === "asc" ? (
-                              <ChevronUp size={14} />
-                            ) : (
-                              <ChevronDown size={14} />
-                            )}
-                          </span>
-                        )}
-                      </button>
-                    ))}
+                  {sortField && (
+                    <div className="path-review-list__filter-menu-section">
+                      <label className="path-review-list__filter-menu-label">Sort Direction</label>
+                      <div className="path-review-list__filter-menu-toggle">
+                        <button
+                          type="button"
+                          className={`path-review-list__filter-menu-toggle-button ${sortDir === "asc" ? "path-review-list__filter-menu-toggle-button--active" : ""}`}
+                          onClick={() => {
+                            setSortDir("asc");
+                            setCurrentPage(0);
+                          }}
+                        >
+                          <ChevronUp size={14} style={{ marginRight: "0.25rem" }} />
+                          Ascending
+                        </button>
+                        <button
+                          type="button"
+                          className={`path-review-list__filter-menu-toggle-button ${sortDir === "desc" ? "path-review-list__filter-menu-toggle-button--active" : ""}`}
+                          onClick={() => {
+                            setSortDir("desc");
+                            setCurrentPage(0);
+                          }}
+                        >
+                          <ChevronDown size={14} style={{ marginRight: "0.25rem" }} />
+                          Descending
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  <div className="path-review-list__filter-menu-section">
+                    <label className="path-review-list__filter-menu-label">Sort By</label>
+                    <div className="path-review-list__filter-menu-options">
+                      {[
+                        { value: "name", label: "Name" },
+                        { value: "path", label: "Path" },
+                        { value: "size", label: "Size" },
+                        { value: "type", label: "Type" },
+                        { value: "traversalStatus", label: "Status" },
+                      ].map(({ value, label }) => (
+                        <button
+                          key={value}
+                          type="button"
+                          className={`path-review-list__filter-menu-option ${
+                            sortField === value ? "path-review-list__filter-menu-option--active" : ""
+                          }`}
+                          onClick={() => {
+                            setSortField(value);
+                            setSortDir("asc");
+                            setCurrentPage(0);
+                          }}
+                        >
+                          {label}
+                          {sortField === value && (
+                            <span className="path-review-list__filter-menu-direction">
+                              {sortDir === "asc" ? (
+                                <ChevronUp size={14} />
+                              ) : (
+                                <ChevronDown size={14} />
+                              )}
+                            </span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
                 <div className="path-review-list__sort-modal-footer">
-                  {sortField && (
+                  {isSortActive && (
                     <button
                       type="button"
                       className="path-review-list__filter-modal-button path-review-list__filter-modal-button--secondary"
                       onClick={() => {
-                        setSortField(null);
+                        setSortField("path");
                         setSortDir("asc");
                         setCurrentPage(0);
-                        setShowSortMenu(false);
                       }}
                     >
-                      Clear Sort
+                      Reset to Default
                     </button>
                   )}
                   <button
@@ -1251,13 +1403,13 @@ export default function PathReviewListView({
                       item={item}
                       isMarkedForRetry={false}
                       isChecked={status.isChecked}
-                      existsOnBoth={status.existsOnBoth}
+                      existsOnBoth={status.existsOnBoth || status.isSuccessful}
                       isLocked={isLocked}
                       zoomLevel={zoomLevel}
                       size={16 * zoomLevel}
                       className="path-review-list__item-status-icon"
                       onRetryClick={handleRetryClick}
-                      onExcludeClick={handleCheckboxChange}
+                      onExcludeClick={(item, currentChecked) => handleCheckboxChange(item, currentChecked)}
                     />
                   </div>
 

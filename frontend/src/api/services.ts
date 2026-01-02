@@ -15,6 +15,7 @@ import {
   ListMigrationsResponse,
 } from "../types/migrations";
 import { ServiceDescriptor, Drive, ChildrenResponse, Folder } from "../types/services";
+import { UserPreferences, DEFAULT_PREFERENCES } from "../types/preferences";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8086";
 const AUTH_STORAGE_KEY = "sylos.authToken";
@@ -356,7 +357,14 @@ export async function listDrives(
   }
 
   const data = await response.json();
-  return Array.isArray(data) ? data : [];
+  // Normalize API response: API returns displayName (lowercase) but we need name
+  return Array.isArray(data) 
+    ? data.map((drive: any) => ({
+        path: drive.path,
+        name: drive.displayName || drive.name || drive.path, // Map displayName to name
+        type: drive.type,
+      }))
+    : [];
 }
 
 export async function listChildren(
@@ -409,7 +417,7 @@ export async function listChildren(
   const normalizeFolder = (folder: any): Folder => ({
     ServiceID: folder.ServiceID,
     Id: folder.Id || folder.ServiceID, // Fallback to ServiceID if Id not provided
-    name: folder.name,
+    name: folder.DisplayName || folder.displayName || folder.name, // Map DisplayName to name
     locationPath: folder.LocationPath,
     parentId: folder.ParentId,
     parentPath: folder.ParentPath,
@@ -640,14 +648,14 @@ export async function getMigrationDiffs(
     const hasSrc = nodes.src !== undefined;
     const hasDst = nodes.dst !== undefined;
 
-    // Skip DST-only items (items that don't exist in source)
-    // We only show items that exist in source
-    if (!hasSrc) {
+    // Include all items (src-only, dst-only, and both)
+    // Use src as primary if available, otherwise use dst
+    const primaryNode = nodes.src || nodes.dst;
+    
+    if (!primaryNode) {
+      // Skip items with neither src nor dst (shouldn't happen, but safety check)
       continue;
     }
-
-    // Use src as primary, fallback to dst if src doesn't exist (shouldn't happen due to filter above)
-    const primaryNode = nodes.src || nodes.dst!;
     
     const diffItem: DiffItem = {
       id: primaryNode.id,
@@ -929,10 +937,8 @@ export async function changePhase(
 
 // Pending work API types and functions
 export interface PendingWorkResponse {
-  hasPendingExclusions: boolean;
   hasPendingRetries: boolean;
   hasPathReviewChanges: boolean;
-  pendingExclusionsCount: number;
   pendingRetriesCount: number;
 }
 
@@ -1032,6 +1038,8 @@ export interface SearchOptions {
   sizeFilter?: number | null; // Size filter (number in bytes)
   sizeOperator?: "equals" | "gt" | "gte" | "lt" | "lte"; // Size operator - defaults to "equals"
   traversalStatusFilter?: string | null; // Traversal status filter (pending, failed, etc.)
+  copyStatusFilter?: string | null; // Copy status filter (exclusion_explicit, exclusion_inherited, pending, successful, failed)
+  statusSearchType?: "traversal" | "copy" | "both"; // Controls which status conditions are processed
 }
 
 export interface SearchRequest {
@@ -1040,6 +1048,7 @@ export interface SearchRequest {
     field?: string;
     direction?: "asc" | "desc";
   };
+  statusSearchType?: "traversal" | "copy" | "both"; // Controls which status conditions are processed
 }
 
 /**
@@ -1112,15 +1121,44 @@ export async function searchPathReviewItems(
     });
   }
 
+  // Determine statusSearchType based on which filters are being used
+  let statusSearchType: "traversal" | "copy" | "both" | undefined = undefined;
+  const hasTraversalFilter = options?.traversalStatusFilter !== undefined && options.traversalStatusFilter !== null && options.traversalStatusFilter !== "";
+  const hasCopyFilter = options?.copyStatusFilter !== undefined && options.copyStatusFilter !== null && options.copyStatusFilter !== "";
+  
+  if (hasTraversalFilter && hasCopyFilter) {
+    statusSearchType = options?.statusSearchType || "both";
+  } else if (hasTraversalFilter) {
+    statusSearchType = options?.statusSearchType || "traversal";
+  } else if (hasCopyFilter) {
+    statusSearchType = options?.statusSearchType || "copy";
+  } else if (options?.statusSearchType) {
+    statusSearchType = options.statusSearchType;
+  }
+
   // Add traversal status filter condition (operator is optional/ignored for traversalStatus field)
   // Note: "excluded" is handled specially by the API to match both exclusion_explicit and exclusion_inherited
-  if (options?.traversalStatusFilter !== undefined && options.traversalStatusFilter !== null && options.traversalStatusFilter !== "") {
+  if (hasTraversalFilter) {
     requestBody.conditions!.push({
       field: "traversalStatus",
-      value: options.traversalStatusFilter,
+      value: options.traversalStatusFilter!,
       // operator is optional for traversalStatus field - always uses exact match (case-insensitive)
       // Special: "excluded" value matches both exclusion_explicit and exclusion_inherited on the backend
     });
+  }
+
+  // Add copy status filter condition (operator is optional/ignored for copyStatus field)
+  if (hasCopyFilter) {
+    requestBody.conditions!.push({
+      field: "copyStatus",
+      value: options.copyStatusFilter!,
+      // operator is optional for copyStatus field - always uses exact match (case-insensitive)
+    });
+  }
+
+  // Add statusSearchType to request body if specified
+  if (statusSearchType) {
+    requestBody.statusSearchType = statusSearchType;
   }
 
   // If no conditions, set to undefined to send empty object
@@ -1190,14 +1228,14 @@ export async function searchPathReviewItems(
     const hasSrc = nodes.src !== undefined;
     const hasDst = nodes.dst !== undefined;
 
-    // Skip DST-only items (items that don't exist in source)
-    // We only show items that exist in source
-    if (!hasSrc) {
+    // Include all items (src-only, dst-only, and both)
+    // Use src as primary if available, otherwise use dst
+    const primaryNode = nodes.src || nodes.dst;
+    
+    if (!primaryNode) {
+      // Skip items with neither src nor dst (shouldn't happen, but safety check)
       continue;
     }
-
-    // Use src as primary, fallback to dst if src doesn't exist (shouldn't happen due to filter above)
-    const primaryNode = nodes.src || nodes.dst!;
     
     const diffItem: DiffItem = {
       id: primaryNode.id,
@@ -1369,5 +1407,61 @@ export async function getBackgroundTasks(
 
   const data = await response.json();
   return Array.isArray(data) ? data : [];
+}
+
+/**
+ * Get user preferences from the backend
+ * @returns Promise resolving to UserPreferences, falls back to defaults on error
+ */
+export async function getPreferences(): Promise<UserPreferences> {
+  const token = getAuthToken() ?? undefined;
+
+  try {
+    const response = await fetch(`${API_BASE}/api/preferences`, {
+      method: "GET",
+      headers: buildHeaders(token),
+    });
+
+    if (!response.ok) {
+      // If 404 or other error, return defaults
+      console.warn(`Failed to get preferences (${response.status}), using defaults`);
+      return DEFAULT_PREFERENCES;
+    }
+
+    const data = await response.json();
+    // Validate and merge with defaults to ensure all fields are present
+    return {
+      theme: data.theme === "light" || data.theme === "dark" ? data.theme : DEFAULT_PREFERENCES.theme,
+      sidebarCollapsed: typeof data.sidebarCollapsed === "boolean" ? data.sidebarCollapsed : DEFAULT_PREFERENCES.sidebarCollapsed,
+      preSplashEnabled: typeof data.preSplashEnabled === "boolean" ? data.preSplashEnabled : DEFAULT_PREFERENCES.preSplashEnabled,
+    };
+  } catch (error) {
+    console.error("Error fetching preferences, using defaults", error);
+    return DEFAULT_PREFERENCES;
+  }
+}
+
+/**
+ * Save user preferences to the backend
+ * @param prefs UserPreferences to save
+ * @returns Promise resolving when save completes, rejects on error
+ */
+export async function savePreferences(prefs: UserPreferences): Promise<void> {
+  const token = getAuthToken() ?? undefined;
+
+  const response = await fetch(`${API_BASE}/api/preferences`, {
+    method: "PUT",
+    headers: buildHeaders(token),
+    body: JSON.stringify(prefs),
+  });
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(
+      `Failed to save preferences (${response.status}): ${
+        message || "Unknown error"
+      }`
+    );
+  }
 }
 

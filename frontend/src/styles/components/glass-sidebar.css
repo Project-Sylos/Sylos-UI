@@ -1,0 +1,138 @@
+/* Glass Sidebar - Base sidebar component */
+
+.glass-sidebar {
+  backdrop-filter: blur(var(--glass-blur-secondary));
+  background: rgba(
+    var(--glass-bg-base-r),
+    var(--glass-bg-base-g),
+    var(--glass-bg-base-b),
+    var(--glass-bg-opacity-secondary)
+  );
+  border-right: 1px solid rgba(
+    var(--color-base-slate-r),
+    var(--color-base-slate-g),
+    var(--color-base-slate-b),
+    var(--glass-border-opacity-default)
+  );
+  box-shadow: 4px 0 var(--glass-shadow-spread-sm) rgba(
+    var(--glass-bg-base-r),
+    var(--glass-bg-base-g),
+    var(--glass-bg-base-b),
+    var(--glass-shadow-opacity-sm)
+  );
+}
+
+.glass-sidebar__header {
+  border-bottom: 1px solid rgba(
+    var(--color-base-slate-r),
+    var(--color-base-slate-g),
+    var(--color-base-slate-b),
+    var(--glass-border-opacity-subtle)
+  );
+}
+
+.glass-sidebar__section {
+  border-top: 1px solid rgba(
+    var(--color-base-slate-r),
+    var(--color-base-slate-g),
+    var(--color-base-slate-b),
+    var(--glass-border-opacity-subtle)
+  );
+}
+
+.glass-sidebar__button {
+  background: rgba(
+    var(--glass-bg-base-r),
+    var(--glass-bg-base-g),
+    var(--glass-bg-base-b),
+    var(--button-bg-opacity-default)
+  );
+  backdrop-filter: blur(var(--glass-blur-secondary));
+  border: 1px solid rgba(
+    var(--color-base-slate-r),
+    var(--color-base-slate-g),
+    var(--color-base-slate-b),
+    var(--button-border-opacity-default)
+  );
+  color: var(--text-primary);
+  box-shadow: 0 2px 8px rgba(
+    var(--glass-bg-base-r),
+    var(--glass-bg-base-g),
+    var(--glass-bg-base-b),
+    var(--button-shadow-opacity)
+  );
+}
+
+.glass-sidebar__button:hover:not(:disabled) {
+  background: rgba(
+    var(--glass-bg-base-r),
+    var(--glass-bg-base-g),
+    var(--glass-bg-base-b),
+    var(--button-bg-opacity-hover)
+  );
+  border-color: rgba(
+    var(--color-base-slate-r),
+    var(--color-base-slate-g),
+    var(--color-base-slate-b),
+    var(--button-border-opacity-hover)
+  );
+  box-shadow: 0 4px 12px rgba(
+    var(--glass-bg-base-r),
+    var(--glass-bg-base-g),
+    var(--glass-bg-base-b),
+    var(--button-shadow-opacity-hover)
+  );
+}
+
+.glass-sidebar__button--primary {
+  background: rgba(
+    var(--glass-bg-base-r),
+    var(--glass-bg-base-g),
+    var(--glass-bg-base-b),
+    var(--button-bg-opacity-secondary)
+  );
+  border-color: rgba(
+    var(--color-base-slate-r),
+    var(--color-base-slate-g),
+    var(--color-base-slate-b),
+    var(--button-border-opacity-secondary)
+  );
+}
+
+.glass-sidebar__button--primary:hover:not(:disabled) {
+  background: rgba(
+    var(--glass-bg-base-r),
+    var(--glass-bg-base-g),
+    var(--glass-bg-base-b),
+    var(--button-bg-opacity-secondary-hover)
+  );
+  border-color: rgba(
+    var(--color-base-slate-r),
+    var(--color-base-slate-g),
+    var(--color-base-slate-b),
+    var(--button-border-opacity-secondary-hover)
+  );
+}
+
+.glass-sidebar__toggle {
+  background: transparent;
+  color: var(--text-primary);
+}
+
+.glass-sidebar__toggle:hover {
+  background: rgba(
+    var(--glass-bg-base-r),
+    var(--glass-bg-base-g),
+    var(--glass-bg-base-b),
+    var(--button-bg-opacity-hover)
+  );
+}
+
+.glass-sidebar__toggle:active {
+  background: rgba(
+    var(--glass-bg-base-r),
+    var(--glass-bg-base-g),
+    var(--glass-bg-base-b),
+    var(--button-bg-opacity-active)
+  );
+}

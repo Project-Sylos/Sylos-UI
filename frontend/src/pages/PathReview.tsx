@@ -95,12 +95,14 @@ export default function PathReview() {
   };
 
   const fetchStats = async () => {
-    if (!migrationId) return;
+    if (!migrationId || activeTab !== "tree") return; // Only fetch stats when on tree view
     try {
       const statsData = await getPathReviewStats(migrationId);
       // Always update stats from polling, but list view selection stats will override when items are selected
       // This ensures stats are always fresh when user deselects items
       setStats(statsData);
+      // Don't reload items here - optimistic updates handle immediate UI changes
+      // Items will refresh naturally on user navigation or explicit actions
     } catch (err) {
       console.error("Failed to fetch stats:", err);
     }
@@ -210,6 +212,54 @@ export default function PathReview() {
 
   // Handle selection state change from list view
 
+  // Determine if we're in traversal review mode
+  const isTraversalReviewMode = () => {
+    if (!migrationStatus) return true; // Default to traversal review mode
+    const checkpointStatus = (migrationStatus as any).checkpointStatus;
+    return checkpointStatus === "Awaiting-Path-Review";
+  };
+
+  // Get item status based on copyStatus (for traversal review mode)
+  const getItemStatus = (item: DiffItem) => {
+    // Failed items use traversalStatus
+    const isFailed = item.traversalStatus === "failed";
+    
+    // If dst exists but src doesn't, it's already successful
+    if (!item.inSrc && item.inDst) {
+      return {
+        isExcluded: false,
+        isPending: false,
+        isSuccessful: true,
+        existsOnBoth: true,
+        isFailed,
+      };
+    }
+    
+    // If src exists, check copyStatus
+    if (item.inSrc) {
+      const copyStatus = item.copyStatus || "pending"; // Default to pending if not set
+      const isExcluded = copyStatus === "exclusion_explicit" || copyStatus === "exclusion_inherited";
+      const isPending = copyStatus === "pending";
+      const isSuccessful = copyStatus === "successful";
+      
+      return {
+        isExcluded,
+        isPending,
+        isSuccessful,
+        existsOnBoth: item.inSrc && item.inDst,
+        isFailed,
+      };
+    }
+    
+    // Default case (shouldn't happen in normal flow)
+    return {
+      isExcluded: false,
+      isPending: true,
+      isSuccessful: false,
+      existsOnBoth: false,
+      isFailed,
+    };
+  };
 
   const loadItems = async (locationPath: string | undefined, append = false) => {
     if (!migrationId) return;
@@ -232,7 +282,7 @@ export default function PathReview() {
       // Response already filters out DST-only items and returns items with inSrc/inDst flags
       let filteredItems = response.items;
 
-      // Sort: folders first, then files, both alphabetically by displayName
+      // Sort: folders first, then files, both alphabetically by name
       filteredItems = filteredItems.sort((a, b) => {
         // First, separate by type: folders come before files
         if (a.type === "folder" && b.type === "file") {
@@ -241,7 +291,7 @@ export default function PathReview() {
         if (a.type === "file" && b.type === "folder") {
           return 1;
         }
-        // If same type, sort alphabetically by displayName
+        // If same type, sort alphabetically by name
         return a.name.localeCompare(b.name, undefined, { 
           numeric: true, 
           sensitivity: 'base' 
@@ -282,17 +332,14 @@ export default function PathReview() {
   };
 
   const handleFolderClick = (item: DiffItem) => {
-    // Prevent navigation if folder is excluded (not checked and not existing on both)
-    const isChecked = checkedItems.has(item.id);
-    const existsOnBoth = item.inSrc && item.inDst;
-    const isExcluded = !isChecked && !existsOnBoth;
-    const isFailed = item.traversalStatus === "failed";
+    // Use copyStatus-based logic for traversal review mode
+    const status = getItemStatus(item);
     
-    if (isExcluded) {
+    if (status.isExcluded) {
       return; // Don't allow navigation into excluded folders
     }
     
-    if (isFailed && item.type === "folder") {
+    if (status.isFailed && item.type === "folder") {
       setToast({
         message: `This folder was unable to be traversed. Please retry it if you wish to view its contents.`,
         type: "info",
@@ -393,19 +440,19 @@ export default function PathReview() {
     currentChecked: boolean
   ) => {
     const isFolder = item.type === "folder";
-    const existsOnBoth = item.inSrc && item.inDst;
+    const status = getItemStatus(item);
     
     // Items that exist on both are locked (not clickable)
-    if (existsOnBoth && isFolder) {
+    if (status.existsOnBoth && isFolder) {
       return;
     }
 
     if (!migrationId) return;
 
-    // Determine if we're excluding or unexcluding
-    // If currently checked (pending), clicking should EXCLUDE it
-    // If currently unchecked (excluded), clicking should UNEXCLUDE it (back to pending)
-    const isExcluding = currentChecked;
+    // Determine if we're excluding or unexcluding based on copyStatus
+    // If currently pending (not excluded), clicking should EXCLUDE it
+    // If currently excluded, clicking should UNEXCLUDE it (back to pending)
+    const isExcluding = !status.isExcluded;
     // Collect ULIDs for src and dst nodes (use id field, not locationPath)
     const nodeULIDs: string[] = [];
     if (item.src?.id) {
@@ -423,6 +470,9 @@ export default function PathReview() {
       return;
     }
 
+    // Store original item state for rollback
+    const originalItem = { ...item };
+
     // Optimistic update: immediately update UI
     const newChecked = !currentChecked;
     setCheckedItems((prev) => {
@@ -434,6 +484,19 @@ export default function PathReview() {
       }
       return newSet;
     });
+
+    // Optimistically update item's copyStatus in items array for immediate status icon update
+    setItems((prevItems) =>
+      prevItems.map((i) => {
+        if (i.id === item.id) {
+          return {
+            ...i,
+            copyStatus: isExcluding ? "exclusion_explicit" : "pending",
+          };
+        }
+        return i;
+      })
+    );
 
     // Track pending update
     pendingUpdatesRef.current.set(item.id, newChecked);
@@ -462,6 +525,15 @@ export default function PathReview() {
           }
           return newSet;
         });
+
+        setItems((prevItems) =>
+          prevItems.map((i) => {
+            if (i.id === item.id) {
+              return originalItem;
+            }
+            return i;
+          })
+        );
 
         pendingUpdatesRef.current.delete(item.id);
 
@@ -492,6 +564,15 @@ export default function PathReview() {
         }
         return newSet;
       });
+
+      setItems((prevItems) =>
+        prevItems.map((i) => {
+          if (i.id === item.id) {
+            return originalItem;
+          }
+          return i;
+        })
+      );
 
       pendingUpdatesRef.current.delete(item.id);
 
@@ -528,6 +609,9 @@ export default function PathReview() {
       return;
     }
     
+    // Store original item state for rollback
+    const originalItem = { ...item };
+    
     // Optimistic update
     const newRetryState = !isMarkedForRetry;
     setRetryItems((prev) => {
@@ -539,6 +623,21 @@ export default function PathReview() {
       }
       return newSet;
     });
+
+    // Optimistically update item's traversalStatus in items array for immediate status icon update
+    setItems((prevItems) =>
+      prevItems.map((i) => {
+        if (i.id === item.id) {
+          // Toggle: if currently failed, mark for retry (set to pending)
+          // If currently marked for retry, unmark (set back to failed)
+          return {
+            ...i,
+            traversalStatus: isMarkedForRetry ? "failed" : "pending",
+          };
+        }
+        return i;
+      })
+    );
     
     pendingRetryUpdatesRef.current.set(item.id, newRetryState);
     
@@ -564,6 +663,14 @@ export default function PathReview() {
           }
           return newSet;
         });
+        setItems((prevItems) =>
+          prevItems.map((i) => {
+            if (i.id === item.id) {
+              return originalItem;
+            }
+            return i;
+          })
+        );
         // Revert counter change
         setRetryItemsCount((prev) => newRetryState ? Math.max(0, prev - 1) : prev + 1);
         pendingRetryUpdatesRef.current.delete(item.id);
@@ -600,6 +707,14 @@ export default function PathReview() {
         }
         return newSet;
       });
+      setItems((prevItems) =>
+        prevItems.map((i) => {
+          if (i.id === item.id) {
+            return originalItem;
+          }
+          return i;
+        })
+      );
       // Revert counter change
       setRetryItemsCount((prev) => newRetryState ? Math.max(0, prev - 1) : prev + 1);
       
@@ -740,16 +855,15 @@ export default function PathReview() {
 
   return (
     <section className="path-review">
-      <button
-        type="button"
-        className="path-review__back"
-        onClick={() => navigate(-1)}
-      >
-        <ArrowLeft size={16} style={{ marginRight: "0.5rem" }} />
-        Back
-      </button>
-
       <div className="path-review__content path-review__content--with-button">
+        <button
+          type="button"
+          className="path-review__back"
+          onClick={() => navigate(-1)}
+        >
+          <ArrowLeft size={16} style={{ marginRight: "0.5rem" }} />
+          Back
+        </button>
         <header className="path-review__header">
           <h1>
             Review the <span className="path-review__highlight">Action Plan</span>
@@ -843,20 +957,18 @@ export default function PathReview() {
             ) : (
               <>
                 {items.map((item) => {
-                  const isChecked = checkedItems.has(item.id);
+                  const status = getItemStatus(item);
                   const isFolder = item.type === "folder";
-                  const existsOnBoth = item.inSrc && item.inDst;
-                  const isLocked = isFolder && existsOnBoth; // Locked if folder exists on both
-                  const isAlreadyExists = existsOnBoth; // Files and folders that exist on both
-                  const isExcluded = !isChecked && !existsOnBoth; // Excluded if not checked and not existing on both
-                  const isFailed = item.traversalStatus === "failed";
+                  const isLocked = isFolder && status.existsOnBoth; // Locked if folder exists on both
                   const isMarkedForRetry = retryItems.has(item.id);
                   const isHighlighted = highlightedItemId === item.id;
+                  // isChecked is based on copyStatus: not excluded and not successful
+                  const isChecked = !status.isExcluded && !status.isSuccessful;
 
                   return (
                     <div
                       key={item.id}
-                      className={`path-review__item ${isExcluded ? "path-review__item--excluded" : ""} ${isHighlighted ? "path-review__item--highlighted" : ""}`}
+                      className={`path-review__item ${status.isExcluded ? "path-review__item--excluded" : ""} ${isHighlighted ? "path-review__item--highlighted" : ""}`}
                       onMouseEnter={(e) => handleItemHover(item.id, e)}
                       onMouseLeave={handleItemLeave}
                     >
@@ -865,7 +977,7 @@ export default function PathReview() {
                           item={item}
                           isMarkedForRetry={isMarkedForRetry}
                           isChecked={isChecked}
-                          existsOnBoth={isAlreadyExists}
+                          existsOnBoth={status.existsOnBoth}
                           isLocked={isLocked}
                           zoomLevel={zoomLevel}
                           onRetryClick={handleRetryClick}
@@ -884,14 +996,14 @@ export default function PathReview() {
                       <div
                         className={`path-review__item-info ${isFolder ? "path-review__item-info--folder" : "path-review__item-info--file"}`}
                         onClick={() => {
-                          if (isFolder && !isExcluded && !isFailed) {
+                          if (isFolder && !status.isExcluded && !status.isFailed) {
                             handleFolderClick(item);
                           }
                         }}
                         style={{ 
-                          cursor: isFolder && !isExcluded && !isFailed 
+                          cursor: isFolder && !status.isExcluded && !status.isFailed 
                             ? "pointer" 
-                            : (isExcluded || isFailed) 
+                            : (status.isExcluded || status.isFailed) 
                             ? "not-allowed" 
                             : "default" 
                         }}
@@ -1078,4 +1190,3 @@ export default function PathReview() {
     </section>
   );
 }
-

@@ -1,3 +1,5 @@
+@import "../styles/components/text-styles.css";
+
 .path-review-footer-info {
   display: flex;
   align-items: center;
@@ -12,7 +14,7 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  color: rgba(226, 232, 240, 0.7);
+  color: var(--text-tertiary);
 }
 
 .path-review-footer-info__stat--ratio {
@@ -28,7 +30,7 @@
 }
 
 .path-review-footer-info__stat-value {
-  color: #f8fafc;
+  color: var(--text-primary);
   font-weight: 600;
   white-space: nowrap;
 }
@@ -39,7 +41,12 @@
   height: 12px;
   border-radius: 6px;
   overflow: hidden;
-  background: rgba(148, 163, 184, 0.1);
+  background: rgba(
+    var(--color-base-slate-r),
+    var(--color-base-slate-g),
+    var(--color-base-slate-b),
+    0.1
+  );
 }
 
 .path-review-footer-info__ratio-segment {
@@ -49,16 +56,16 @@
 }
 
 .path-review-footer-info__ratio-segment--folders {
-  background: #00ffff;
+  background: var(--accent-cyan);
 }
 
 .path-review-footer-info__ratio-segment--files {
-  background: #ff00ff;
+  background: var(--accent-magenta);
 }
 
 .path-review-footer-info__ratio-labels {
   font-size: 0.7rem;
-  color: rgba(226, 232, 240, 0.6);
+  color: var(--text-muted);
   white-space: nowrap;
 }
 

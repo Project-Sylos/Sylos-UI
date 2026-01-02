@@ -1,6 +1,11 @@
+/* Import design token system */
+@import "./styles/tokens.css";
+@import "./styles/themes/dark-theme.css";
+@import "./styles/themes/light-theme.css";
+
 :root {
   color-scheme: light dark;
-  color: #e2e8f0;
+  color: var(--text-primary);
 }
 
 body {

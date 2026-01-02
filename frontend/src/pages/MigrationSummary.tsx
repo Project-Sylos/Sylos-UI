@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Search, ArrowLeft } from "lucide-react";
 
+import PageContainer from "../components/PageContainer";
 import { useSelection } from "../context/SelectionContext";
 import { startMigration } from "../api/services";
 import "./MigrationSummary.css";
@@ -50,24 +51,19 @@ export default function MigrationSummary() {
     }
   };
 
-  const formatPath = (root?: { displayName?: string; locationPath?: string }) => {
+  const formatPath = (root?: { name?: string; locationPath?: string }) => {
     if (!root) return "Not specified";
-    return root.locationPath || root.displayName || "Not specified";
+    return root.locationPath || root.name || "Not specified";
   };
 
   return (
-    <section className="migration-summary">
-      <button
-        type="button"
-        className="migration-summary__back"
-        onClick={() => navigate("/destination")}
-      >
-        <ArrowLeft size={16} style={{ marginRight: "0.5rem" }} />
-        Back to destination
-      </button>
-
-      <div className="migration-summary__content">
-        <header className="migration-summary__header">
+    <PageContainer
+      className="migration-summary"
+      contentClassName="migration-summary__content"
+      onBack={() => navigate("/destination")}
+      backLabel="Back to destination"
+    >
+      <header className="migration-summary__header">
           <p className="migration-summary__eyebrow">Step 3</p>
           <h1>
             Review your <span className="migration-summary__highlight">migration</span>
@@ -138,8 +134,7 @@ export default function MigrationSummary() {
             {isStarting ? "Starting discovery..." : "Start Discovery"}
           </button>
         </div>
-      </div>
-    </section>
+      </PageContainer>
   );
 }
 

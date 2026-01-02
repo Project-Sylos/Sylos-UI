@@ -1,0 +1,77 @@
+/* Light Theme Pack - Variable values for light mode */
+
+:root[data-theme="light"] {
+  /* Glass Container - Darker/more visible for contrast against bright background */
+  --glass-bg-opacity-primary: 0.25;
+  --glass-bg-opacity-secondary: 0.18;
+  --glass-bg-opacity-tertiary: 0.12;
+  --glass-bg-opacity-hover: 0.3;
+  --glass-bg-opacity-active: 0.35;
+  
+  /* Backdrop blur - similar levels */
+  --glass-blur-primary: 16px;
+  --glass-blur-secondary: 12px;
+  --glass-blur-tertiary: 8px;
+  
+  /* Border opacity - more visible for definition */
+  --glass-border-opacity-default: 0.3;
+  --glass-border-opacity-subtle: 0.2;
+  --glass-border-opacity-strong: 0.4;
+  --glass-border-opacity-hover: 0.4;
+  
+  /* Shadow opacity - more prominent shadows for depth */
+  --glass-shadow-opacity-sm: 0.15;
+  --glass-shadow-opacity-md: 0.3;
+  --glass-shadow-opacity-lg: 0.45;
+  --glass-shadow-blur-sm: 16px;
+  --glass-shadow-blur-md: 24px;
+  --glass-shadow-blur-lg: 90px;
+  --glass-shadow-spread-sm: 4px;
+  --glass-shadow-spread-md: 8px;
+  --glass-shadow-spread-lg: 40px;
+  
+  /* Text Colors - White text for all main text (same as dark mode) */
+  --text-primary: #ffffff;
+  --text-secondary: rgba(255, 255, 255, 0.9);
+  --text-tertiary: rgba(255, 255, 255, 0.8);
+  --text-muted: rgba(255, 255, 255, 0.7);
+  --text-disabled: rgba(255, 255, 255, 0.6);
+  --text-hover: #ffffff;
+  
+  /* Button Colors - Minimal tinting but more visible */
+  --button-bg-opacity-default: 0.15;
+  --button-bg-opacity-hover: 0.25;
+  --button-bg-opacity-active: 0.3;
+  --button-bg-opacity-secondary: 0.12;
+  --button-bg-opacity-secondary-hover: 0.2;
+  --button-border-opacity-default: 0.3;
+  --button-border-opacity-hover: 0.4;
+  --button-border-opacity-secondary: 0.25;
+  --button-border-opacity-secondary-hover: 0.35;
+  --button-shadow-opacity: 0.15;
+  --button-shadow-opacity-hover: 0.3;
+  
+  /* Glass Container Base Colors - Use darker colors for contrast against bright background */
+  --glass-bg-base-r: 15;
+  --glass-bg-base-g: 23;
+  --glass-bg-base-b: 42;
+  
+  /* Base Colors RGB */
+  --color-base-dark-r: 15;
+  --color-base-dark-g: 23;
+  --color-base-dark-b: 42;
+  --color-base-light-r: 248;
+  --color-base-light-g: 250;
+  --color-base-light-b: 252;
+  --color-base-slate-r: 30;
+  --color-base-slate-g: 41;
+  --color-base-slate-b: 59;
+  --color-base-e2-r: 30;
+  --color-base-e2-g: 41;
+  --color-base-e2-b: 59;
+  
+  /* Background Base Colors */
+  --bg-base-dark: #f8fafc;
+  --bg-base-light: #ffffff;
+  --bg-base-container: #f1f5f9;
+}

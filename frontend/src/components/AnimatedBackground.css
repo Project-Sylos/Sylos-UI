@@ -19,8 +19,19 @@
   height: 100vh;
   min-width: 100%;
   min-height: 100%;
-  transform: translate(-50%, -50%) scale(1.3); /* 30% zoom to make rectangle larger */ 
-  object-fit: cover;
-  filter: brightness(1.2) saturate(1.2);
   pointer-events: none;
+}
+
+/* Dark mode video settings */
+.sylos-bg-video--dark {
+  transform: translate(-50%, -50%) scale(1);
+  object-fit: fill;
+  filter: brightness(1) saturate(1.3);
+}
+
+/* Light mode video settings */
+.sylos-bg-video--light {
+  transform: translate(-50%, -50%) scale(1.5);
+  object-fit: cover;
+  filter: brightness(0.9) saturate(1.3);
 }

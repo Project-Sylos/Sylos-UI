@@ -4,6 +4,7 @@ import { Upload, CheckCircle2, RotateCcw, RefreshCw, Square } from "lucide-react
 
 import "../App.css";
 import OverwriteDialog from "../components/OverwriteDialog";
+import PageContainer from "../components/PageContainer";
 import {
   listMigrations,
   stopMigration,
@@ -313,17 +314,14 @@ export default function ResumeMigration() {
   };
 
   return (
-    <section className="resume-migration">
-      <button
-        type="button"
-        className="resume-migration__back"
-        onClick={() => navigate("/choose")}
+    <>
+      <PageContainer
+        className="resume-migration"
+        contentClassName="resume-migration__content"
+        onBack={() => navigate("/choose")}
+        backLabel="← Back"
       >
-        ← Back
-      </button>
-
-      <div className="resume-migration__content">
-        <header className="resume-migration__header">
+      <header className="resume-migration__header">
           <p className="resume-migration__eyebrow">Resume Migration</p>
           <h1>Select Migration to Resume</h1>
           <p className="resume-migration__summary">
@@ -446,7 +444,7 @@ export default function ResumeMigration() {
             ))
           )}
         </div>
-      </div>
+      </PageContainer>
 
       {showOverwriteDialog && pendingUpload && (
         <OverwriteDialog
@@ -455,7 +453,7 @@ export default function ResumeMigration() {
           onCancel={handleCancelOverwrite}
         />
       )}
-    </section>
+    </>
   );
 }
 

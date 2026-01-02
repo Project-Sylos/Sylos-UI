@@ -1,3 +1,6 @@
+@import "../styles/components/glass-container.css";
+@import "../styles/components/text-styles.css";
+
 .toast {
   position: fixed;
   bottom: 2rem;
@@ -7,15 +10,31 @@
   align-items: center;
   gap: 1rem;
   padding: 1rem 1.5rem;
-  background: rgba(15, 23, 42, 0.95);
-  backdrop-filter: blur(16px);
-  border: 1px solid rgba(148, 163, 184, 0.3);
   border-radius: 12px;
-  box-shadow: 0 8px 32px rgba(15, 23, 42, 0.4);
-  color: #f8fafc;
   font-size: 0.95rem;
   max-width: 400px;
   animation: slideIn 0.3s ease-out;
+  /* Apply glass-container base styles */
+  backdrop-filter: blur(var(--glass-blur-primary));
+  background: rgba(
+    var(--color-base-dark-r),
+    var(--color-base-dark-g),
+    var(--color-base-dark-b),
+    0.95
+  );
+  border: 1px solid rgba(
+    var(--color-base-slate-r),
+    var(--color-base-slate-g),
+    var(--color-base-slate-b),
+    var(--glass-border-opacity-strong)
+  );
+  box-shadow: 0 var(--glass-shadow-spread-md) var(--glass-shadow-blur-md) rgba(
+    var(--color-base-dark-r),
+    var(--color-base-dark-g),
+    var(--color-base-dark-b),
+    var(--glass-shadow-opacity-md)
+  );
+  color: var(--text-primary);
 }
 
 @keyframes slideIn {
@@ -52,7 +71,7 @@
 .toast__close {
   background: transparent;
   border: none;
-  color: rgba(148, 163, 184, 0.7);
+  color: var(--text-muted);
   cursor: pointer;
   padding: 0.25rem;
   display: flex;
@@ -63,7 +82,7 @@
 }
 
 .toast__close:hover {
-  color: #f8fafc;
+  color: var(--text-primary);
 }
 
 @media (max-width: 640px) {

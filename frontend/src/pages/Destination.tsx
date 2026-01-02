@@ -48,7 +48,7 @@ export default function Destination() {
         id: destinationRoot.ServiceID,  // Service's native identifier
         parentId: destinationRoot.parentId,
         parentPath: destinationRoot.parentPath,
-        displayName: destinationRoot.displayName,
+        displayName: destinationRoot.name,
         locationPath: destinationRoot.locationPath,
         lastUpdated: destinationRoot.lastUpdated,
         depthLevel: destinationRoot.depthLevel,
@@ -162,7 +162,7 @@ export default function Destination() {
         id: sourceRoot.ServiceID,  // Service's native identifier
         parentId: sourceRoot.parentId,
         parentPath: sourceRoot.parentPath,
-        displayName: sourceRoot.displayName,
+        displayName: sourceRoot.name,
         locationPath: sourceRoot.locationPath,
         lastUpdated: sourceRoot.lastUpdated,
         depthLevel: sourceRoot.depthLevel,
@@ -273,7 +273,7 @@ export default function Destination() {
         id: destinationRoot.ServiceID,  // Service's native identifier
         parentId: destinationRoot.parentId,
         parentPath: destinationRoot.parentPath,
-        displayName: destinationRoot.displayName,
+        displayName: destinationRoot.name,
         locationPath: destinationRoot.locationPath,
         lastUpdated: destinationRoot.lastUpdated,
         depthLevel: destinationRoot.depthLevel,

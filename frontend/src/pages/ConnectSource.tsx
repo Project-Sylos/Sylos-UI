@@ -40,7 +40,7 @@ export default function ConnectSource() {
         id: root.ServiceID,  // Service's native identifier
         parentId: root.parentId,
         parentPath: root.parentPath,
-        displayName: root.displayName,
+        displayName: root.name,
         locationPath: root.locationPath,
         lastUpdated: root.lastUpdated,
         depthLevel: root.depthLevel,
@@ -75,7 +75,6 @@ export default function ConnectSource() {
   // Handle return from folder browser
   useEffect(() => {
     const state = location.state as { selectedFolder?: Folder; serviceId?: string } | null;
-    console.log("ConnectSource: location.state =", state);
     
     if (state?.selectedFolder && state?.serviceId) {
       // Create a unique key for this state to prevent double processing
@@ -83,12 +82,10 @@ export default function ConnectSource() {
       
       // Skip if we've already processed this state (prevents double processing from StrictMode)
       if (processedStateRef.current === stateKey) {
-        console.log("ConnectSource: Skipping duplicate state processing");
         return;
       }
       
       processedStateRef.current = stateKey;
-      console.log("ConnectSource: Calling handleFolderSelected with:", state.serviceId, state.selectedFolder);
       handleFolderSelected(state.serviceId, state.selectedFolder);
       // Clear the state to prevent re-triggering
       window.history.replaceState({}, document.title);
@@ -150,7 +147,7 @@ export default function ConnectSource() {
         id: root.ServiceID,  // Service's native identifier
         parentId: root.parentId,
         parentPath: root.parentPath,
-        displayName: root.displayName,
+        displayName: root.name,
         locationPath: root.locationPath,
         lastUpdated: root.lastUpdated,
         depthLevel: root.depthLevel,

@@ -64,6 +64,18 @@ export default function PreSplash() {
       {(phase === "fading-to-black" || phase === "fading-out") && (
         <div className="pre-splash__black-overlay" />
       )}
+      <div className="pre-splash__credit">
+        <a
+          href="https://pixabay.com/users/forsigo-14301466/"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="pre-splash__credit-link"
+        >
+          <span className="pre-splash__credit-text">
+            Background by <span className="pre-splash__credit-handle">@Forsigo</span>
+          </span>
+        </a>
+      </div>
     </div>
   );
 }

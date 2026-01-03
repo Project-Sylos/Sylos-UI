@@ -310,11 +310,10 @@ export default function PathReviewListView({
         // Successful is a copy status
         statusSearchType = "copy";
         copyStatusFilterValue = "successful";
-      } else if (traversalStatusFilter === "NotOnSrc") {
-        // Destination only - this might need special handling
-        // For now, treat as a copy status filter
+      } else if (traversalStatusFilter === "not_on_src") {
+        // Destination only - this is a traversal status
         statusSearchType = "traversal";
-        copyStatusFilterValue = "NotOnSrc";
+        traversalStatusFilterValue = "not_on_src";
       }
 
       const response = await searchPathReviewItems(migrationId, {
@@ -540,8 +539,8 @@ export default function PathReviewListView({
     const status = getItemStatus(item);
     const isFolder = item.type === "folder";
 
-    // Items that exist on both are locked (not clickable)
-    if (status.existsOnBoth && isFolder) {
+    // Items that exist on both or only on destination are locked (not clickable)
+    if ((status.existsOnBoth || status.existsOnlyOnDst) && isFolder) {
       return;
     }
 
@@ -699,48 +698,30 @@ export default function PathReviewListView({
   };
 
 
-  // Determine item status based on copyStatus (for traversal review mode)
+  // Get item status based on API data (copyStatus and traversalStatus)
   const getItemStatus = (item: DiffItem) => {
-    // Failed items use traversalStatus
+    const copyStatus = item.copyStatus || "pending";
     const isFailed = item.traversalStatus === "failed";
+    const existsOnlyOnDst = item.traversalStatus === "not_on_src";
     
-    // If dst exists but src doesn't, it's already successful
-    if (!item.inSrc && item.inDst) {
-      return {
-        isExcluded: false,
-        isPending: false,
-        isSuccessful: true,
-        existsOnBoth: true,
-        isFailed,
-        isChecked: false, // Items that already exist are not checked
-      };
-    }
+    // 1. Failed traversalStatus → failed to traverse
+    // 2. Excluded copyStatus → excluded from copy
+    // 3. Pending copyStatus → pending - will be copied over
+    // 4. Successful copyStatus → already exists on both
+    // 5. traversalStatus 'not_on_src' → exists only on destination (dst items don't have copy status)
     
-    // If src exists, check copyStatus
-    if (item.inSrc) {
-      const copyStatus = item.copyStatus || "pending"; // Default to pending if not set
-      const isExcluded = copyStatus === "exclusion_explicit" || copyStatus === "exclusion_inherited";
-      const isPending = copyStatus === "pending";
-      const isSuccessful = copyStatus === "successful";
-      
-      return {
-        isExcluded,
-        isPending,
-        isSuccessful,
-        existsOnBoth: item.inSrc && item.inDst,
-        isFailed,
-        isChecked: !isExcluded && !isSuccessful, // Checked if not excluded and not successful
-      };
-    }
+    const isExcluded = copyStatus === "exclusion_explicit" || copyStatus === "exclusion_inherited";
+    const isPending = copyStatus === "pending";
+    const isSuccessful = copyStatus === "successful";
+    const existsOnBoth = isSuccessful; // Successful copyStatus means it exists on both
     
-    // Default case (shouldn't happen in normal flow)
     return {
-      isExcluded: false,
-      isPending: true,
-      isSuccessful: false,
-      existsOnBoth: false,
+      isExcluded,
+      isPending,
+      isSuccessful,
+      existsOnBoth,
+      existsOnlyOnDst,
       isFailed,
-      isChecked: true,
     };
   };
 
@@ -965,7 +946,7 @@ export default function PathReviewListView({
                     <option value="excluded">Excluded (will not be copied over)</option>
                     <option value="failed">Failed (discovery of items inside failed)</option>
                     <option value="successful">Exists (on both)</option>
-                    <option value="NotOnSrc">Exists (on destination only)</option>
+                    <option value="not_on_src">Exists (on destination only)</option>
                   </select>
                 </div>
 
@@ -1370,7 +1351,7 @@ export default function PathReviewListView({
               const isInherited = !isExplicit && inherited.has(item.id);
               const isSelected = isExplicit || isInherited;
               const isFolder = item.type === "folder";
-              const isLocked = isFolder && status.existsOnBoth;
+              const isLocked = isFolder && (status.existsOnBoth || status.existsOnlyOnDst);
 
               return (
                 <div
@@ -1402,8 +1383,6 @@ export default function PathReviewListView({
                     <PathReviewStatusIcon
                       item={item}
                       isMarkedForRetry={false}
-                      isChecked={status.isChecked}
-                      existsOnBoth={status.existsOnBoth || status.isSuccessful}
                       isLocked={isLocked}
                       zoomLevel={zoomLevel}
                       size={16 * zoomLevel}

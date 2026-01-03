@@ -22,7 +22,11 @@ export default function PathReviewLegend({
       </div>
       <div className="path-review__legend-item">
         <Check size={14 * zoomLevel} className="path-review__legend-icon path-review__legend-icon--exists" />
-        <span className="path-review__legend-label">Exists</span>
+        <span className="path-review__legend-label">Exists (Both)</span>
+      </div>
+      <div className="path-review__legend-item">
+        <Check size={14 * zoomLevel} className="path-review__legend-icon path-review__legend-icon--exists-only-dst" />
+        <span className="path-review__legend-label">Exists (Destination Only)</span>
       </div>
       <div className="path-review__legend-item">
         <AlertCircle size={14 * zoomLevel} className="path-review__legend-icon path-review__legend-icon--failed" />

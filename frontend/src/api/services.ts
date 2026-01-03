@@ -552,8 +552,6 @@ export interface DiffItem {
   size?: number;             // File size from src if available, otherwise dst
   traversalStatus: string;   // Traversal status from src if available, otherwise dst
   copyStatus?: string;       // Copy status from src if available, otherwise dst
-  inSrc: boolean;            // Whether src node exists
-  inDst: boolean;            // Whether dst node exists
   src?: PathNodeItem;        // Full src node (for hover card)
   dst?: PathNodeItem;        // Full dst node (for hover card)
 }
@@ -670,8 +668,6 @@ export async function getMigrationDiffs(
       size: primaryNode.size,
       traversalStatus: primaryNode.traversalStatus,
       copyStatus: primaryNode.copyStatus,
-      inSrc: hasSrc,
-      inDst: hasDst,
       src: nodes.src,
       dst: nodes.dst,
     };
@@ -1237,6 +1233,8 @@ export async function searchPathReviewItems(
       continue;
     }
     
+    // For status determination:
+    
     const diffItem: DiffItem = {
       id: primaryNode.id,
       parentId: primaryNode.parentId,
@@ -1249,9 +1247,7 @@ export async function searchPathReviewItems(
       type: primaryNode.type as "folder" | "file",
       size: primaryNode.size,
       traversalStatus: primaryNode.traversalStatus,
-      copyStatus: primaryNode.copyStatus,
-      inSrc: hasSrc,
-      inDst: hasDst,
+      copyStatus: primaryNode?.copyStatus || undefined,
       src: nodes.src,
       dst: nodes.dst,
     };

@@ -94,7 +94,7 @@
 
 .path-review__summary {
   margin: 0.5rem auto 0;
-  max-width: 600px;
+  max-width: 800px;
   color: var(--text-tertiary);
   line-height: 1.5;
   font-size: 0.9rem;
@@ -565,7 +565,11 @@
 }
 
 .path-review__legend-icon--exists {
-  color: rgba(34, 211, 153, 0.9);
+  color: rgba(255, 0, 255, 0.9); /* Magenta for exists on both */
+}
+
+.path-review__legend-icon--exists-only-dst {
+  color: rgba(0, 255, 255, 0.9); /* Cyan for exists only on destination */
 }
 
 .path-review__legend-icon--failed {
@@ -738,7 +742,15 @@
 }
 
 .path-review__item-status-icon--exists {
-  color: rgba(34, 211, 153, 0.9);
+  color: rgba(255, 0, 255, 0.9); /* Default to magenta */
+}
+
+.path-review__item-status-icon--exists-on-both {
+  color: rgba(255, 0, 255, 0.9); /* Magenta for exists on both */
+}
+
+.path-review__item-status-icon--exists-only-dst {
+  color: rgba(0, 255, 255, 0.9); /* Cyan for exists only on destination */
 }
 
 .path-review__item-status-icon:hover:not([style*="not-allowed"]) {
@@ -1954,8 +1966,17 @@
   color: rgba(239, 68, 68, 0.9);
 }
 
+.path-review-list__item-status-icon--exists-on-both {
+  color: rgba(255, 0, 255, 0.9); /* Magenta for exists on both */
+}
+
+.path-review-list__item-status-icon--exists-only-dst {
+  color: rgba(0, 255, 255, 0.9); /* Cyan for exists only on destination */
+}
+
+/* Fallback for existing --exists class (backwards compatibility) */
 .path-review-list__item-status-icon--exists {
-  color: rgba(34, 211, 153, 0.9);
+  color: rgba(255, 0, 255, 0.9); /* Default to magenta */
 }
 
 .path-review-list__item-status-icon:hover:not([style*="not-allowed"]) {

@@ -5,8 +5,6 @@ import { DiffItem } from "../api/services";
 export interface PathReviewStatusIconProps {
   item: DiffItem;
   isMarkedForRetry: boolean;
-  isChecked: boolean;
-  existsOnBoth: boolean;
   isLocked: boolean;
   zoomLevel?: number;
   size?: number;
@@ -18,8 +16,6 @@ export interface PathReviewStatusIconProps {
 export default function PathReviewStatusIcon({
   item,
   isMarkedForRetry,
-  isChecked,
-  existsOnBoth,
   isLocked,
   zoomLevel = 1,
   size,
@@ -28,31 +24,17 @@ export default function PathReviewStatusIcon({
   onExcludeClick,
 }: PathReviewStatusIconProps) {
   const iconSize = size || 20 * zoomLevel;
-  const isFailed = item.traversalStatus === "failed";
-  
-  // Determine status based on copyStatus (for traversal review mode)
-  // If dst exists but src doesn't, it's already successful
-  let isExcluded = false;
-  let isPending = false;
-  let isSuccessful = false;
-  
-  if (!item.inSrc && item.inDst) {
-    isSuccessful = true;
-  } else if (item.inSrc) {
-    const copyStatus = item.copyStatus || "pending";
-    isExcluded = copyStatus === "exclusion_explicit" || copyStatus === "exclusion_inherited";
-    isPending = copyStatus === "pending";
-    isSuccessful = copyStatus === "successful";
-  } else {
-    // Default to pending if src doesn't exist
-    isPending = true;
-  }
+  // Use actual values from API - traversalStatus should always exist
+  const traversalStatus = item.traversalStatus;
+  // copyStatus may not exist for dst-only items - default to empty string to avoid masking real status
+  // Empty string ensures string comparisons work but won't match any status checks
+  const copyStatus = item.copyStatus ?? "";
 
   // Use provided className or default to tree view class
   const baseClass = className || 'path-review__item-status-icon';
   
-  // Failed items - show retry icon
-  if (isFailed && !isMarkedForRetry) {
+  // 1. Failed traversalStatus - show retry icon
+  if (traversalStatus === "failed" && !isMarkedForRetry) {
     return (
       <AlertCircle
         size={iconSize}
@@ -63,7 +45,7 @@ export default function PathReviewStatusIcon({
     );
   }
 
-  // Marked for retry - show retry icon (clickable to unmark)
+  // 2. Marked for retry - show retry icon
   if (isMarkedForRetry) {
     return (
       <RotateCw
@@ -75,20 +57,8 @@ export default function PathReviewStatusIcon({
     );
   }
 
-  // Pending items - show pending icon (clickable to exclude)
-  if (!isFailed && !isMarkedForRetry && isPending && !isSuccessful) {
-    return (
-      <Clock
-        size={iconSize}
-        className={`${baseClass} ${baseClass}--pending`}
-        onClick={() => !isLocked && onExcludeClick?.(item, true)}
-        style={{ cursor: isLocked ? "not-allowed" : "pointer" }}
-      />
-    );
-  }
-
-  // Excluded items - show excluded icon (clickable to unexclude)
-  if (!isFailed && !isMarkedForRetry && isExcluded) {
+  // 3. Excluded copyStatus - show excluded icon
+  if (copyStatus === "exclusion_explicit" || copyStatus === "exclusion_inherited") {
     return (
       <X
         size={iconSize}
@@ -99,13 +69,36 @@ export default function PathReviewStatusIcon({
     );
   }
 
-  // Items that exist on both or are successful - show exists icon (not clickable)
-  if (!isFailed && !isMarkedForRetry && (isSuccessful || existsOnBoth)) {
+  // 4. traversalStatus 'not_on_src' - show cyan exists icon (exists only on destination)
+  if (traversalStatus === "not_on_src") {
     return (
       <Check
         size={iconSize}
-        className={`${baseClass} ${baseClass}--exists`}
+        className={`${baseClass} ${baseClass}--exists-only-dst`}
         style={{ cursor: "default" }}
+      />
+    );
+  }
+
+  // 5. Successful copyStatus - show magenta exists icon (exists on both)
+  if (copyStatus === "successful") {
+    return (
+      <Check
+        size={iconSize}
+        className={`${baseClass} ${baseClass}--exists ${baseClass}--exists-on-both`}
+        style={{ cursor: "default" }}
+      />
+    );
+  }
+
+  // 6. Pending copyStatus - show pending icon
+  if (copyStatus === "pending") {
+    return (
+      <Clock
+        size={iconSize}
+        className={`${baseClass} ${baseClass}--pending`}
+        onClick={() => !isLocked && onExcludeClick?.(item, true)}
+        style={{ cursor: isLocked ? "not-allowed" : "pointer" }}
       />
     );
   }
@@ -113,4 +106,3 @@ export default function PathReviewStatusIcon({
   // Default: no icon
   return null;
 }
-

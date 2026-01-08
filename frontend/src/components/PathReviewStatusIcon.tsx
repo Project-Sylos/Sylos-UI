@@ -24,8 +24,14 @@ export default function PathReviewStatusIcon({
   onExcludeClick,
 }: PathReviewStatusIconProps) {
   const iconSize = size || 20 * zoomLevel;
-  // Use actual values from API - traversalStatus should always exist
-  const traversalStatus = item.traversalStatus;
+  // Check both src and dst traversalStatus - failed overrides pending
+  const srcTraversalStatus = item.src?.traversalStatus;
+  const dstTraversalStatus = item.dst?.traversalStatus;
+  // Failed status from either node overrides pending - show failed icon
+  const hasFailedStatus = srcTraversalStatus === "failed" || dstTraversalStatus === "failed";
+  // Pending status if either node is pending (and neither is failed)
+  const hasPendingStatus = (srcTraversalStatus === "pending" || dstTraversalStatus === "pending") && !hasFailedStatus;
+  
   // copyStatus may not exist for dst-only items - default to empty string to avoid masking real status
   // Empty string ensures string comparisons work but won't match any status checks
   const copyStatus = item.copyStatus ?? "";
@@ -33,8 +39,8 @@ export default function PathReviewStatusIcon({
   // Use provided className or default to tree view class
   const baseClass = className || 'path-review__item-status-icon';
   
-  // 1. Failed traversalStatus - show retry icon
-  if (traversalStatus === "failed" && !isMarkedForRetry) {
+  // 1. Failed traversalStatus (from either src or dst) - show failed icon (prioritize failed over pending)
+  if (hasFailedStatus) {
     return (
       <AlertCircle
         size={iconSize}
@@ -45,7 +51,19 @@ export default function PathReviewStatusIcon({
     );
   }
 
-  // 2. Marked for retry - show retry icon
+  // 2. Pending traversalStatus (from either src or dst) - show retry icon
+  if (hasPendingStatus) {
+    return (
+      <RotateCw
+        size={iconSize}
+        className={`${baseClass} ${baseClass}--retry`}
+        onClick={() => onRetryClick?.(item)}
+        style={{ cursor: "pointer" }}
+      />
+    );
+  }
+
+  // 3. Marked for retry - show retry icon (fallback for other cases)
   if (isMarkedForRetry) {
     return (
       <RotateCw
@@ -70,7 +88,9 @@ export default function PathReviewStatusIcon({
   }
 
   // 4. traversalStatus 'not_on_src' - show cyan exists icon (exists only on destination)
-  if (traversalStatus === "not_on_src") {
+  // Check primary traversalStatus or either node
+  const primaryTraversalStatus = item.traversalStatus;
+  if (primaryTraversalStatus === "not_on_src" || srcTraversalStatus === "not_on_src" || dstTraversalStatus === "not_on_src") {
     return (
       <Check
         size={iconSize}

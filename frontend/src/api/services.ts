@@ -973,6 +973,7 @@ export interface PathReviewStats {
   pendingCount: number;
   failedCount: number;
   excludedCount: number;
+  pendingRetriesCount: number;  // Count of items with traversal_status = 'pending'
   foldersCount: number;
   filesCount: number;
   foldersRatio: number;  // 0-100, rounded to 2 decimal places
@@ -1374,6 +1375,12 @@ export interface BackgroundTask {
   path?: string;  // Path associated with the task (for propagation tasks)
 }
 
+export interface RunningTasksResponse {
+  hasRunningTasks: boolean;
+  count: number;
+  tasks: BackgroundTask[];
+}
+
 /**
  * Get background tasks for a migration
  * @param migrationId The ID of the migration
@@ -1406,6 +1413,87 @@ export async function getBackgroundTasks(
 }
 
 /**
+ * Check for running background tasks for a migration
+ * @param migrationId The ID of the migration
+ * @returns Promise resolving to RunningTasksResponse
+ */
+export async function getRunningBackgroundTasks(
+  migrationId: string
+): Promise<RunningTasksResponse> {
+  const token = getAuthToken() ?? undefined;
+
+  const response = await fetch(
+    `${API_BASE}/api/migrations/${migrationId}/bgTasks/running`,
+    {
+      method: "GET",
+      headers: buildHeaders(token),
+    }
+  );
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(
+      `Failed to get running background tasks (${response.status}): ${
+        message || "Unknown error"
+      }`
+    );
+  }
+
+  return (await response.json()) as RunningTasksResponse;
+}
+
+// Retry sweep API types and functions
+export interface RetrySweepRequest {
+  workerCount?: number;
+  maxRetries?: number;
+  maxKnownDepth?: number;
+  logAddress?: string;
+  logLevel?: string;
+  skipListener?: boolean;
+  startupDelaySeconds?: number;
+  progressTickMillis?: number;
+}
+
+export interface RetrySweepResponse {
+  success: boolean;
+  message?: string;
+  error?: string;
+}
+
+/**
+ * Trigger retry sweep for a migration
+ * @param migrationId The ID of the migration
+ * @param config Optional configuration for the retry sweep
+ * @returns Promise resolving to RetrySweepResponse
+ */
+export async function triggerRetrySweep(
+  migrationId: string,
+  config?: RetrySweepRequest
+): Promise<RetrySweepResponse> {
+  const token = getAuthToken() ?? undefined;
+
+  const response = await fetch(
+    `${API_BASE}/api/migrations/${migrationId}/retry-sweep`,
+    {
+      method: "POST",
+      headers: buildHeaders(token),
+      body: JSON.stringify(config || {}),
+    }
+  );
+
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    return {
+      success: false,
+      error: data.error || `Failed to trigger retry sweep (${response.status})`,
+    };
+  }
+
+  const data = await response.json();
+  return data as RetrySweepResponse;
+}
+
+/**
  * Get user preferences from the backend
  * @returns Promise resolving to UserPreferences, falls back to defaults on error
  */
@@ -1430,6 +1518,10 @@ export async function getPreferences(): Promise<UserPreferences> {
       theme: data.theme === "light" || data.theme === "dark" ? data.theme : DEFAULT_PREFERENCES.theme,
       sidebarCollapsed: typeof data.sidebarCollapsed === "boolean" ? data.sidebarCollapsed : DEFAULT_PREFERENCES.sidebarCollapsed,
       preSplashEnabled: typeof data.preSplashEnabled === "boolean" ? data.preSplashEnabled : DEFAULT_PREFERENCES.preSplashEnabled,
+      tips: data.tips && typeof data.tips === "object" ? {
+        enabled: typeof data.tips.enabled === "boolean" ? data.tips.enabled : DEFAULT_PREFERENCES.tips!.enabled,
+        categories: typeof data.tips.categories === "object" && data.tips.categories !== null ? data.tips.categories : DEFAULT_PREFERENCES.tips!.categories,
+      } : DEFAULT_PREFERENCES.tips,
     };
   } catch (error) {
     console.error("Error fetching preferences, using defaults", error);

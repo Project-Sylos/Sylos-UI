@@ -1,0 +1,64 @@
+@import "../styles/components/text-styles.css";
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.form-field__label-with-tooltip {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.form-field label {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: 500;
+}
+
+.form-field__input {
+  padding: 0.5rem 0.75rem;
+  background: rgba(
+    var(--glass-bg-base-r),
+    var(--glass-bg-base-g),
+    var(--glass-bg-base-b),
+    0.3
+  );
+  border: 1px solid rgba(
+    var(--color-base-slate-r),
+    var(--color-base-slate-g),
+    var(--color-base-slate-b),
+    var(--glass-border-opacity-default)
+  );
+  border-radius: 10px;
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  font-family: inherit;
+  transition: all 0.2s ease;
+}
+
+.form-field__input:focus {
+  outline: none;
+  border-color: #ff00ff;
+  background: rgba(
+    var(--glass-bg-base-r),
+    var(--glass-bg-base-g),
+    var(--glass-bg-base-b),
+    0.4
+  );
+  box-shadow: 0 0 0 3px rgba(255, 0, 255, 0.1);
+}
+
+.form-field__input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.form-field__input::placeholder {
+  color: var(--text-tertiary);
+  opacity: 0.6;
+}

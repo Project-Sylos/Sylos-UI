@@ -298,6 +298,10 @@ export default function PathReviewListView({
         // Failed is a traversal status
         statusSearchType = "traversal";
         traversalStatusFilterValue = "failed";
+      } else if (traversalStatusFilter === "pending_retry") {
+        // Pending retry is a traversal status (items with traversalStatus = "pending")
+        statusSearchType = "traversal";
+        traversalStatusFilterValue = "pending";
       } else if (traversalStatusFilter === "excluded") {
         // Excluded is a copy status (maps to exclusion_explicit/exclusion_inherited)
         statusSearchType = "copy";
@@ -548,15 +552,11 @@ export default function PathReviewListView({
     // If currently pending (not excluded), clicking should EXCLUDE it
     // If currently excluded, clicking should UNEXCLUDE it (back to pending)
     const isExcluding = !status.isExcluded;
-    const nodeULIDs: string[] = [];
-    if (item.src?.id) {
-      nodeULIDs.push(item.src.id);
-    }
-    if (item.dst?.id && (!item.src?.id || item.dst.id !== item.src.id)) {
-      nodeULIDs.push(item.dst.id);
-    }
+    // Separate src and dst node IDs to ensure they stay in sync
+    const srcNodeId = item.src?.id;
+    const dstNodeId = item.dst?.id && (!item.src?.id || item.dst.id !== item.src.id) ? item.dst.id : null;
 
-    if (nodeULIDs.length === 0) {
+    if (!srcNodeId && !dstNodeId) {
       return;
     }
 
@@ -577,28 +577,63 @@ export default function PathReviewListView({
     );
 
     try {
-      const promises = nodeULIDs.map((nodeULID) =>
-        isExcluding
-          ? excludeNode(migrationId, nodeULID)
-          : unexcludeNode(migrationId, nodeULID)
-      );
-
-      const results = await Promise.all(promises);
-      const failed = results.filter((r) => !r.success);
-
-      if (failed.length > 0) {
-        // Revert optimistic update on error
-        setItems((prevItems) =>
-          prevItems.map((i) => {
-            if (i.id === item.id) {
-              return originalItem;
-            }
-            return i;
-          })
-        );
-        return;
+      // Make API calls for src and dst nodes sequentially to avoid database conflicts
+      // Update src first, then dst - if src fails, don't try dst
+      // If dst fails, rollback src to keep them in sync
+      
+      let srcResult: any = null;
+      let dstResult: any = null;
+      
+      // Step 1: Update src node (if it exists)
+      if (srcNodeId) {
+        srcResult = isExcluding
+          ? await excludeNode(migrationId, srcNodeId)
+          : await unexcludeNode(migrationId, srcNodeId);
+        
+        // If src fails, stop and revert
+        if (!srcResult.success) {
+          // Revert optimistic update
+          setItems((prevItems) =>
+            prevItems.map((i) => {
+              if (i.id === item.id) {
+                return originalItem;
+              }
+              return i;
+            })
+          );
+          return;
+        }
       }
-
+      
+      // Step 2: Update dst node (if it exists and src succeeded)
+      if (dstNodeId) {
+        dstResult = isExcluding
+          ? await excludeNode(migrationId, dstNodeId)
+          : await unexcludeNode(migrationId, dstNodeId);
+        
+        // If dst fails, rollback src to keep them in sync
+        if (!dstResult.success) {
+          // Rollback src node
+          if (srcNodeId) {
+            await (isExcluding
+              ? unexcludeNode(migrationId, srcNodeId)  // Opposite operation to rollback
+              : excludeNode(migrationId, srcNodeId));
+          }
+          
+          // Revert optimistic update
+          setItems((prevItems) =>
+            prevItems.map((i) => {
+              if (i.id === item.id) {
+                return originalItem;
+              }
+              return i;
+            })
+          );
+          return;
+        }
+      }
+      
+      // Both succeeded (or only one node exists and it succeeded)
       // Success - reload items to ensure consistency with backend
       loadItems();
       if (onItemUpdate) {
@@ -614,41 +649,85 @@ export default function PathReviewListView({
           return i;
         })
       );
-      console.error("Failed to update item:", err);
+      console.error("Failed to exclude/unexclude item:", err);
     }
   };
 
   const handleRetryClick = async (item: DiffItem) => {
     if (!migrationId) return;
 
-    const nodeULIDs: string[] = [];
-    if (item.src?.id) {
-      nodeULIDs.push(item.src.id);
-    }
-    if (item.dst?.id && (!item.src?.id || item.dst.id !== item.src.id)) {
-      nodeULIDs.push(item.dst.id);
+    // Check both src and dst traversalStatus to determine which node needs retry action
+    const srcTraversalStatus = item.src?.traversalStatus;
+    const dstTraversalStatus = item.dst?.traversalStatus;
+    const srcNodeId = item.src?.id;
+    const dstNodeId = item.dst?.id;
+    
+    // Determine which node has failed or pending status (failed takes priority)
+    let nodeIdToUpdate: string | null = null;
+    let isMarkedForRetry = false;
+    
+    if (srcTraversalStatus === "failed" || dstTraversalStatus === "failed") {
+      // If either node is failed, find the one that's failed
+      if (srcTraversalStatus === "failed" && srcNodeId) {
+        nodeIdToUpdate = srcNodeId;
+        isMarkedForRetry = false; // Failed means not marked for retry
+      } else if (dstTraversalStatus === "failed" && dstNodeId) {
+        nodeIdToUpdate = dstNodeId;
+        isMarkedForRetry = false; // Failed means not marked for retry
+      }
+    } else if (srcTraversalStatus === "pending" || dstTraversalStatus === "pending") {
+      // If either node is pending (and neither is failed), find the one that's pending
+      if (srcTraversalStatus === "pending" && srcNodeId) {
+        nodeIdToUpdate = srcNodeId;
+        isMarkedForRetry = true; // Pending means marked for retry
+      } else if (dstTraversalStatus === "pending" && dstNodeId) {
+        nodeIdToUpdate = dstNodeId;
+        isMarkedForRetry = true; // Pending means marked for retry
+      }
     }
 
-    if (nodeULIDs.length === 0) {
+    if (!nodeIdToUpdate) {
+      // Revert optimistic update
+      setItems((prevItems) =>
+        prevItems.map((i) => {
+          if (i.id === item.id) {
+            return originalItem;
+          }
+          return i;
+        })
+      );
       return;
     }
-
-    // Check current retry status (marked for retry means traversalStatus is not "failed")
-    const isMarkedForRetry = item.traversalStatus !== "failed";
 
     // Store original item state for rollback
     const originalItem = { ...item };
 
-    // Optimistic update: immediately update item's traversalStatus
+    // Optimistic update: immediately update item's traversalStatus based on which node we're updating
     setItems((prevItems) =>
       prevItems.map((i) => {
         if (i.id === item.id) {
-          // Toggle: if currently failed, mark for retry (set to pending)
-          // If currently marked for retry, unmark (set back to failed)
-          return {
-            ...i,
-            traversalStatus: isMarkedForRetry ? "failed" : "pending",
-          };
+          // Update the node we're modifying
+          const updatedItem = { ...i };
+          if (nodeIdToUpdate === srcNodeId && i.src) {
+            updatedItem.src = {
+              ...i.src,
+              traversalStatus: isMarkedForRetry ? "failed" : "pending",
+            };
+            // Update primary traversalStatus if this is the primary node
+            if (i.id === srcNodeId) {
+              updatedItem.traversalStatus = isMarkedForRetry ? "failed" : "pending";
+            }
+          } else if (nodeIdToUpdate === dstNodeId && i.dst) {
+            updatedItem.dst = {
+              ...i.dst,
+              traversalStatus: isMarkedForRetry ? "failed" : "pending",
+            };
+            // Update primary traversalStatus if this is the primary node
+            if (i.id === dstNodeId) {
+              updatedItem.traversalStatus = isMarkedForRetry ? "failed" : "pending";
+            }
+          }
+          return updatedItem;
         }
         return i;
       })
@@ -656,17 +735,15 @@ export default function PathReviewListView({
 
     try {
       // Mark or unmark for retry based on current state
-      const promises = nodeULIDs.map((nodeULID) =>
-        isMarkedForRetry
-          ? unmarkNodeForRetry(migrationId, nodeULID)
-          : markNodeForRetry(migrationId, nodeULID)
-      );
-
-      const results = await Promise.all(promises);
-      const failed = results.filter((r) => !r.success);
-
-      if (failed.length > 0) {
-        // Revert optimistic update on error
+      // API automatically handles the corresponding node, so we only need to call once
+      // Only call for the node that has failed or pending status
+      const result = isMarkedForRetry
+        ? await unmarkNodeForRetry(migrationId, nodeIdToUpdate)
+        : await markNodeForRetry(migrationId, nodeIdToUpdate);
+      
+      // If the call fails, revert optimistic update
+      if (!result.success) {
+        // Revert optimistic update
         setItems((prevItems) =>
           prevItems.map((i) => {
             if (i.id === item.id) {
@@ -677,7 +754,7 @@ export default function PathReviewListView({
         );
         return;
       }
-
+      
       // Success - reload items to ensure consistency with backend
       loadItems();
       if (onItemUpdate) {
@@ -943,6 +1020,7 @@ export default function PathReviewListView({
                   >
                     <option value="">All</option>
                     <option value="pending">Pending (will be copied over)</option>
+                    <option value="pending_retry">Pending Retry</option>
                     <option value="excluded">Excluded (will not be copied over)</option>
                     <option value="failed">Failed (discovery of items inside failed)</option>
                     <option value="successful">Exists (on both)</option>
@@ -1382,7 +1460,7 @@ export default function PathReviewListView({
                   <div className="path-review-list__item-status-icon-container">
                     <PathReviewStatusIcon
                       item={item}
-                      isMarkedForRetry={false}
+                      isMarkedForRetry={item.traversalStatus === "pending"}
                       isLocked={isLocked}
                       zoomLevel={zoomLevel}
                       size={16 * zoomLevel}

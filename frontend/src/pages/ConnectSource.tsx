@@ -7,6 +7,7 @@ import {
   serviceSelectionOptions,
 } from "../data/serviceSelectionOptions";
 import { useSelection } from "../context/SelectionContext";
+import { usePreferences } from "../contexts/PreferencesContext";
 import { getPresetRootForServiceType } from "../data/presetRoots";
 import { setMigrationRoot } from "../api/services";
 import { Folder } from "../types/services";
@@ -23,6 +24,7 @@ export default function ConnectSource() {
     migration,
     updateMigration,
   } = useSelection();
+  const { preferences } = usePreferences();
   const [isPicking, setIsPicking] = useState(false);
   const processedStateRef = useRef<string | null>(null);
 
@@ -98,17 +100,26 @@ export default function ConnectSource() {
 
   const options = useMemo(
     () =>
-      services.map((service) => {
-        const visual =
-          serviceSelectionOptions[service.type] ?? defaultServiceSelectionOption;
-        return {
-          id: service.id,
-          name: service.displayName,
-          description: visual.description,
-          icon: visual.icon,
-        };
-      }),
-    [services]
+      services
+        .filter((service) => {
+          // Hide Spectra if developer mode is not enabled or showSpectraService is false
+          if (service.type === "spectra") {
+            return preferences.developer?.enabled === true && 
+                   preferences.developer?.showSpectraService === true;
+          }
+          return true;
+        })
+        .map((service) => {
+          const visual =
+            serviceSelectionOptions[service.type] ?? defaultServiceSelectionOption;
+          return {
+            id: service.id,
+            name: service.displayName,
+            description: visual.description,
+            icon: visual.icon,
+          };
+        }),
+    [services, preferences.developer]
   );
 
   const handleSelect = async (id: string) => {
@@ -119,6 +130,12 @@ export default function ConnectSource() {
     const selected = services.find((service) => service.id === id);
     if (!selected) {
       console.warn(`Service with id "${id}" not found.`);
+      return;
+    }
+
+    if (selected.type === "spectra") {
+      // Navigate to Spectra config page
+      navigate("/spectra-config", { state: { serviceId: selected.id } });
       return;
     }
 

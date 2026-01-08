@@ -7,6 +7,7 @@ import {
   serviceSelectionOptions,
 } from "../data/serviceSelectionOptions";
 import { useSelection } from "../context/SelectionContext";
+import { usePreferences } from "../contexts/PreferencesContext";
 import { getPresetRootForServiceType } from "../data/presetRoots";
 import { setMigrationRoot } from "../api/services";
 import { Folder } from "../types/services";
@@ -24,6 +25,7 @@ export default function Destination() {
     migration,
     updateMigration,
   } = useSelection();
+  const { preferences } = usePreferences();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const processedStateRef = useRef<string | null>(null);
 
@@ -196,16 +198,25 @@ export default function Destination() {
 
   const options = useMemo(
     () =>
-      services.map((service) => {
-        const visual =
-          serviceSelectionOptions[service.type] ?? defaultServiceSelectionOption;
-        return {
-          id: service.id,
-          name: service.displayName,
-          description: visual.description,
-          icon: visual.icon,
-        };
-      }),
+      services
+        .filter((service) => {
+          // Filter out Spectra from destination (it's source-only)
+          // Also respect developer mode setting for consistency
+          if (service.type === "spectra") {
+            return false; // Spectra is always filtered from destination
+          }
+          return true;
+        })
+        .map((service) => {
+          const visual =
+            serviceSelectionOptions[service.type] ?? defaultServiceSelectionOption;
+          return {
+            id: service.id,
+            name: service.displayName,
+            description: visual.description,
+            icon: visual.icon,
+          };
+        }),
     [services]
   );
 

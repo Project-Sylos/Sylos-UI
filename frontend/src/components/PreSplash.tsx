@@ -1,17 +1,52 @@
 import { useState, useRef, useEffect } from "react";
+import { useLocation } from "react-router-dom";
 import "./PreSplash.css";
 import { usePreferences } from "../contexts/PreferencesContext";
 import splashVideo from "../assets/backgrounds/31809-splash-loading-video-by-Forsigo-on-Pixabay.mp4";
 
 export default function PreSplash() {
   const { preferences } = usePreferences();
+  const location = useLocation();
   const [phase, setPhase] = useState<"playing" | "fading-to-black" | "fading-out" | "dismissed">("playing");
   const videoRef = useRef<HTMLVideoElement>(null);
   const hasStartedFade = useRef(false);
+  const hasShownOnceRef = useRef(false);
+  const initialPathnameRef = useRef<string | null>(null);
+
+  // Track the initial pathname on mount
+  useEffect(() => {
+    if (initialPathnameRef.current === null) {
+      initialPathnameRef.current = location.pathname;
+    }
+  }, [location.pathname]);
+
+  // Check if we should show the splash screen
+  // Only show if:
+  // 1. We're on the root path ("/")
+  // 2. The initial load was on "/" (not a deep link)
+  // 3. We haven't shown it yet in this session
+  const shouldShow = 
+    location.pathname === "/" && 
+    initialPathnameRef.current === "/" && 
+    !hasShownOnceRef.current;
+
+  // Track navigation away from "/" - mark as shown when we leave the root path
+  useEffect(() => {
+    if (location.pathname !== "/") {
+      hasShownOnceRef.current = true;
+      // Dismiss immediately if we navigate away from root
+      if (phase !== "dismissed") {
+        setPhase("dismissed");
+      }
+    } else if (location.pathname === "/" && phase === "dismissed") {
+      // Mark as shown when splash completes on root path
+      hasShownOnceRef.current = true;
+    }
+  }, [location.pathname, phase]);
 
   useEffect(() => {
-    // Don't set up video listener if pre-splash is disabled or already dismissed
-    if (!preferences.preSplashEnabled || phase === "dismissed") {
+    // Don't set up video listener if pre-splash is disabled, already dismissed, or shouldn't show
+    if (!preferences.preSplashEnabled || phase === "dismissed" || !shouldShow) {
       return;
     }
 
@@ -44,10 +79,10 @@ export default function PreSplash() {
     return () => {
       video.removeEventListener("timeupdate", handleTimeUpdate);
     };
-  }, [preferences.preSplashEnabled, phase]);
+  }, [preferences.preSplashEnabled, phase, shouldShow]);
 
-  // Don't render if pre-splash is disabled or dismissed
-  if (!preferences.preSplashEnabled || phase === "dismissed") {
+  // Don't render if pre-splash is disabled, dismissed, or we shouldn't show it
+  if (!preferences.preSplashEnabled || phase === "dismissed" || !shouldShow) {
     return null;
   }
 

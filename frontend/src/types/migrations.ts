@@ -18,6 +18,7 @@ export interface MigrationRootRequest {
   serviceId?: string;       // Service identifier (e.g., "local")
   connectionId?: string;
   root: MigrationRootRequestRoot;
+  config?: any;  // Can be SpectraConfig or other config types
 }
 
 export interface MigrationRootResponse {
@@ -195,10 +196,10 @@ export interface QueueMetrics {
   inProgress: number;
   totalTracked: number;
   workers: number;
-  averageExecutionTime?: number;
-  tasksPerSecond?: number;
-  totalCompleted?: number;
-  lastPollTime?: string;
+  files_discovered_total?: number;
+  folders_discovered_total?: number;
+  discovery_rate_items_per_sec?: number;
+  total_discovered?: number;
 }
 
 export interface MigrationQueueMetricsResponse {

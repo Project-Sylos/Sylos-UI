@@ -19,6 +19,7 @@ import MigrationSummary from "./pages/MigrationSummary";
 import DiscoveryProgress from "./pages/DiscoveryProgress";
 import PathReview from "./pages/PathReview";
 import Settings from "./pages/Settings";
+import SpectraConfigPage from "./pages/SpectraConfig";
 
 export default function App() {
   return (
@@ -35,6 +36,7 @@ export default function App() {
                 <Route path="/" element={<Splash />} />
                 <Route path="/choose" element={<ChooseMigrationType />} />
                 <Route path="/connect" element={<ConnectSource />} />
+                <Route path="/spectra-config" element={<SpectraConfigPage />} />
                 <Route path="/destination" element={<Destination />} />
                 <Route path="/summary" element={<MigrationSummary />} />
                 <Route path="/discovery-progress/:migrationId" element={<DiscoveryProgress />} />

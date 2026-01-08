@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { Activity, ArrowLeft, ChevronDown, ChevronRight, FolderOpen, Cloud, Eye } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronRight, FolderOpen, Cloud, Eye } from "lucide-react";
 
 import {
   getMigrationStatus,
@@ -10,6 +10,7 @@ import {
 } from "../api/services";
 import { MigrationLog, LogLevel } from "../types/migrations";
 import { useSelection } from "../context/SelectionContext";
+import HelpTooltip from "../components/HelpTooltip";
 import "./DiscoveryProgress.css";
 
 const LOG_LEVELS: LogLevel[] = ["trace", "debug", "info", "warning", "error", "critical"];
@@ -45,8 +46,10 @@ export default function DiscoveryProgress() {
   const [error, setError] = useState<string | null>(null);
   const [allServices, setAllServices] = useState(services);
   const [showResultsButton, setShowResultsButton] = useState(false);
+  const [showLogFilterDropdown, setShowLogFilterDropdown] = useState(false);
 
   const logContainerRef = useRef<HTMLDivElement>(null);
+  const logFilterDropdownRef = useRef<HTMLDivElement>(null);
   const userScrolledRef = useRef(false);
   const isLogPollingPausedRef = useRef(false);
   const isTerminalStateRef = useRef(false);
@@ -291,6 +294,24 @@ export default function DiscoveryProgress() {
     prevStatusRef.current = currentStatus;
   }, [isMonitoringSweep, status?.status, migrationId, navigate, reviewIteration]);
 
+  // Close log filter dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        showLogFilterDropdown &&
+        logFilterDropdownRef.current &&
+        !logFilterDropdownRef.current.contains(event.target as Node)
+      ) {
+        setShowLogFilterDropdown(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [showLogFilterDropdown]);
+
   // Set up polling intervals
   useEffect(() => {
     if (!migrationId) {
@@ -343,26 +364,6 @@ export default function DiscoveryProgress() {
 
   // Reverse for display (oldest first)
   const displayLogs = [...filteredLogs].reverse();
-
-  const getStatusColor = (status?: string) => {
-    switch (status) {
-      case "running":
-      case "Traversal-In-Progress":
-      case "Copy-In-Progress":
-        return "#60a5fa";
-      case "Awaiting-Path-Review":
-      case "Complete":
-        return "#34d399";
-      case "completed":
-        return "#34d399"; // Legacy support
-      case "suspended":
-        return "#fbbf24";
-      case "failed":
-        return "#f87171";
-      default:
-        return "#94a3b8";
-    }
-  };
 
   const getLogLevelColor = (level: LogLevel) => {
     switch (level) {
@@ -438,30 +439,6 @@ export default function DiscoveryProgress() {
           <h1>
             Discovery <span className="discovery-progress__highlight">Progress</span>
           </h1>
-          <div className="discovery-progress__status-indicator">
-            <Activity
-              size={16}
-              style={{
-                color: getStatusColor(status?.status),
-                marginRight: "0.5rem",
-              }}
-            />
-            <span
-              className="discovery-progress__status-text"
-              style={{ color: getStatusColor(status?.status) }}
-            >
-              {isMonitoringSweep
-                ? sweepType === "exclusion"
-                  ? "Exclusion sweep in progress..."
-                  : sweepType === "retry"
-                  ? "Retry sweep in progress..."
-                  : status?.status?.toUpperCase() || "UNKNOWN"
-                : status?.status?.toUpperCase() || "UNKNOWN"}
-            </span>
-            {status?.status === "running" && (
-              <span className="discovery-progress__pulse" />
-            )}
-          </div>
         </header>
 
         {error && (
@@ -495,30 +472,42 @@ export default function DiscoveryProgress() {
               )}
               {queueMetrics.srcTraversal ? (
                 <div className="discovery-progress__metric-details">
-                  <div className="discovery-progress__metric-row">
-                    <span>Round:</span>
-                    <span>{queueMetrics.srcTraversal.round}</span>
-                  </div>
-                  <div className="discovery-progress__metric-row">
-                    <span>Pending:</span>
-                    <span>{queueMetrics.srcTraversal.pending}</span>
-                  </div>
-                  <div className="discovery-progress__metric-row">
-                    <span>In Progress:</span>
-                    <span>{queueMetrics.srcTraversal.inProgress}</span>
-                  </div>
-                  <div className="discovery-progress__metric-row">
-                    <span>Total Tracked:</span>
-                    <span>{queueMetrics.srcTraversal.totalTracked}</span>
-                  </div>
-                  <div className="discovery-progress__metric-row">
-                    <span>Workers:</span>
-                    <span>{queueMetrics.srcTraversal.workers}</span>
-                  </div>
-                  {queueMetrics.srcTraversal.tasksPerSecond !== undefined && (
+                  {queueMetrics.srcTraversal.discovery_rate_items_per_sec !== undefined && (
                     <div className="discovery-progress__metric-row">
-                      <span>Tasks/sec:</span>
-                      <span>{queueMetrics.srcTraversal.tasksPerSecond.toFixed(2)}</span>
+                      <span>
+                        Discovery Rate:
+                        <HelpTooltip
+                          tipId="discovery-rate-explanation"
+                          category="discovery-rate-source"
+                          position="above"
+                          content={
+                            <p>
+                              The discovery rate shows how many files and folders are being discovered per second. 
+                              This is an exponentially weighted moving average (EMA) that smooths out short-term fluctuations 
+                              to give you a more stable view of the discovery progress.
+                            </p>
+                          }
+                        />
+                      </span>
+                      <span>{queueMetrics.srcTraversal.discovery_rate_items_per_sec.toFixed(1)} items/sec</span>
+                    </div>
+                  )}
+                  {queueMetrics.srcTraversal.folders_discovered_total !== undefined && (
+                    <div className="discovery-progress__metric-row">
+                      <span>Folders Discovered:</span>
+                      <span>{queueMetrics.srcTraversal.folders_discovered_total.toLocaleString()}</span>
+                    </div>
+                  )}
+                  {queueMetrics.srcTraversal.files_discovered_total !== undefined && (
+                    <div className="discovery-progress__metric-row">
+                      <span>Files Discovered:</span>
+                      <span>{queueMetrics.srcTraversal.files_discovered_total.toLocaleString()}</span>
+                    </div>
+                  )}
+                  {queueMetrics.srcTraversal.total_discovered !== undefined && (
+                    <div className="discovery-progress__metric-row">
+                      <span>Total Discovered:</span>
+                      <span>{queueMetrics.srcTraversal.total_discovered.toLocaleString()}</span>
                     </div>
                   )}
                 </div>
@@ -551,30 +540,52 @@ export default function DiscoveryProgress() {
               )}
               {queueMetrics.dstTraversal ? (
                 <div className="discovery-progress__metric-details">
-                  <div className="discovery-progress__metric-row">
-                    <span>Round:</span>
-                    <span>{queueMetrics.dstTraversal.round}</span>
-                  </div>
-                  <div className="discovery-progress__metric-row">
-                    <span>Pending:</span>
-                    <span>{queueMetrics.dstTraversal.pending}</span>
-                  </div>
-                  <div className="discovery-progress__metric-row">
-                    <span>In Progress:</span>
-                    <span>{queueMetrics.dstTraversal.inProgress}</span>
-                  </div>
-                  <div className="discovery-progress__metric-row">
-                    <span>Total Tracked:</span>
-                    <span>{queueMetrics.dstTraversal.totalTracked}</span>
-                  </div>
-                  <div className="discovery-progress__metric-row">
-                    <span>Workers:</span>
-                    <span>{queueMetrics.dstTraversal.workers}</span>
-                  </div>
-                  {queueMetrics.dstTraversal.tasksPerSecond !== undefined && (
+                  {queueMetrics.dstTraversal.discovery_rate_items_per_sec !== undefined && (
                     <div className="discovery-progress__metric-row">
-                      <span>Tasks/sec:</span>
-                      <span>{queueMetrics.dstTraversal.tasksPerSecond.toFixed(2)}</span>
+                      <span>
+                        Discovery Rate:
+                        <HelpTooltip
+                          tipId="discovery-rate-explanation-dst"
+                          category="discovery-rate-destination"
+                          position="above"
+                          content={
+                            <p>
+                              The discovery rate shows how many files and folders are being discovered per second. 
+                              This is an exponentially weighted moving average (EMA) that smooths out short-term fluctuations 
+                              to give you a more stable view of the discovery progress.
+                            </p>
+                          }
+                        />
+                      </span>
+                      <span>{queueMetrics.dstTraversal.discovery_rate_items_per_sec.toFixed(1)} items/sec</span>
+                    </div>
+                  )}
+                  {queueMetrics.dstTraversal.folders_discovered_total !== undefined && (
+                    <div className="discovery-progress__metric-row">
+                      <span>Folders Discovered:</span>
+                      <span>{queueMetrics.dstTraversal.folders_discovered_total.toLocaleString()}</span>
+                    </div>
+                  )}
+                  {queueMetrics.dstTraversal.files_discovered_total !== undefined && (
+                    <div className="discovery-progress__metric-row">
+                      <span>Files Discovered:</span>
+                      <span>{queueMetrics.dstTraversal.files_discovered_total.toLocaleString()}</span>
+                    </div>
+                  )}
+                  {queueMetrics.dstTraversal.total_discovered !== undefined && (
+                    <div className="discovery-progress__metric-row">
+                      <span>
+                        Total Discovered:
+                        <HelpTooltip
+                          tipId="destination-total-discovered-explanation"
+                          category="discovery-destination-total"
+                          position="above"
+                          content={
+                            <p>This is specifically only the overlapping items explored, not the total items inside of your destination root folder.</p>
+                          }
+                        />
+                      </span>
+                      <span>{queueMetrics.dstTraversal.total_discovered.toLocaleString()}</span>
                     </div>
                   )}
                 </div>
@@ -600,19 +611,52 @@ export default function DiscoveryProgress() {
               Logs ({displayLogs.length.toLocaleString()})
             </div>
             {!isLogsCollapsed && (
-              <select
-                className="discovery-progress__log-filter"
-                value={filterLevel}
-                onChange={(e) => setFilterLevel(e.target.value as LogLevel | "all")}
-                onClick={(e) => e.stopPropagation()}
-              >
-                <option value="all">All Levels</option>
-                {LOG_LEVELS.map((level) => (
-                  <option key={level} value={level}>
-                    {level.toUpperCase()}
-                  </option>
-                ))}
-              </select>
+              <div className="discovery-progress__log-filter-wrapper" ref={logFilterDropdownRef}>
+                <button
+                  type="button"
+                  className="discovery-progress__log-filter-button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowLogFilterDropdown(!showLogFilterDropdown);
+                  }}
+                  title="Filter log levels"
+                  aria-label="Filter log levels"
+                >
+                  {filterLevel === "all" ? "All Levels" : filterLevel.toUpperCase()}
+                  <ChevronDown size={14} />
+                </button>
+                {showLogFilterDropdown && (
+                  <div className="discovery-progress__log-filter-dropdown">
+                    <button
+                      type="button"
+                      className={`discovery-progress__log-filter-option ${
+                        filterLevel === "all" ? "discovery-progress__log-filter-option--selected" : ""
+                      }`}
+                      onClick={() => {
+                        setFilterLevel("all");
+                        setShowLogFilterDropdown(false);
+                      }}
+                    >
+                      All Levels
+                    </button>
+                    {LOG_LEVELS.map((level) => (
+                      <button
+                        key={level}
+                        type="button"
+                        className={`discovery-progress__log-filter-option ${
+                          filterLevel === level ? "discovery-progress__log-filter-option--selected" : ""
+                        }`}
+                        onClick={() => {
+                          setFilterLevel(level);
+                          setShowLogFilterDropdown(false);
+                        }}
+                      >
+                        {level.toUpperCase()}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
           </div>
           {!isLogsCollapsed && (
@@ -672,7 +716,7 @@ export default function DiscoveryProgress() {
             </button>
           )}
           
-          {/* See Results Button (when discovery completed) */}
+          {/* View Discovery Results Button (when discovery completed) */}
           {!isMonitoringSweep && (
             <button
               type="button"
@@ -687,7 +731,7 @@ export default function DiscoveryProgress() {
               disabled={!showResultsButton}
             >
               <Eye size={20} style={{ marginRight: "0.5rem" }} />
-              See Results
+              View Discovery Results
             </button>
           )}
         </div>

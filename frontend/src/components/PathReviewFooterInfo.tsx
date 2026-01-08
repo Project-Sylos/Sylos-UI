@@ -1,4 +1,5 @@
 import React from "react";
+import HelpTooltip from "./HelpTooltip";
 import "./PathReviewFooterInfo.css";
 
 interface PathReviewFooterInfoProps {
@@ -9,6 +10,12 @@ interface PathReviewFooterInfoProps {
     ratioValues?: {
       folders: number;
       files: number;
+    };
+    tooltip?: {
+      tipId: string;
+      category: string;
+      content: React.ReactNode;
+      position?: "above" | "right" | "left" | "below";
     };
   }>;
   className?: string;
@@ -43,7 +50,17 @@ export default function PathReviewFooterInfo({ items, className = "" }: PathRevi
 
         return (
           <span key={index} className="path-review-footer-info__stat">
-            <span className="path-review-footer-info__stat-label">{item.label}:</span>
+            <span className="path-review-footer-info__stat-label">
+              {item.label}:
+              {item.tooltip && (
+                <HelpTooltip
+                  tipId={item.tooltip.tipId}
+                  category={item.tooltip.category}
+                  position={item.tooltip.position || "above"}
+                  content={item.tooltip.content}
+                />
+              )}
+            </span>
             <span className="path-review-footer-info__stat-value">{item.value}</span>
           </span>
         );

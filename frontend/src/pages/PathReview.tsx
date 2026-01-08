@@ -21,6 +21,8 @@ import {
   getPathReviewStats,
   PathReviewStats,
   PaginationInfo,
+  getRunningBackgroundTasks,
+  triggerRetrySweep,
 } from "../api/services";
 import { MigrationStatusResponse } from "../types/migrations";
 import ItemHoverCard from "../components/ItemHoverCard";
@@ -59,7 +61,7 @@ export default function PathReview() {
   const [pagination, setPagination] = useState<any>(null);
   const [checkedItems, setPendingItems] = useState<Set<string>>(new Set());
   const [retryItems, setRetryItems] = useState<Set<string>>(new Set()); // Items marked for retry
-  const [retryItemsCount, setRetryItemsCount] = useState(0); // Counter for items marked for retry
+  const [hasRunningTasks, setHasRunningTasks] = useState(false); // Track if background tasks are running
   const [hoveredItemId, setHoveredItemId] = useState<string | null>(null);
   const [hoverPosition, setHoverPosition] = useState<{ x: number; y: number } | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
@@ -68,6 +70,8 @@ export default function PathReview() {
   const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingUpdatesRef = useRef<Map<string, boolean>>(new Map());
   const pendingRetryUpdatesRef = useRef<Map<string, boolean>>(new Map());
+  const statsPollingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const isPollingStatsRef = useRef<boolean>(false);
   
   // Workflow state tracking
   const [reviewIteration, setReviewIteration] = useState(1);
@@ -87,8 +91,7 @@ export default function PathReview() {
     try {
       const work = await getPendingWork(migrationId);
       setPendingWork(work);
-      // Update retry items count from API response (source of truth)
-      setRetryItemsCount(work.pendingRetriesCount || 0);
+      // Stats will be the source of truth for pending retries count
     } catch (err) {
       console.error("Failed to fetch pending work:", err);
     }
@@ -110,7 +113,10 @@ export default function PathReview() {
   
   const checkCanStartCopy = (): boolean => {
     // Block if we have pending retries (requires explicit user action)
-    if (pendingWork?.hasPendingRetries) return false;
+    if ((stats?.pendingRetriesCount ?? 0) > 0) return false;
+    
+    // Block if background tasks are running
+    if (hasRunningTasks) return false;
     
     // Exclusion sweeps run automatically, so don't block on hasPendingExclusions
     // hasPathReviewChanges is informational - exclusion sweep will run automatically
@@ -129,6 +135,18 @@ export default function PathReview() {
     // This prevents blocking the button while status is loading
     return true;
   };
+
+  const checkRunningTasks = async (): Promise<boolean> => {
+    if (!migrationId) return false;
+    try {
+      const runningTasks = await getRunningBackgroundTasks(migrationId);
+      setHasRunningTasks(runningTasks.hasRunningTasks);
+      return runningTasks.hasRunningTasks;
+    } catch (err) {
+      console.error("Failed to check running tasks:", err);
+      return false;
+    }
+  };
   
 
   useEffect(() => {
@@ -136,13 +154,10 @@ export default function PathReview() {
       navigate("/");
       return;
     }
-    // Reset retry items count when navigating to path review (prevent state drift)
-    setRetryItemsCount(0);
-    
     // Only load once when component mounts or migrationId changes
     loadItems(undefined);  // undefined for root (children of all roots)
     
-    // Fetch pending work on startup to load state (will update retryItemsCount from API)
+    // Fetch pending work on startup to load state
     fetchPendingWork();
     
     // Fetch stats on startup
@@ -170,18 +185,67 @@ export default function PathReview() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [migrationId]);
 
-  // Poll stats every 5 seconds (only when no items are selected)
+  // Poll stats based on background tasks - starts after status updates
+  const startStatsPolling = async () => {
+    if (!migrationId || isPollingStatsRef.current) {
+      // Already polling, ignore
+      return;
+    }
+    
+    isPollingStatsRef.current = true;
+    
+    const pollRunningTasks = async () => {
+      try {
+        const runningTasks = await getRunningBackgroundTasks(migrationId);
+        
+        // Update running tasks state
+        setHasRunningTasks(runningTasks.hasRunningTasks);
+        
+        // If no running tasks, stop polling and update stats once
+        if (!runningTasks.hasRunningTasks) {
+          // Stop polling
+          if (statsPollingIntervalRef.current) {
+            clearInterval(statsPollingIntervalRef.current);
+            statsPollingIntervalRef.current = null;
+          }
+          isPollingStatsRef.current = false;
+          
+          // Update stats once
+          await fetchStats();
+          return;
+        }
+        
+        // If there are running tasks, update stats and continue polling
+        await fetchStats();
+      } catch (err) {
+        console.error("Failed to poll running tasks:", err);
+        // On error, stop polling
+        if (statsPollingIntervalRef.current) {
+          clearInterval(statsPollingIntervalRef.current);
+          statsPollingIntervalRef.current = null;
+        }
+        isPollingStatsRef.current = false;
+      }
+    };
+    
+    // Poll immediately, then every 5 seconds
+    await pollRunningTasks();
+    
+    if (isPollingStatsRef.current) {
+      statsPollingIntervalRef.current = setInterval(pollRunningTasks, 5000);
+    }
+  };
+  
+  // Cleanup polling on unmount
   useEffect(() => {
-    if (!migrationId) return;
-    
-    fetchStats(); // Initial fetch
-    
-    const interval = setInterval(() => {
-      fetchStats();
-    }, 5000); // Poll every 5 seconds
-    
-    return () => clearInterval(interval);
-  }, [migrationId, activeTab]);
+    return () => {
+      if (statsPollingIntervalRef.current) {
+        clearInterval(statsPollingIntervalRef.current);
+        statsPollingIntervalRef.current = null;
+      }
+      isPollingStatsRef.current = false;
+    };
+  }, []);
 
   // Handle stats change from list view (from API polling)
   const handleStatsChange = (newStats: PathReviewStats | null) => {
@@ -425,6 +489,174 @@ export default function PathReview() {
     }, 2000);
   };
 
+  const handleRetryClick = async (item: DiffItem) => {
+    if (!migrationId) return;
+    
+    // Check both src and dst traversalStatus to determine which node needs retry action
+    const srcTraversalStatus = item.src?.traversalStatus;
+    const dstTraversalStatus = item.dst?.traversalStatus;
+    const srcNodeId = item.src?.id;
+    const dstNodeId = item.dst?.id;
+    
+    // Determine which node has failed or pending status (failed takes priority)
+    let nodeIdToUpdate: string | null = null;
+    let isMarkedForRetry = false;
+    
+    if (srcTraversalStatus === "failed" || dstTraversalStatus === "failed") {
+      // If either node is failed, find the one that's failed
+      if (srcTraversalStatus === "failed" && srcNodeId) {
+        nodeIdToUpdate = srcNodeId;
+        isMarkedForRetry = retryItems.has(item.id) || false; // Check if already marked for retry
+      } else if (dstTraversalStatus === "failed" && dstNodeId) {
+        nodeIdToUpdate = dstNodeId;
+        isMarkedForRetry = retryItems.has(item.id) || false; // Check if already marked for retry
+      }
+    } else if (srcTraversalStatus === "pending" || dstTraversalStatus === "pending") {
+      // If either node is pending (and neither is failed), find the one that's pending
+      if (srcTraversalStatus === "pending" && srcNodeId) {
+        nodeIdToUpdate = srcNodeId;
+        isMarkedForRetry = retryItems.has(item.id) || true; // Pending means marked for retry
+      } else if (dstTraversalStatus === "pending" && dstNodeId) {
+        nodeIdToUpdate = dstNodeId;
+        isMarkedForRetry = retryItems.has(item.id) || true; // Pending means marked for retry
+      }
+    }
+
+    if (!nodeIdToUpdate) {
+      setToast({
+        message: "No node with failed or pending status available for this item.",
+        type: "error",
+      });
+      return;
+    }
+    
+    // Store original item state for rollback
+    const originalItem = { ...item };
+    
+    // Optimistic update
+    const newRetryState = !isMarkedForRetry;
+    setRetryItems((prev) => {
+      const newSet = new Set(prev);
+      if (newRetryState) {
+        newSet.add(item.id);
+      } else {
+        newSet.delete(item.id);
+      }
+      return newSet;
+    });
+
+    // Optimistically update item's traversalStatus in items array for immediate status icon update
+    // Update the specific node (src or dst) that we're modifying
+    setItems((prevItems) =>
+      prevItems.map((i) => {
+        if (i.id === item.id) {
+          const updatedItem = { ...i };
+          // Update the node we're modifying
+          if (nodeIdToUpdate === srcNodeId && i.src) {
+            updatedItem.src = {
+              ...i.src,
+              traversalStatus: isMarkedForRetry ? "failed" : "pending",
+            };
+            // Update primary traversalStatus if this is the primary node
+            if (i.id === srcNodeId) {
+              updatedItem.traversalStatus = isMarkedForRetry ? "failed" : "pending";
+            }
+          } else if (nodeIdToUpdate === dstNodeId && i.dst) {
+            updatedItem.dst = {
+              ...i.dst,
+              traversalStatus: isMarkedForRetry ? "failed" : "pending",
+            };
+            // Update primary traversalStatus if this is the primary node
+            if (i.id === dstNodeId) {
+              updatedItem.traversalStatus = isMarkedForRetry ? "failed" : "pending";
+            }
+          }
+          return updatedItem;
+        }
+        return i;
+      })
+    );
+    
+    pendingRetryUpdatesRef.current.set(item.id, newRetryState);
+    
+    try {
+      // Mark or unmark for retry based on current state
+      // Use ULID (id field) directly, not locationPath
+      // API automatically handles the corresponding node, so we only need to call once
+      // Only call for the node that has failed or pending status
+      const result = isMarkedForRetry
+        ? await unmarkNodeForRetry(migrationId, nodeIdToUpdate)
+        : await markNodeForRetry(migrationId, nodeIdToUpdate);
+      
+      // If the call fails, revert optimistic update
+      if (!result.success) {
+        // Revert optimistic update
+        setRetryItems((prev) => {
+          const newSet = new Set(prev);
+          if (isMarkedForRetry) {
+            newSet.add(item.id);
+          } else {
+            newSet.delete(item.id);
+          }
+          return newSet;
+        });
+        setItems((prevItems) =>
+          prevItems.map((i) => {
+            if (i.id === item.id) {
+              return originalItem;
+            }
+            return i;
+          })
+        );
+        pendingRetryUpdatesRef.current.delete(item.id);
+        setToast({
+          message: result.error || "Failed to update node. Please try again.",
+          type: "error",
+        });
+        return;
+      }
+      
+      // Success
+      pendingRetryUpdatesRef.current.delete(item.id);
+      
+      // Start polling stats based on background tasks (stats will update pendingRetriesCount)
+      startStatsPolling();
+      
+      // Show success message
+      setToast({
+        message: newRetryState 
+          ? "Item marked for retry" 
+          : "Item unmarked for retry",
+        type: "success",
+      });
+    } catch (err) {
+      // Revert optimistic update on network error
+      setRetryItems((prev) => {
+        const newSet = new Set(prev);
+        if (isMarkedForRetry) {
+          newSet.add(item.id);
+        } else {
+          newSet.delete(item.id);
+        }
+        return newSet;
+      });
+      setItems((prevItems) =>
+        prevItems.map((i) => {
+          if (i.id === item.id) {
+            return originalItem;
+          }
+          return i;
+        })
+      );
+      pendingRetryUpdatesRef.current.delete(item.id);
+      
+      setToast({
+        message: err instanceof Error ? err.message : "Network error: Failed to update node. Please try again.",
+        type: "error",
+      });
+    }
+  };
+
   const handleCheckboxChange = async (
     item: DiffItem,
     currentChecked: boolean
@@ -443,16 +675,11 @@ export default function PathReview() {
     // If currently pending (not excluded), clicking should EXCLUDE it
     // If currently excluded, clicking should UNEXCLUDE it (back to pending)
     const isExcluding = !status.isExcluded;
-    // Collect ULIDs for src and dst nodes (use id field, not locationPath)
-    const nodeULIDs: string[] = [];
-    if (item.src?.id) {
-      nodeULIDs.push(item.src.id);
-    }
-    if (item.dst?.id && (!item.src?.id || item.dst.id !== item.src.id)) {
-      nodeULIDs.push(item.dst.id);
-    }
+    // Separate src and dst node IDs to ensure they stay in sync
+    const srcNodeId = item.src?.id;
+    const dstNodeId = item.dst?.id && (!item.src?.id || item.dst.id !== item.src.id) ? item.dst.id : null;
 
-    if (nodeULIDs.length === 0) {
+    if (!srcNodeId && !dstNodeId) {
       setToast({
         message: "No node ID available for this item.",
         type: "error",
@@ -492,57 +719,95 @@ export default function PathReview() {
     pendingUpdatesRef.current.set(item.id, newChecked);
 
     try {
-      // Make API calls for both src and dst nodes if they exist
-      // Use ULID (id field) directly, not locationPath
-      const promises = nodeULIDs.map((nodeULID) =>
-        isExcluding
-          ? excludeNode(migrationId, nodeULID)
-          : unexcludeNode(migrationId, nodeULID)
-      );
-
-      const results = await Promise.all(promises);
-
-      // Check if any failed
-      const failed = results.filter((r) => !r.success);
-      if (failed.length > 0) {
-        // Revert optimistic update on error
-        setPendingItems((prev) => {
-          const newSet = new Set(prev);
-          if (currentChecked) {
-            newSet.add(item.id);
-          } else {
-            newSet.delete(item.id);
-          }
-          return newSet;
-        });
-
-        setItems((prevItems) =>
-          prevItems.map((i) => {
-            if (i.id === item.id) {
-              return originalItem;
+      // Make API calls for src and dst nodes sequentially to avoid database conflicts
+      // Update src first, then dst - if src fails, don't try dst
+      // If dst fails, rollback src to keep them in sync
+      
+      let srcResult: any = null;
+      let dstResult: any = null;
+      
+      // Step 1: Update src node (if it exists)
+      if (srcNodeId) {
+        srcResult = isExcluding
+          ? await excludeNode(migrationId, srcNodeId)
+          : await unexcludeNode(migrationId, srcNodeId);
+        
+        // If src fails, stop and revert
+        if (!srcResult.success) {
+          // Revert optimistic update
+          setPendingItems((prev) => {
+            const newSet = new Set(prev);
+            if (currentChecked) {
+              newSet.add(item.id);
+            } else {
+              newSet.delete(item.id);
             }
-            return i;
-          })
-        );
-
-        pendingUpdatesRef.current.delete(item.id);
-
-        // Show error toast
-        const errorMessage =
-          failed[0].error ||
-          `Failed to ${isExcluding ? "exclude" : "unexclude"} node. Please try again.`;
-        setToast({
-          message: errorMessage,
-          type: "error",
-        });
-        return;
+            return newSet;
+          });
+          setItems((prevItems) =>
+            prevItems.map((i) => {
+              if (i.id === item.id) {
+                return originalItem;
+              }
+              return i;
+            })
+          );
+          pendingUpdatesRef.current.delete(item.id);
+          setToast({
+            message: srcResult.error || "Failed to update source node. Please try again.",
+            type: "error",
+          });
+          return;
+        }
       }
-
-      // Success - remove from pending updates
+      
+      // Step 2: Update dst node (if it exists and src succeeded)
+      if (dstNodeId) {
+        dstResult = isExcluding
+          ? await excludeNode(migrationId, dstNodeId)
+          : await unexcludeNode(migrationId, dstNodeId);
+        
+        // If dst fails, rollback src to keep them in sync
+        if (!dstResult.success) {
+          // Rollback src node
+          if (srcNodeId) {
+            await (isExcluding
+              ? unexcludeNode(migrationId, srcNodeId)  // Opposite operation to rollback
+              : excludeNode(migrationId, srcNodeId));
+          }
+          
+          // Revert optimistic update
+          setPendingItems((prev) => {
+            const newSet = new Set(prev);
+            if (currentChecked) {
+              newSet.add(item.id);
+            } else {
+              newSet.delete(item.id);
+            }
+            return newSet;
+          });
+          setItems((prevItems) =>
+            prevItems.map((i) => {
+              if (i.id === item.id) {
+                return originalItem;
+              }
+              return i;
+            })
+          );
+          pendingUpdatesRef.current.delete(item.id);
+          setToast({
+            message: dstResult.error || "Failed to update destination node. Changes have been rolled back.",
+            type: "error",
+          });
+          return;
+        }
+      }
+      
+      // Both succeeded (or only one node exists and it succeeded)
       pendingUpdatesRef.current.delete(item.id);
       
-      // Refresh stats after exclusion change
-      fetchStats();
+      // Start polling stats based on background tasks
+      startStatsPolling();
     } catch (err) {
       // Revert optimistic update on network error
       setPendingItems((prev) => {
@@ -578,145 +843,6 @@ export default function PathReview() {
     }
   };
 
-  const handleRetryClick = async (item: DiffItem) => {
-    if (!migrationId) return;
-    
-    const isMarkedForRetry = retryItems.has(item.id);
-    // Collect ULIDs for src and dst nodes (use id field, not locationPath)
-    const nodeULIDs: string[] = [];
-    if (item.src?.id) {
-      nodeULIDs.push(item.src.id);
-    }
-    if (item.dst?.id && (!item.src?.id || item.dst.id !== item.src.id)) {
-      nodeULIDs.push(item.dst.id);
-    }
-
-    if (nodeULIDs.length === 0) {
-      setToast({
-        message: "No node ID available for this item.",
-        type: "error",
-      });
-      return;
-    }
-    
-    // Store original item state for rollback
-    const originalItem = { ...item };
-    
-    // Optimistic update
-    const newRetryState = !isMarkedForRetry;
-    setRetryItems((prev) => {
-      const newSet = new Set(prev);
-      if (newRetryState) {
-        newSet.add(item.id);
-      } else {
-        newSet.delete(item.id);
-      }
-      return newSet;
-    });
-
-    // Optimistically update item's traversalStatus in items array for immediate status icon update
-    setItems((prevItems) =>
-      prevItems.map((i) => {
-        if (i.id === item.id) {
-          // Toggle: if currently failed, mark for retry (set to pending)
-          // If currently marked for retry, unmark (set back to failed)
-          return {
-            ...i,
-            traversalStatus: isMarkedForRetry ? "failed" : "pending",
-          };
-        }
-        return i;
-      })
-    );
-    
-    pendingRetryUpdatesRef.current.set(item.id, newRetryState);
-    
-    try {
-      // Mark or unmark for retry based on current state
-      // Use ULID (id field) directly, not locationPath
-      const promises = nodeULIDs.map((nodeULID) =>
-        isMarkedForRetry
-          ? unmarkNodeForRetry(migrationId, nodeULID)
-          : markNodeForRetry(migrationId, nodeULID)
-      );
-      const results = await Promise.all(promises);
-      
-      const failed = results.filter((r: any) => !r.success);
-      if (failed.length > 0) {
-        // Revert optimistic update
-        setRetryItems((prev) => {
-          const newSet = new Set(prev);
-          if (isMarkedForRetry) {
-            newSet.add(item.id);
-          } else {
-            newSet.delete(item.id);
-          }
-          return newSet;
-        });
-        setItems((prevItems) =>
-          prevItems.map((i) => {
-            if (i.id === item.id) {
-              return originalItem;
-            }
-            return i;
-          })
-        );
-        // Revert counter change
-        setRetryItemsCount((prev) => newRetryState ? Math.max(0, prev - 1) : prev + 1);
-        pendingRetryUpdatesRef.current.delete(item.id);
-        setToast({
-          message: failed[0].error || "Failed to mark node for retry. Please try again.",
-          type: "error",
-        });
-        return;
-      }
-      
-      pendingRetryUpdatesRef.current.delete(item.id);
-      
-      // Update retry items count (increment when marking, decrement when unmarking)
-      setRetryItemsCount((prev) => newRetryState ? prev + 1 : Math.max(0, prev - 1));
-      
-      // Refresh stats after retry change
-      fetchStats();
-      
-      // Show success message
-      setToast({
-        message: newRetryState 
-          ? "Item marked for retry" 
-          : "Item unmarked for retry",
-        type: "success",
-      });
-    } catch (err) {
-      // Revert optimistic update
-      setRetryItems((prev) => {
-        const newSet = new Set(prev);
-        if (isMarkedForRetry) {
-          newSet.add(item.id);
-        } else {
-          newSet.delete(item.id);
-        }
-        return newSet;
-      });
-      setItems((prevItems) =>
-        prevItems.map((i) => {
-          if (i.id === item.id) {
-            return originalItem;
-          }
-          return i;
-        })
-      );
-      // Revert counter change
-      setRetryItemsCount((prev) => newRetryState ? Math.max(0, prev - 1) : prev + 1);
-      
-      pendingRetryUpdatesRef.current.delete(item.id);
-      
-      setToast({
-        message: err instanceof Error ? err.message : "Network error: Failed to mark node for retry.",
-        type: "error",
-      });
-    }
-  };
-
   const handleItemHover = (itemId: string, event: React.MouseEvent) => {
     if (hoverTimeoutRef.current) {
       clearTimeout(hoverTimeoutRef.current);
@@ -744,10 +870,9 @@ export default function PathReview() {
   // Items are now white by default, no color coding needed
 
   const handleStartCopying = () => {
-    // If user has marked items for retry (count > 0), show retry dialog instead
-    if (retryItemsCount > 0) {
-      handleStartRetryDiscovery();
-      return;
+    // Block if we have pending retries (requires explicit user action)
+    if ((stats?.pendingRetriesCount ?? 0) > 0) {
+      return; // Button should be disabled, but this is a safety check
     }
     // Show confirmation dialog for copy
     setConfirmDialogType("copy");
@@ -764,6 +889,16 @@ export default function PathReview() {
     setShowConfirmDialog(false);
     
     if (!migrationId) return;
+    
+    // Check for running tasks before starting copy
+    const hasRunning = await checkRunningTasks();
+    if (hasRunning) {
+      setToast({
+        message: "Cannot start copy: background tasks are running. Please wait.",
+        type: "error",
+      });
+      return;
+    }
     
     setIsTriggeringSweep(true);
     try {
@@ -799,11 +934,20 @@ export default function PathReview() {
     
     if (!migrationId) return;
     
+    // Check for running tasks before starting retry
+    const hasRunning = await checkRunningTasks();
+    if (hasRunning) {
+      setToast({
+        message: "Cannot start retry: background tasks are running. Please wait.",
+        type: "error",
+      });
+      return;
+    }
+    
     setIsTriggeringSweep(true);
     try {
-      // Use phase-change endpoint with "traversal" phase for retry
-      // This handles exclusion sweep automatically if needed
-      const result = await changePhase(migrationId, "traversal");
+      // Use retry-sweep endpoint instead of phase-change
+      const result = await triggerRetrySweep(migrationId);
       
       if (!result.success) {
         setToast({
@@ -858,13 +1002,6 @@ export default function PathReview() {
           <h1>
             Review the <span className="path-review__highlight">Action Plan</span>
           </h1>
-          <p className="path-review__summary">
-            TIP: Click pending item icons to mark them to be excluded from copying over. 
-            <br />
-            TIP: Click failed item icons to mark them to be retried.
-            <br />
-            NOTE: Destination-only folders are shown for awareness and are not explored during discovery.
-          </p>
         </header>
 
         {/* Tabs */}
@@ -954,7 +1091,14 @@ export default function PathReview() {
                   const status = getItemStatus(item);
                   const isFolder = item.type === "folder";
                   const isLocked = isFolder && (status.existsOnBoth || status.existsOnlyOnDst); // Locked if folder exists on both or only on destination
-                  const isMarkedForRetry = retryItems.has(item.id);
+                  // Items with pending traversalStatus are treated as marked for retry
+                  // But if traversalStatus is "failed", it's not marked for retry (even if in retryItems set)
+                  // Check both src and dst nodes - failed overrides pending
+                  const srcTraversalStatus = item.src?.traversalStatus;
+                  const dstTraversalStatus = item.dst?.traversalStatus;
+                  const hasFailedStatus = srcTraversalStatus === "failed" || dstTraversalStatus === "failed";
+                  const hasPendingStatus = (srcTraversalStatus === "pending" || dstTraversalStatus === "pending") && !hasFailedStatus;
+                  const isMarkedForRetry = hasPendingStatus || (retryItems.has(item.id) && !hasFailedStatus);
                   const isHighlighted = highlightedItemId === item.id;
                   // isChecked is based on copyStatus: not excluded and not successful
                   const isChecked = !status.isExcluded && !status.isSuccessful;
@@ -1044,6 +1188,8 @@ export default function PathReview() {
               migrationId={migrationId}
               onItemUpdate={() => {
                 // Reload items will trigger stats update automatically
+                // Start polling stats based on background tasks
+                startStatsPolling();
               }}
               onStatsChange={handleStatsChange}
               onSelectionStatsWarning={handleSelectionWarning}
@@ -1083,10 +1229,22 @@ export default function PathReview() {
                   },
                 },
                 { label: "Size (Src)", value: formatBytes(stats.totalFileSize.src) },
-                { label: "Size (Dst)", value: formatBytes(stats.totalFileSize.dst) },
+                { 
+                  label: "Size (Dst)", 
+                  value: formatBytes(stats.totalFileSize.dst),
+                  tooltip: {
+                    tipId: "path-review-dst-size-explanation",
+                    category: "path-review-dst-size",
+                    position: "above",
+                    content: (
+                      <p>This is only the cumulative size of all the overlapping items between the source and the destination. Not the total potential size of everything inside of your destination root folder.</p>
+                    ),
+                  },
+                },
                 { label: "Pending", value: stats.pendingCount.toLocaleString() },
                 { label: "Failed", value: stats.failedCount.toLocaleString() },
                 { label: "Excluded", value: stats.excludedCount.toLocaleString() },
+                { label: "Pending Retry", value: (stats.pendingRetriesCount ?? 0).toLocaleString() },
               ]}
             />
           )}
@@ -1111,12 +1269,12 @@ export default function PathReview() {
             )}
             
             {/* Retry Discovery or Start Copying Button */}
-            {retryItemsCount > 0 ? (
+            {(stats?.pendingRetriesCount ?? 0) > 0 ? (
               <button
                 type="button"
                 className="glass-button"
                 onClick={handleStartRetryDiscovery}
-                disabled={isTriggeringSweep}
+                disabled={isTriggeringSweep || hasRunningTasks}
                 title="Retry failed items and re-traverse them"
               >
                 <RotateCw size={20} style={{ marginRight: "0.5rem" }} />
@@ -1127,7 +1285,7 @@ export default function PathReview() {
                 type="button"
                 className="glass-button"
                 onClick={handleStartCopying}
-                disabled={!checkCanStartCopy()}
+                disabled={!checkCanStartCopy() || hasRunningTasks}
                 title={
                   !checkCanStartCopy()
                     ? migrationStatus
@@ -1161,7 +1319,7 @@ export default function PathReview() {
           title={confirmDialogType === "retry" ? "Retry Discovery" : "Confirm Copy"}
           message={
             confirmDialogType === "retry"
-              ? "Hey, we're gonna try to traverse those failed items for you. We'll send you back here to review it once we're done. Would you like to proceed?"
+              ? "We'll try to discover what is in those folders that you marked to retry. We'll send you back here to review the results when the process is complete. Would you like to proceed?"
               : "Are you sure you'd like to copy over these selected items?"
           }
           confirmLabel="Yes"

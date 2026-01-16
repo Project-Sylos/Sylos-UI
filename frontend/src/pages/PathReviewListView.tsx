@@ -18,14 +18,18 @@ import {
   PaginationInfo,
   excludeNode,
   unexcludeNode,
-  markNodeForRetry,
-  unmarkNodeForRetry,
+  markNodeForRetryDiscovery,
+  unmarkNodeForRetryDiscovery,
+  markNodeForRetryCopy,
+  unmarkNodeForRetryCopy,
   bulkExcludeNodes,
   bulkUnexcludeNodes,
   getBackgroundTasks,
   BackgroundTask,
   PathReviewStats,
+  getMigrationStatus,
 } from "../api/services";
+import { MigrationStatusResponse } from "../types/migrations";
 import { useZoom } from "../contexts/ZoomContext";
 import PathReviewStatusIcon from "../components/PathReviewStatusIcon";
 import PathReviewLegend from "../components/PathReviewLegend";
@@ -79,11 +83,37 @@ export default function PathReviewListView({
   const [showSortMenu, setShowSortMenu] = useState(false);
   const [apiStats, setApiStats] = useState<PathReviewStats | null>(null);
   const [showItemsPerPageDropdown, setShowItemsPerPageDropdown] = useState(false);
+  const [migrationStatus, setMigrationStatus] = useState<MigrationStatusResponse | null>(null);
   const filterMenuRef = useRef<HTMLDivElement>(null);
   const filterButtonRef = useRef<HTMLButtonElement>(null);
   const sortMenuRef = useRef<HTMLDivElement>(null);
   const sortButtonRef = useRef<HTMLButtonElement>(null);
   const itemsPerPageDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Phase detection helpers
+  const isCopyPhase = (status: MigrationStatusResponse | null): boolean => {
+    if (!status) return false;
+    const statusValue = status.status;
+    return statusValue === "Awaiting-Copy-Review" || 
+           statusValue === "Preparing-For-Copy" || 
+           statusValue === "Copy-In-Progress" || 
+           statusValue === "Copy-Complete";
+  };
+
+  const getCurrentPhase = (): "traversal" | "copy" => {
+    return isCopyPhase(migrationStatus) ? "copy" : "traversal";
+  };
+
+  // Fetch migration status
+  const fetchMigrationStatus = async () => {
+    if (!migrationId) return;
+    try {
+      const statusData = await getMigrationStatus(migrationId);
+      setMigrationStatus(statusData);
+    } catch (err) {
+      console.error("Failed to fetch migration status:", err);
+    }
+  };
 
   // Sanitize search query: trim and escape potentially dangerous characters
   const sanitizeSearchQuery = (query: string): string => {
@@ -288,36 +318,60 @@ export default function PathReviewListView({
       const parsedDepth = depthFilter.trim() !== "" ? parseInt(depthFilter, 10) : null;
       const parsedSizeBytes = sizeFilter.trim() !== "" ? parseFileSize(sizeFilter, sizeDisplayUnit) : null;
       
-      // Automatically determine statusSearchType and filter field based on selected status
-      // "failed" is the only traversal status, everything else is copy status
+      // Determine current phase and use phase-appropriate status fields
+      const phase = getCurrentPhase();
+      const isCopy = phase === "copy";
+      
       let statusSearchType: "traversal" | "copy" | "both" | undefined = undefined;
       let traversalStatusFilterValue: string | undefined = undefined;
       let copyStatusFilterValue: string | undefined = undefined;
       
-      if (traversalStatusFilter === "failed") {
-        // Failed is a traversal status
-        statusSearchType = "traversal";
-        traversalStatusFilterValue = "failed";
-      } else if (traversalStatusFilter === "pending_retry") {
-        // Pending retry is a traversal status (items with traversalStatus = "pending")
-        statusSearchType = "traversal";
-        traversalStatusFilterValue = "pending";
-      } else if (traversalStatusFilter === "excluded") {
-        // Excluded is a copy status (maps to exclusion_explicit/exclusion_inherited)
+      if (isCopy) {
+        // Copy phase: use copyStatus field
         statusSearchType = "copy";
-        copyStatusFilterValue = "excluded";
-      } else if (traversalStatusFilter === "pending") {
-        // Pending is a copy status
-        statusSearchType = "copy";
-        copyStatusFilterValue = "pending";
-      } else if (traversalStatusFilter === "successful") {
-        // Successful is a copy status
-        statusSearchType = "copy";
-        copyStatusFilterValue = "successful";
-      } else if (traversalStatusFilter === "not_on_src") {
-        // Destination only - this is a traversal status
+        
+        if (traversalStatusFilter === "failed") {
+          copyStatusFilterValue = "failed";
+        } else if (traversalStatusFilter === "pending") {
+          copyStatusFilterValue = "pending";
+        } else if (traversalStatusFilter === "successful") {
+          copyStatusFilterValue = "successful";
+        } else if (traversalStatusFilter === "excluded") {
+          // In copy phase, excluded is read-only but still searchable
+          copyStatusFilterValue = "excluded";
+        } else if (traversalStatusFilter === "not_on_src") {
+          // Destination only - this is a traversal status concept (not copy status)
+          statusSearchType = "traversal";
+          traversalStatusFilterValue = "not_on_src";
+        } else if (traversalStatusFilter === "pending_retry") {
+          // In copy phase, pending_retry means pending copy items
+          copyStatusFilterValue = "pending";
+        }
+      } else {
+        // Traversal phase: use traversalStatus field (existing behavior)
         statusSearchType = "traversal";
-        traversalStatusFilterValue = "not_on_src";
+        
+        if (traversalStatusFilter === "failed") {
+          traversalStatusFilterValue = "failed";
+        } else if (traversalStatusFilter === "pending_retry") {
+          // Pending retry is a traversal status (items with traversalStatus = "pending")
+          traversalStatusFilterValue = "pending";
+        } else if (traversalStatusFilter === "excluded") {
+          // Excluded is a copy status (maps to exclusion_explicit/exclusion_inherited)
+          statusSearchType = "copy";
+          copyStatusFilterValue = "excluded";
+        } else if (traversalStatusFilter === "pending") {
+          // Pending is a copy status
+          statusSearchType = "copy";
+          copyStatusFilterValue = "pending";
+        } else if (traversalStatusFilter === "successful") {
+          // Successful is a copy status
+          statusSearchType = "copy";
+          copyStatusFilterValue = "successful";
+        } else if (traversalStatusFilter === "not_on_src") {
+          // Destination only - this is a traversal status
+          traversalStatusFilterValue = "not_on_src";
+        }
       }
 
       const response = await searchPathReviewItems(migrationId, {
@@ -335,6 +389,7 @@ export default function PathReviewListView({
         traversalStatusFilter: traversalStatusFilterValue,
         copyStatusFilter: copyStatusFilterValue,
         statusSearchType: statusSearchType,
+        phase: phase,
       });
 
       if (append) {
@@ -355,6 +410,18 @@ export default function PathReviewListView({
       setLoading(false);
     }
   };
+
+  // Fetch migration status on mount
+  useEffect(() => {
+    fetchMigrationStatus();
+  }, [migrationId]);
+
+  // Clear "pending" filter when switching to copy phase (since it's not available in copy phase)
+  useEffect(() => {
+    if (isCopyPhase(migrationStatus) && traversalStatusFilter === "pending") {
+      setTraversalStatusFilter("");
+    }
+  }, [migrationStatus, traversalStatusFilter]);
 
   useEffect(() => {
     loadItems();
@@ -540,6 +607,11 @@ export default function PathReviewListView({
   ) => {
     if (!migrationId) return;
 
+    // In copy phase, exclusion/inclusion are read-only (no actions allowed)
+    if (isCopyPhase(migrationStatus)) {
+      return;
+    }
+
     const status = getItemStatus(item);
     const isFolder = item.type === "folder";
 
@@ -567,9 +639,11 @@ export default function PathReviewListView({
     setItems((prevItems) =>
       prevItems.map((i) => {
         if (i.id === item.id) {
+          const newCopyStatus = isExcluding ? "exclusion_explicit" : "pending";
           return {
             ...i,
-            copyStatus: isExcluding ? "exclusion_explicit" : "pending",
+            copyStatus: newCopyStatus,
+            src: i.src ? { ...i.src, copyStatus: newCopyStatus } : i.src,
           };
         }
         return i;
@@ -601,6 +675,14 @@ export default function PathReviewListView({
               return i;
             })
           );
+          // Check if error is due to phase locking
+          if (srcResult.error && (
+            srcResult.error.includes("copy phase") || 
+            srcResult.error.includes("exclusion operations are not available")
+          )) {
+            // Don't show error toast for phase-locked operations - UI should already be disabled
+            return;
+          }
           return;
         }
       }
@@ -656,9 +738,8 @@ export default function PathReviewListView({
   const handleRetryClick = async (item: DiffItem) => {
     if (!migrationId) return;
 
-    // Check both src and dst traversalStatus to determine which node needs retry action
-    const srcTraversalStatus = item.src?.traversalStatus;
-    const dstTraversalStatus = item.dst?.traversalStatus;
+    const currentPhase = getCurrentPhase();
+    const isCopy = currentPhase === "copy";
     const srcNodeId = item.src?.id;
     const dstNodeId = item.dst?.id;
     
@@ -666,63 +747,80 @@ export default function PathReviewListView({
     let nodeIdToUpdate: string | null = null;
     let isMarkedForRetry = false;
     
-    if (srcTraversalStatus === "failed" || dstTraversalStatus === "failed") {
-      // If either node is failed, find the one that's failed
-      if (srcTraversalStatus === "failed" && srcNodeId) {
+    if (isCopy) {
+      // Copy phase: check copyStatus (only on src nodes)
+      const copyStatus = item.src?.copyStatus || item.copyStatus || "";
+      
+      if (copyStatus === "failed" && srcNodeId) {
         nodeIdToUpdate = srcNodeId;
-        isMarkedForRetry = false; // Failed means not marked for retry
-      } else if (dstTraversalStatus === "failed" && dstNodeId) {
-        nodeIdToUpdate = dstNodeId;
-        isMarkedForRetry = false; // Failed means not marked for retry
+        isMarkedForRetry = false;
+      } else if (copyStatus === "pending" && srcNodeId) {
+        nodeIdToUpdate = srcNodeId;
+        isMarkedForRetry = true;
       }
-    } else if (srcTraversalStatus === "pending" || dstTraversalStatus === "pending") {
-      // If either node is pending (and neither is failed), find the one that's pending
-      if (srcTraversalStatus === "pending" && srcNodeId) {
-        nodeIdToUpdate = srcNodeId;
-        isMarkedForRetry = true; // Pending means marked for retry
-      } else if (dstTraversalStatus === "pending" && dstNodeId) {
-        nodeIdToUpdate = dstNodeId;
-        isMarkedForRetry = true; // Pending means marked for retry
+    } else {
+      // Traversal phase: check traversalStatus (on both src and dst)
+      const srcTraversalStatus = item.src?.traversalStatus;
+      const dstTraversalStatus = item.dst?.traversalStatus;
+      
+      if (srcTraversalStatus === "failed" || dstTraversalStatus === "failed") {
+        // If either node is failed, find the one that's failed
+        if (srcTraversalStatus === "failed" && srcNodeId) {
+          nodeIdToUpdate = srcNodeId;
+          isMarkedForRetry = false;
+        } else if (dstTraversalStatus === "failed" && dstNodeId) {
+          nodeIdToUpdate = dstNodeId;
+          isMarkedForRetry = false;
+        }
+      } else if (srcTraversalStatus === "pending" || dstTraversalStatus === "pending") {
+        // If either node is pending (and neither is failed), find the one that's pending
+        if (srcTraversalStatus === "pending" && srcNodeId) {
+          nodeIdToUpdate = srcNodeId;
+          isMarkedForRetry = true;
+        } else if (dstTraversalStatus === "pending" && dstNodeId) {
+          nodeIdToUpdate = dstNodeId;
+          isMarkedForRetry = true;
+        }
       }
     }
 
     if (!nodeIdToUpdate) {
-      // Revert optimistic update
-      setItems((prevItems) =>
-        prevItems.map((i) => {
-          if (i.id === item.id) {
-            return originalItem;
-          }
-          return i;
-        })
-      );
       return;
     }
 
     // Store original item state for rollback
     const originalItem = { ...item };
 
-    // Optimistic update: immediately update item's traversalStatus based on which node we're updating
+    // Optimistic update: immediately update item's status based on which node we're updating
     setItems((prevItems) =>
       prevItems.map((i) => {
         if (i.id === item.id) {
           // Update the node we're modifying
           const updatedItem = { ...i };
           if (nodeIdToUpdate === srcNodeId && i.src) {
-            updatedItem.src = {
-              ...i.src,
-              traversalStatus: isMarkedForRetry ? "failed" : "pending",
-            };
-            // Update primary traversalStatus if this is the primary node
-            if (i.id === srcNodeId) {
-              updatedItem.traversalStatus = isMarkedForRetry ? "failed" : "pending";
+            if (isCopy) {
+              // Copy phase: update copyStatus
+              updatedItem.src = {
+                ...i.src,
+                copyStatus: isMarkedForRetry ? "failed" : "pending",
+              };
+              updatedItem.copyStatus = isMarkedForRetry ? "failed" : "pending";
+            } else {
+              // Traversal phase: update traversalStatus
+              updatedItem.src = {
+                ...i.src,
+                traversalStatus: isMarkedForRetry ? "failed" : "pending",
+              };
+              if (i.id === srcNodeId) {
+                updatedItem.traversalStatus = isMarkedForRetry ? "failed" : "pending";
+              }
             }
           } else if (nodeIdToUpdate === dstNodeId && i.dst) {
+            // Only traversal phase uses dst nodes for retry
             updatedItem.dst = {
               ...i.dst,
               traversalStatus: isMarkedForRetry ? "failed" : "pending",
             };
-            // Update primary traversalStatus if this is the primary node
             if (i.id === dstNodeId) {
               updatedItem.traversalStatus = isMarkedForRetry ? "failed" : "pending";
             }
@@ -734,12 +832,15 @@ export default function PathReviewListView({
     );
 
     try {
-      // Mark or unmark for retry based on current state
-      // API automatically handles the corresponding node, so we only need to call once
-      // Only call for the node that has failed or pending status
+      // Mark or unmark for retry based on current state and phase
+      // Use phase-specific endpoints: discovery retry for traversal phase, copy retry for copy phase
       const result = isMarkedForRetry
-        ? await unmarkNodeForRetry(migrationId, nodeIdToUpdate)
-        : await markNodeForRetry(migrationId, nodeIdToUpdate);
+        ? (isCopy
+            ? await unmarkNodeForRetryCopy(migrationId, nodeIdToUpdate)
+            : await unmarkNodeForRetryDiscovery(migrationId, nodeIdToUpdate))
+        : (isCopy
+            ? await markNodeForRetryCopy(migrationId, nodeIdToUpdate)
+            : await markNodeForRetryDiscovery(migrationId, nodeIdToUpdate));
       
       // If the call fails, revert optimistic update
       if (!result.success) {
@@ -776,30 +877,63 @@ export default function PathReviewListView({
 
 
   // Get item status based on API data (copyStatus and traversalStatus)
+  // Uses phase-appropriate status fields: copyStatus in copy phase, traversalStatus in traversal phase
   const getItemStatus = (item: DiffItem) => {
-    const copyStatus = item.copyStatus || "pending";
-    const isFailed = item.traversalStatus === "failed";
-    const existsOnlyOnDst = item.traversalStatus === "not_on_src";
+    const currentPhase = getCurrentPhase();
+    const isCopy = currentPhase === "copy";
     
-    // 1. Failed traversalStatus → failed to traverse
-    // 2. Excluded copyStatus → excluded from copy
-    // 3. Pending copyStatus → pending - will be copied over
-    // 4. Successful copyStatus → already exists on both
-    // 5. traversalStatus 'not_on_src' → exists only on destination (dst items don't have copy status)
-    
-    const isExcluded = copyStatus === "exclusion_explicit" || copyStatus === "exclusion_inherited";
-    const isPending = copyStatus === "pending";
-    const isSuccessful = copyStatus === "successful";
-    const existsOnBoth = isSuccessful; // Successful copyStatus means it exists on both
-    
-    return {
-      isExcluded,
-      isPending,
-      isSuccessful,
-      existsOnBoth,
-      existsOnlyOnDst,
-      isFailed,
-    };
+    if (isCopy) {
+      // Copy phase: use copyStatus field
+      const copyStatus = item.src?.copyStatus || item.copyStatus || "pending";
+      const isFailed = copyStatus === "failed";
+      const existsOnlyOnDst = !item.src && !!item.dst; // dst-only node (no src node)
+      
+      // Copy phase status logic:
+      // 1. Failed = src.copyStatus === "failed" (copy failed)
+      // 2. Successful = src.copyStatus === "successful" (got brought over) OR item is dst-only
+      // 3. Pending = src.copyStatus === "pending" (didn't get brought over - treat same as failed)
+      // 4. Excluded = copyStatus shows exclusion (read-only in copy phase)
+      
+      const isExcluded = copyStatus === "exclusion_explicit" || copyStatus === "exclusion_inherited";
+      const isPending = copyStatus === "pending";
+      const isSuccessful = copyStatus === "successful" || existsOnlyOnDst;
+      const existsOnBoth = copyStatus === "successful"; // Successful copyStatus means it exists on both
+      
+      return {
+        isExcluded,
+        isPending,
+        isSuccessful,
+        existsOnBoth,
+        existsOnlyOnDst,
+        isFailed,
+      };
+    } else {
+      // Traversal phase: use traversalStatus field (existing behavior)
+      const copyStatus = item.copyStatus || "pending";
+      const isFailed = item.traversalStatus === "failed";
+      const existsOnlyOnDst = item.traversalStatus === "not_on_src";
+      
+      // Traversal phase status logic (existing):
+      // 1. Failed traversalStatus → failed to traverse
+      // 2. Excluded copyStatus → excluded from copy
+      // 3. Pending copyStatus → pending - will be copied over
+      // 4. Successful copyStatus → already exists on both
+      // 5. traversalStatus 'not_on_src' → exists only on destination
+      
+      const isExcluded = copyStatus === "exclusion_explicit" || copyStatus === "exclusion_inherited";
+      const isPending = copyStatus === "pending";
+      const isSuccessful = copyStatus === "successful";
+      const existsOnBoth = isSuccessful; // Successful copyStatus means it exists on both
+      
+      return {
+        isExcluded,
+        isPending,
+        isSuccessful,
+        existsOnBoth,
+        existsOnlyOnDst,
+        isFailed,
+      };
+    }
   };
 
   // Update stats from API only (no selection-based stats)
@@ -1019,10 +1153,20 @@ export default function PathReviewListView({
                     onChange={(e) => setTraversalStatusFilter(e.target.value)}
                   >
                     <option value="">All</option>
-                    <option value="pending">Pending (will be copied over)</option>
+                    {!isCopyPhase(migrationStatus) && (
+                      <option value="pending">Pending (will be copied over)</option>
+                    )}
                     <option value="pending_retry">Pending Retry</option>
-                    <option value="excluded">Excluded (will not be copied over)</option>
-                    <option value="failed">Failed (discovery of items inside failed)</option>
+                    <option value="excluded">
+                      {isCopyPhase(migrationStatus) 
+                        ? "Excluded (was not copied over)" 
+                        : "Excluded (will not be copied over)"}
+                    </option>
+                    <option value="failed">
+                      {isCopyPhase(migrationStatus) 
+                        ? "Failed" 
+                        : "Failed (discovery of items inside failed)"}
+                    </option>
                     <option value="successful">Exists (on both)</option>
                     <option value="not_on_src">Exists (on destination only)</option>
                   </select>
@@ -1210,8 +1354,10 @@ export default function PathReviewListView({
             <button
               type="button"
               className="glass-button glass-button--small"
+              disabled={isCopyPhase(migrationStatus) || bulkLoading}
+              title={isCopyPhase(migrationStatus) ? "Exclusion is only available during traversal review" : ""}
               onClick={async () => {
-                if (!migrationId || explicitSelected.size === 0 || bulkLoading) return;
+                if (!migrationId || explicitSelected.size === 0 || bulkLoading || isCopyPhase(migrationStatus)) return;
                 
                 setBulkLoading(true);
                 try {
@@ -1256,19 +1402,26 @@ export default function PathReviewListView({
                   }
                 } catch (err) {
                   console.error("Failed to bulk exclude items:", err);
+                  // Check if error is due to phase locking
+                  const errorMessage = err instanceof Error ? err.message : "Failed to bulk exclude items";
+                  if (errorMessage.includes("copy phase") || errorMessage.includes("exclusion operations are not available")) {
+                    // Don't show error - UI should already be disabled, but log for debugging
+                    console.warn("Bulk exclude blocked in copy phase");
+                  }
                 } finally {
                   setBulkLoading(false);
                 }
               }}
-              disabled={bulkLoading}
             >
               {bulkLoading ? "Processing..." : "Exclude Selected"}
             </button>
             <button
               type="button"
               className="glass-button glass-button--small"
+              disabled={isCopyPhase(migrationStatus) || bulkLoading}
+              title={isCopyPhase(migrationStatus) ? "Exclusion is only available during traversal review" : ""}
               onClick={async () => {
-                if (!migrationId || explicitSelected.size === 0 || bulkLoading) return;
+                if (!migrationId || explicitSelected.size === 0 || bulkLoading || isCopyPhase(migrationStatus)) return;
                 
                 setBulkLoading(true);
                 try {
@@ -1313,11 +1466,16 @@ export default function PathReviewListView({
                   }
                 } catch (err) {
                   console.error("Failed to bulk unexclude items:", err);
+                  // Check if error is due to phase locking
+                  const errorMessage = err instanceof Error ? err.message : "Failed to bulk unexclude items";
+                  if (errorMessage.includes("copy phase") || errorMessage.includes("exclusion operations are not available")) {
+                    // Don't show error - UI should already be disabled, but log for debugging
+                    console.warn("Bulk unexclude blocked in copy phase");
+                  }
                 } finally {
                   setBulkLoading(false);
                 }
               }}
-              disabled={bulkLoading}
             >
               {bulkLoading ? "Processing..." : "Unexclude Selected"}
             </button>
@@ -1340,7 +1498,7 @@ export default function PathReviewListView({
       {/* Status Legend with Pagination Arrows */}
       {!loading && items.length > 0 && (
         <div className="path-review-list__legend-wrapper">
-          <PathReviewLegend zoomLevel={zoomLevel} className="path-review__legend--compact" />
+          <PathReviewLegend zoomLevel={zoomLevel} className="path-review__legend--compact" phase={getCurrentPhase()} />
           {pagination && (
             <div className="path-review-list__page-nav">
               <div className="path-review-list__items-per-page-compact" ref={itemsPerPageDropdownRef}>
@@ -1465,6 +1623,7 @@ export default function PathReviewListView({
                       zoomLevel={zoomLevel}
                       size={16 * zoomLevel}
                       className="path-review-list__item-status-icon"
+                      phase={getCurrentPhase()}
                       onRetryClick={handleRetryClick}
                       onExcludeClick={(item, currentChecked) => handleCheckboxChange(item, currentChecked)}
                     />

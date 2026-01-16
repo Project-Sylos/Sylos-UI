@@ -772,14 +772,20 @@ export async function unexcludeNode(
  * @param nodeId The ID of the node to mark for retry (from PathNodeItem.id)
  * @returns Promise resolving to ExclusionResponse
  */
-export async function markNodeForRetry(
+/**
+ * Mark a node for discovery/traversal retry
+ * @param migrationId The ID of the migration
+ * @param nodeId The ULID of the node to mark for retry (from PathNodeItem.id)
+ * @returns Promise resolving to ExclusionResponse
+ */
+export async function markNodeForRetryDiscovery(
   migrationId: string,
   nodeId: string
 ): Promise<ExclusionResponse> {
   const token = getAuthToken() ?? undefined;
 
   const response = await fetch(
-    `${API_BASE}/api/migrations/${migrationId}/node/${encodeURIComponent(nodeId)}/mark-retry`,
+    `${API_BASE}/api/migrations/${migrationId}/node/${encodeURIComponent(nodeId)}/mark-retry-discovery`,
     {
       method: "POST",
       headers: buildHeaders(token),
@@ -787,7 +793,7 @@ export async function markNodeForRetry(
   );
 
   if (!response.ok) {
-    let errorMessage = "Failed to mark node for retry";
+    let errorMessage = "Failed to mark node for discovery retry";
     try {
       const errorData = await response.json();
       errorMessage = errorData.error || errorMessage;
@@ -805,19 +811,19 @@ export async function markNodeForRetry(
 }
 
 /**
- * Unmark a node for retry (remove from retry queue)
+ * Unmark a node for discovery/traversal retry
  * @param migrationId The ID of the migration
  * @param nodeId The ULID of the node to unmark for retry (from PathNodeItem.id)
  * @returns Promise resolving to ExclusionResponse
  */
-export async function unmarkNodeForRetry(
+export async function unmarkNodeForRetryDiscovery(
   migrationId: string,
   nodeId: string
 ): Promise<ExclusionResponse> {
   const token = getAuthToken() ?? undefined;
 
   const response = await fetch(
-    `${API_BASE}/api/migrations/${migrationId}/node/${encodeURIComponent(nodeId)}/unmark-retry`,
+    `${API_BASE}/api/migrations/${migrationId}/node/${encodeURIComponent(nodeId)}/unmark-retry-discovery`,
     {
       method: "POST",
       headers: buildHeaders(token),
@@ -825,7 +831,7 @@ export async function unmarkNodeForRetry(
   );
 
   if (!response.ok) {
-    let errorMessage = "Failed to unmark node for retry";
+    let errorMessage = "Failed to unmark node for discovery retry";
     try {
       const errorData = await response.json();
       errorMessage = errorData.error || errorMessage;
@@ -842,20 +848,82 @@ export async function unmarkNodeForRetry(
   return data;
 }
 
-// Legacy function - kept for backwards compatibility but should use exclude/unexclude instead
-export async function updateItemCopyStatus(
+/**
+ * Mark a node for copy retry (src nodes only)
+ * @param migrationId The ID of the migration
+ * @param nodeId The ULID of the src node to mark for retry (from PathNodeItem.id)
+ * @returns Promise resolving to ExclusionResponse
+ */
+export async function markNodeForRetryCopy(
   migrationId: string,
-  itemId: string,
-  shouldCopy: boolean
-): Promise<void> {
-  // This function is deprecated - use excludeNode/unexcludeNode instead
-  // Keeping for backwards compatibility
-  if (shouldCopy) {
-    await unexcludeNode(migrationId, itemId);
-  } else {
-    await excludeNode(migrationId, itemId);
+  nodeId: string
+): Promise<ExclusionResponse> {
+  const token = getAuthToken() ?? undefined;
+
+  const response = await fetch(
+    `${API_BASE}/api/migrations/${migrationId}/node/${encodeURIComponent(nodeId)}/mark-retry-copy`,
+    {
+      method: "POST",
+      headers: buildHeaders(token),
+    }
+  );
+
+  if (!response.ok) {
+    let errorMessage = "Failed to mark node for copy retry";
+    try {
+      const errorData = await response.json();
+      errorMessage = errorData.error || errorMessage;
+    } catch {
+      errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+    }
+    return {
+      success: false,
+      error: errorMessage,
+    };
   }
+
+  const data = await response.json();
+  return data;
 }
+
+/**
+ * Unmark a node for copy retry
+ * @param migrationId The ID of the migration
+ * @param nodeId The ULID of the src node to unmark for retry (from PathNodeItem.id)
+ * @returns Promise resolving to ExclusionResponse
+ */
+export async function unmarkNodeForRetryCopy(
+  migrationId: string,
+  nodeId: string
+): Promise<ExclusionResponse> {
+  const token = getAuthToken() ?? undefined;
+
+  const response = await fetch(
+    `${API_BASE}/api/migrations/${migrationId}/node/${encodeURIComponent(nodeId)}/unmark-retry-copy`,
+    {
+      method: "POST",
+      headers: buildHeaders(token),
+    }
+  );
+
+  if (!response.ok) {
+    let errorMessage = "Failed to unmark node for copy retry";
+    try {
+      const errorData = await response.json();
+      errorMessage = errorData.error || errorMessage;
+    } catch {
+      errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+    }
+    return {
+      success: false,
+      error: errorMessage,
+    };
+  }
+
+  const data = await response.json();
+  return data;
+}
+
 
 // Phase change API types and functions
 export interface PhaseChangeRequest {
@@ -969,28 +1037,57 @@ export async function getPendingWork(
 }
 
 // Path Review Statistics API types and functions
+interface PathReviewStatsRaw {
+  traversalStatusCounts?: {
+    pending?: number;
+    failed?: number;
+    successful?: number;
+    exclusion_explicit?: number;
+    exclusion_inherited?: number;
+    not_on_src?: number;
+    not_on_dst?: number;
+  };
+  copyStatusCounts?: {
+    pending?: number;
+    failed?: number;
+    successful?: number;
+    exclusion_explicit?: number;
+    exclusion_inherited?: number;
+  };
+  foldersCount?: number;
+  filesCount?: number;
+  foldersRatio?: number;
+  filesRatio?: number;
+  totalFileSize?: {
+    src?: number;
+    dst?: number;
+  };
+}
+
 export interface PathReviewStats {
   pendingCount: number;
   failedCount: number;
   excludedCount: number;
-  pendingRetriesCount: number;  // Count of items with traversal_status = 'pending'
+  pendingRetriesCount: number;
   foldersCount: number;
   filesCount: number;
-  foldersRatio: number;  // 0-100, rounded to 2 decimal places
-  filesRatio: number;    // 0-100, rounded to 2 decimal places
+  foldersRatio: number;
+  filesRatio: number;
   totalFileSize: {
-    src: number;  // Total bytes in src_nodes
-    dst: number;  // Total bytes in dst_nodes
+    src: number;
+    dst: number;
   };
 }
 
 /**
  * Get path review statistics
  * @param migrationId The ID of the migration
+ * @param phase Optional phase ("traversal" | "copy") to determine which status counts to use
  * @returns Promise resolving to PathReviewStats
  */
 export async function getPathReviewStats(
-  migrationId: string
+  migrationId: string,
+  phase?: "traversal" | "copy"
 ): Promise<PathReviewStats> {
   const token = getAuthToken() ?? undefined;
 
@@ -1011,7 +1108,51 @@ export async function getPathReviewStats(
     );
   }
 
-  return (await response.json()) as PathReviewStats;
+  const raw: PathReviewStatsRaw = await response.json();
+  const isCopy = phase === "copy";
+
+  // Transform based on phase
+  if (isCopy) {
+    // Copy phase:
+    // - pending = copyStatusCounts.pending
+    // - failed = copyStatusCounts.failed
+    // - excluded = copyStatusCounts.exclusion_explicit + exclusion_inherited
+    // - pending retry = copyStatusCounts.pending (items that need to be copied again)
+    return {
+      pendingCount: raw.copyStatusCounts?.pending ?? 0,
+      failedCount: raw.copyStatusCounts?.failed ?? 0,
+      excludedCount: (raw.copyStatusCounts?.exclusion_explicit ?? 0) + (raw.copyStatusCounts?.exclusion_inherited ?? 0),
+      pendingRetriesCount: raw.copyStatusCounts?.pending ?? 0,
+      foldersCount: raw.foldersCount ?? 0,
+      filesCount: raw.filesCount ?? 0,
+      foldersRatio: raw.foldersRatio ?? 0,
+      filesRatio: raw.filesRatio ?? 0,
+      totalFileSize: {
+        src: (raw.totalFileSize?.src ?? 0) as number,
+        dst: (raw.totalFileSize?.dst ?? 0) as number,
+      },
+    };
+  } else {
+    // Traversal phase:
+    // - pending = copyStatusCounts.pending (normal pending)
+    // - failed = traversalStatusCounts.failed
+    // - excluded = copyStatusCounts.exclusion_explicit + exclusion_inherited
+    // - pending retry = traversalStatusCounts.pending (items marked for retry)
+    return {
+      pendingCount: raw.copyStatusCounts?.pending ?? 0,
+      failedCount: raw.traversalStatusCounts?.failed ?? 0,
+      excludedCount: (raw.copyStatusCounts?.exclusion_explicit ?? 0) + (raw.copyStatusCounts?.exclusion_inherited ?? 0),
+      pendingRetriesCount: raw.traversalStatusCounts?.pending ?? 0,
+      foldersCount: raw.foldersCount ?? 0,
+      filesCount: raw.filesCount ?? 0,
+      foldersRatio: raw.foldersRatio ?? 0,
+      filesRatio: raw.filesRatio ?? 0,
+      totalFileSize: {
+        src: (raw.totalFileSize?.src ?? 0) as number,
+        dst: (raw.totalFileSize?.dst ?? 0) as number,
+      },
+    };
+  }
 }
 
 // Search API types and functions
@@ -1037,6 +1178,7 @@ export interface SearchOptions {
   traversalStatusFilter?: string | null; // Traversal status filter (pending, failed, etc.)
   copyStatusFilter?: string | null; // Copy status filter (exclusion_explicit, exclusion_inherited, pending, successful, failed)
   statusSearchType?: "traversal" | "copy" | "both"; // Controls which status conditions are processed
+  phase?: "traversal" | "copy"; // Phase to determine which status counts to use in stats transformation
 }
 
 export interface SearchRequest {
@@ -1256,13 +1398,59 @@ export async function searchPathReviewItems(
     transformedItems.push(diffItem);
   }
 
-  // Extract stats from response if present
-  const stats = data.stats || null;
+  // Extract and transform stats from response if present
+  let transformedStats: PathReviewStats | null = null;
+  if (data.stats) {
+    const rawStats = data.stats as PathReviewStatsRaw;
+    const isCopy = options?.phase === "copy";
+    
+    if (isCopy) {
+      // Copy phase:
+      // - pending = copyStatusCounts.pending
+      // - failed = copyStatusCounts.failed
+      // - excluded = copyStatusCounts.exclusion_explicit + exclusion_inherited
+      // - pending retry = copyStatusCounts.pending (items that need to be copied again)
+      transformedStats = {
+        pendingCount: rawStats.copyStatusCounts?.pending ?? 0,
+        failedCount: rawStats.copyStatusCounts?.failed ?? 0,
+        excludedCount: (rawStats.copyStatusCounts?.exclusion_explicit ?? 0) + (rawStats.copyStatusCounts?.exclusion_inherited ?? 0),
+        pendingRetriesCount: rawStats.copyStatusCounts?.pending ?? 0,
+        foldersCount: rawStats.foldersCount ?? 0,
+        filesCount: rawStats.filesCount ?? 0,
+        foldersRatio: rawStats.foldersRatio ?? 0,
+        filesRatio: rawStats.filesRatio ?? 0,
+        totalFileSize: {
+          src: (rawStats.totalFileSize?.src ?? 0) as number,
+          dst: (rawStats.totalFileSize?.dst ?? 0) as number,
+        },
+      };
+    } else {
+      // Traversal phase:
+      // - pending = copyStatusCounts.pending (normal pending)
+      // - failed = traversalStatusCounts.failed
+      // - excluded = copyStatusCounts.exclusion_explicit + exclusion_inherited
+      // - pending retry = traversalStatusCounts.pending (items marked for retry)
+      transformedStats = {
+        pendingCount: rawStats.copyStatusCounts?.pending ?? 0,
+        failedCount: rawStats.traversalStatusCounts?.failed ?? 0,
+        excludedCount: (rawStats.copyStatusCounts?.exclusion_explicit ?? 0) + (rawStats.copyStatusCounts?.exclusion_inherited ?? 0),
+        pendingRetriesCount: rawStats.traversalStatusCounts?.pending ?? 0,
+        foldersCount: rawStats.foldersCount ?? 0,
+        filesCount: rawStats.filesCount ?? 0,
+        foldersRatio: rawStats.foldersRatio ?? 0,
+        filesRatio: rawStats.filesRatio ?? 0,
+        totalFileSize: {
+          src: (rawStats.totalFileSize?.src ?? 0) as number,
+          dst: (rawStats.totalFileSize?.dst ?? 0) as number,
+        },
+      };
+    }
+  }
 
   return {
     items: transformedItems,
     pagination: paginationData,
-    stats: stats as PathReviewStats | null,
+    stats: transformedStats,
   };
 }
 

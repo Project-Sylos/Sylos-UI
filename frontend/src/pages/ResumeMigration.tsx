@@ -166,7 +166,10 @@ export default function ResumeMigration() {
       "Filters-Set",
       "Traversal-In-Progress",
       "Awaiting-Path-Review",
+      "Preparing-For-Copy",
       "Copy-In-Progress",
+      "Copy-Complete",
+      "Awaiting-Copy-Review",
       "Complete"
     ];
 
@@ -174,9 +177,12 @@ export default function ResumeMigration() {
     if (status && checkpointStatuses.includes(status)) {
       switch (status) {
         case "Awaiting-Path-Review":
+        case "Awaiting-Copy-Review":
           return `/path-review/${migrationId}`;
         case "Traversal-In-Progress":
+        case "Preparing-For-Copy":
         case "Copy-In-Progress":
+        case "Copy-Complete":
           return `/discovery-progress/${migrationId}`;
         case "Complete":
           return `/path-review/${migrationId}`; // Completed migrations can still review paths
@@ -409,7 +415,11 @@ export default function ResumeMigration() {
                     Created: {formatDate(migration.createdAt)}
                   </div>
                 </div>
-                {(migration.status === "running" || migration.status === "Traversal-In-Progress" || migration.status === "Copy-In-Progress") ? (
+                {(migration.status === "running" || 
+                  migration.status === "Traversal-In-Progress" || 
+                  migration.status === "Preparing-For-Copy" ||
+                  migration.status === "Copy-In-Progress" ||
+                  migration.status === "Copy-Complete") ? (
                   <button
                     type="button"
                     className="resume-migration__stop-button-inline"

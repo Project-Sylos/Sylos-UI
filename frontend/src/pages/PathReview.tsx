@@ -12,8 +12,10 @@ import {
   getMigrationDiffs, 
   excludeNode, 
   unexcludeNode,
-  markNodeForRetry,
-  unmarkNodeForRetry,
+  markNodeForRetryDiscovery,
+  unmarkNodeForRetryDiscovery,
+  markNodeForRetryCopy,
+  unmarkNodeForRetryCopy,
   DiffItem,
   getPendingWork,
   changePhase,
@@ -23,6 +25,7 @@ import {
   PaginationInfo,
   getRunningBackgroundTasks,
   triggerRetrySweep,
+  getMigrationStatus,
 } from "../api/services";
 import { MigrationStatusResponse } from "../types/migrations";
 import ItemHoverCard from "../components/ItemHoverCard";
@@ -100,14 +103,28 @@ export default function PathReview() {
   const fetchStats = async () => {
     if (!migrationId || activeTab !== "tree") return; // Only fetch stats when on tree view
     try {
-      const statsData = await getPathReviewStats(migrationId);
+      const currentPhase = getCurrentPhase();
+      const statsData = await getPathReviewStats(migrationId, currentPhase);
       // Always update stats from polling, but list view selection stats will override when items are selected
       // This ensures stats are always fresh when user deselects items
-      setStats(statsData);
+      if (statsData) {
+        setStats(statsData);
+      }
       // Don't reload items here - optimistic updates handle immediate UI changes
       // Items will refresh naturally on user navigation or explicit actions
     } catch (err) {
       console.error("Failed to fetch stats:", err);
+      setStats(null);
+    }
+  };
+
+  const fetchMigrationStatus = async () => {
+    if (!migrationId) return;
+    try {
+      const statusData = await getMigrationStatus(migrationId);
+      setMigrationStatus(statusData);
+    } catch (err) {
+      console.error("Failed to fetch migration status:", err);
     }
   };
   
@@ -121,14 +138,9 @@ export default function PathReview() {
     // Exclusion sweeps run automatically, so don't block on hasPendingExclusions
     // hasPathReviewChanges is informational - exclusion sweep will run automatically
     
-    // Check migration status - use checkpointStatus if available, otherwise check status === 'completed'
+    // Check migration status - only allow copy phase start when in traversal phase
     if (migrationStatus) {
-      const checkpointStatus = (migrationStatus as any).checkpointStatus;
-      if (checkpointStatus) {
-        return checkpointStatus === "Awaiting-Path-Review";
-      }
-      // Fallback to status === 'completed'
-      return migrationStatus.status === "completed";
+      return isTraversalPhase(migrationStatus);
     }
     
     // If we don't have migration status yet, allow it (will be checked again in handleConfirmCopy)
@@ -156,6 +168,9 @@ export default function PathReview() {
     }
     // Only load once when component mounts or migrationId changes
     loadItems(undefined);  // undefined for root (children of all roots)
+    
+    // Fetch migration status on startup
+    fetchMigrationStatus();
     
     // Fetch pending work on startup to load state
     fetchPendingWork();
@@ -276,38 +291,89 @@ export default function PathReview() {
 
   // Handle selection state change from list view
 
-  // Determine if we're in traversal review mode
+  // Phase detection helpers
+  const isCopyPhase = (status: MigrationStatusResponse | null): boolean => {
+    if (!status) return false;
+    // Check status field directly (checkpoint status is in status field)
+    const statusValue = status.status;
+    return statusValue === "Awaiting-Copy-Review" || 
+           statusValue === "Preparing-For-Copy" || 
+           statusValue === "Copy-In-Progress" || 
+           statusValue === "Copy-Complete";
+  };
+
+  const isTraversalPhase = (status: MigrationStatusResponse | null): boolean => {
+    if (!status) return true; // Default to traversal phase
+    return status.status === "Awaiting-Path-Review";
+  };
+
+  const getCurrentPhase = (): "traversal" | "copy" => {
+    return isCopyPhase(migrationStatus) ? "copy" : "traversal";
+  };
+
+  // Determine if we're in traversal review mode (for backwards compatibility)
   const isTraversalReviewMode = () => {
-    if (!migrationStatus) return true; // Default to traversal review mode
-    const checkpointStatus = (migrationStatus as any).checkpointStatus;
-    return checkpointStatus === "Awaiting-Path-Review";
+    return isTraversalPhase(migrationStatus);
   };
 
   // Get item status based on API data (copyStatus and traversalStatus)
+  // Uses phase-appropriate status fields: copyStatus in copy phase, traversalStatus in traversal phase
   const getItemStatus = (item: DiffItem) => {
-    const copyStatus = item.copyStatus || "pending";
-    const isFailed = item.traversalStatus === "failed";
-    const existsOnlyOnDst = item.traversalStatus === "not_on_src";
+    const currentPhase = getCurrentPhase();
+    const isCopy = currentPhase === "copy";
     
-    // 1. Failed traversalStatus → failed
-    // 2. Excluded copyStatus → excluded
-    // 3. Pending copyStatus → pending
-    // 4. Successful copyStatus → exists on both
-    // 5. traversalStatus 'not_on_src' → exists only on destination
-    
-    const isExcluded = copyStatus === "exclusion_explicit" || copyStatus === "exclusion_inherited";
-    const isPending = copyStatus === "pending";
-    const isSuccessful = copyStatus === "successful";
-    const existsOnBoth = isSuccessful; // Successful copyStatus means it exists on both
-    
-    return {
-      isExcluded,
-      isPending,
-      isSuccessful,
-      existsOnBoth,
-      existsOnlyOnDst,
-      isFailed,
-    };
+    if (isCopy) {
+      // Copy phase: use copyStatus field
+      const copyStatus = item.src?.copyStatus || item.copyStatus || "pending";
+      const isFailed = copyStatus === "failed";
+      const existsOnlyOnDst = !item.src && !!item.dst; // dst-only node (no src node)
+      
+      // Copy phase status logic:
+      // 1. Failed = src.copyStatus === "failed" (copy failed)
+      // 2. Successful = src.copyStatus === "successful" (got brought over) OR item is dst-only
+      // 3. Pending = src.copyStatus === "pending" (didn't get brought over - treat same as failed)
+      // 4. Excluded = copyStatus shows exclusion (read-only in copy phase)
+      
+      const isExcluded = copyStatus === "exclusion_explicit" || copyStatus === "exclusion_inherited";
+      const isPending = copyStatus === "pending";
+      const isSuccessful = copyStatus === "successful" || existsOnlyOnDst;
+      const existsOnBoth = copyStatus === "successful"; // Successful copyStatus means it exists on both
+      
+      return {
+        isExcluded,
+        isPending,
+        isSuccessful,
+        existsOnBoth,
+        existsOnlyOnDst,
+        isFailed,
+      };
+    } else {
+      // Traversal phase: use traversalStatus field (existing behavior)
+      const copyStatus = item.copyStatus || "pending";
+      const isFailed = item.traversalStatus === "failed";
+      const existsOnlyOnDst = item.traversalStatus === "not_on_src";
+      
+      // Traversal phase status logic (existing):
+      // 1. Failed traversalStatus → failed
+      // 2. Excluded copyStatus → excluded
+      // 3. Pending copyStatus → pending
+      // 4. Successful copyStatus → exists on both
+      // 5. traversalStatus 'not_on_src' → exists only on destination
+      
+      const isExcluded = copyStatus === "exclusion_explicit" || copyStatus === "exclusion_inherited";
+      const isPending = copyStatus === "pending";
+      const isSuccessful = copyStatus === "successful";
+      const existsOnBoth = isSuccessful; // Successful copyStatus means it exists on both
+      
+      return {
+        isExcluded,
+        isPending,
+        isSuccessful,
+        existsOnBoth,
+        existsOnlyOnDst,
+        isFailed,
+      };
+    }
   };
 
   const loadItems = async (locationPath: string | undefined, append = false) => {
@@ -492,9 +558,8 @@ export default function PathReview() {
   const handleRetryClick = async (item: DiffItem) => {
     if (!migrationId) return;
     
-    // Check both src and dst traversalStatus to determine which node needs retry action
-    const srcTraversalStatus = item.src?.traversalStatus;
-    const dstTraversalStatus = item.dst?.traversalStatus;
+    const currentPhase = getCurrentPhase();
+    const isCopy = currentPhase === "copy";
     const srcNodeId = item.src?.id;
     const dstNodeId = item.dst?.id;
     
@@ -502,23 +567,40 @@ export default function PathReview() {
     let nodeIdToUpdate: string | null = null;
     let isMarkedForRetry = false;
     
-    if (srcTraversalStatus === "failed" || dstTraversalStatus === "failed") {
-      // If either node is failed, find the one that's failed
-      if (srcTraversalStatus === "failed" && srcNodeId) {
+    if (isCopy) {
+      // Copy phase: check copyStatus (only on src nodes)
+      const copyStatus = item.src?.copyStatus || item.copyStatus || "";
+      
+      if (copyStatus === "failed" && srcNodeId) {
         nodeIdToUpdate = srcNodeId;
-        isMarkedForRetry = retryItems.has(item.id) || false; // Check if already marked for retry
-      } else if (dstTraversalStatus === "failed" && dstNodeId) {
-        nodeIdToUpdate = dstNodeId;
-        isMarkedForRetry = retryItems.has(item.id) || false; // Check if already marked for retry
+        isMarkedForRetry = retryItems.has(item.id) || false;
+      } else if (copyStatus === "pending" && srcNodeId) {
+        nodeIdToUpdate = srcNodeId;
+        isMarkedForRetry = retryItems.has(item.id) || true;
       }
-    } else if (srcTraversalStatus === "pending" || dstTraversalStatus === "pending") {
-      // If either node is pending (and neither is failed), find the one that's pending
-      if (srcTraversalStatus === "pending" && srcNodeId) {
-        nodeIdToUpdate = srcNodeId;
-        isMarkedForRetry = retryItems.has(item.id) || true; // Pending means marked for retry
-      } else if (dstTraversalStatus === "pending" && dstNodeId) {
-        nodeIdToUpdate = dstNodeId;
-        isMarkedForRetry = retryItems.has(item.id) || true; // Pending means marked for retry
+    } else {
+      // Traversal phase: check traversalStatus (on both src and dst)
+      const srcTraversalStatus = item.src?.traversalStatus;
+      const dstTraversalStatus = item.dst?.traversalStatus;
+      
+      if (srcTraversalStatus === "failed" || dstTraversalStatus === "failed") {
+        // If either node is failed, find the one that's failed
+        if (srcTraversalStatus === "failed" && srcNodeId) {
+          nodeIdToUpdate = srcNodeId;
+          isMarkedForRetry = retryItems.has(item.id) || false;
+        } else if (dstTraversalStatus === "failed" && dstNodeId) {
+          nodeIdToUpdate = dstNodeId;
+          isMarkedForRetry = retryItems.has(item.id) || false;
+        }
+      } else if (srcTraversalStatus === "pending" || dstTraversalStatus === "pending") {
+        // If either node is pending (and neither is failed), find the one that's pending
+        if (srcTraversalStatus === "pending" && srcNodeId) {
+          nodeIdToUpdate = srcNodeId;
+          isMarkedForRetry = retryItems.has(item.id) || true;
+        } else if (dstTraversalStatus === "pending" && dstNodeId) {
+          nodeIdToUpdate = dstNodeId;
+          isMarkedForRetry = retryItems.has(item.id) || true;
+        }
       }
     }
 
@@ -545,7 +627,7 @@ export default function PathReview() {
       return newSet;
     });
 
-    // Optimistically update item's traversalStatus in items array for immediate status icon update
+    // Optimistically update item's status in items array for immediate status icon update
     // Update the specific node (src or dst) that we're modifying
     setItems((prevItems) =>
       prevItems.map((i) => {
@@ -553,20 +635,29 @@ export default function PathReview() {
           const updatedItem = { ...i };
           // Update the node we're modifying
           if (nodeIdToUpdate === srcNodeId && i.src) {
-            updatedItem.src = {
-              ...i.src,
-              traversalStatus: isMarkedForRetry ? "failed" : "pending",
-            };
-            // Update primary traversalStatus if this is the primary node
-            if (i.id === srcNodeId) {
-              updatedItem.traversalStatus = isMarkedForRetry ? "failed" : "pending";
+            if (isCopy) {
+              // Copy phase: update copyStatus
+              updatedItem.src = {
+                ...i.src,
+                copyStatus: isMarkedForRetry ? "failed" : "pending",
+              };
+              updatedItem.copyStatus = isMarkedForRetry ? "failed" : "pending";
+            } else {
+              // Traversal phase: update traversalStatus
+              updatedItem.src = {
+                ...i.src,
+                traversalStatus: isMarkedForRetry ? "failed" : "pending",
+              };
+              if (i.id === srcNodeId) {
+                updatedItem.traversalStatus = isMarkedForRetry ? "failed" : "pending";
+              }
             }
           } else if (nodeIdToUpdate === dstNodeId && i.dst) {
+            // Only traversal phase uses dst nodes for retry
             updatedItem.dst = {
               ...i.dst,
               traversalStatus: isMarkedForRetry ? "failed" : "pending",
             };
-            // Update primary traversalStatus if this is the primary node
             if (i.id === dstNodeId) {
               updatedItem.traversalStatus = isMarkedForRetry ? "failed" : "pending";
             }
@@ -580,13 +671,15 @@ export default function PathReview() {
     pendingRetryUpdatesRef.current.set(item.id, newRetryState);
     
     try {
-      // Mark or unmark for retry based on current state
-      // Use ULID (id field) directly, not locationPath
-      // API automatically handles the corresponding node, so we only need to call once
-      // Only call for the node that has failed or pending status
+      // Mark or unmark for retry based on current state and phase
+      // Use phase-specific endpoints: discovery retry for traversal phase, copy retry for copy phase
       const result = isMarkedForRetry
-        ? await unmarkNodeForRetry(migrationId, nodeIdToUpdate)
-        : await markNodeForRetry(migrationId, nodeIdToUpdate);
+        ? (isCopy
+            ? await unmarkNodeForRetryCopy(migrationId, nodeIdToUpdate)
+            : await unmarkNodeForRetryDiscovery(migrationId, nodeIdToUpdate))
+        : (isCopy
+            ? await markNodeForRetryCopy(migrationId, nodeIdToUpdate)
+            : await markNodeForRetryDiscovery(migrationId, nodeIdToUpdate));
       
       // If the call fails, revert optimistic update
       if (!result.success) {
@@ -661,6 +754,11 @@ export default function PathReview() {
     item: DiffItem,
     currentChecked: boolean
   ) => {
+    // In copy phase, exclusion/inclusion are read-only (no actions allowed)
+    if (isCopyPhase(migrationStatus)) {
+      return;
+    }
+
     const isFolder = item.type === "folder";
     const status = getItemStatus(item);
     
@@ -706,9 +804,11 @@ export default function PathReview() {
     setItems((prevItems) =>
       prevItems.map((i) => {
         if (i.id === item.id) {
+          const newCopyStatus = isExcluding ? "exclusion_explicit" : "pending";
           return {
             ...i,
-            copyStatus: isExcluding ? "exclusion_explicit" : "pending",
+            copyStatus: newCopyStatus,
+            src: i.src ? { ...i.src, copyStatus: newCopyStatus } : i.src,
           };
         }
         return i;
@@ -753,8 +853,16 @@ export default function PathReview() {
             })
           );
           pendingUpdatesRef.current.delete(item.id);
+          // Check if error is due to phase locking
+          let errorMessage = srcResult.error || "Failed to update source node. Please try again.";
+          if (srcResult.error && (
+            srcResult.error.includes("copy phase") || 
+            srcResult.error.includes("exclusion operations are not available")
+          )) {
+            errorMessage = "Exclusion is only available during traversal review";
+          }
           setToast({
-            message: srcResult.error || "Failed to update source node. Please try again.",
+            message: errorMessage,
             type: "error",
           });
           return;
@@ -870,7 +978,15 @@ export default function PathReview() {
   // Items are now white by default, no color coding needed
 
   const handleStartCopying = () => {
-    // Block if we have pending retries (requires explicit user action)
+    // In copy phase, this is a retry operation
+    if (isCopyPhase(migrationStatus)) {
+      // Show confirmation dialog for copy retry
+      setConfirmDialogType("copy");
+      setShowConfirmDialog(true);
+      return;
+    }
+    
+    // In traversal phase, block if we have pending retries (requires explicit user action)
     if ((stats?.pendingRetriesCount ?? 0) > 0) {
       return; // Button should be disabled, but this is a safety check
     }
@@ -950,8 +1066,16 @@ export default function PathReview() {
       const result = await triggerRetrySweep(migrationId);
       
       if (!result.success) {
+        // Check if error is due to phase locking
+        let errorMessage = result.error || "Failed to start retry discovery";
+        if (result.error && (
+          result.error.includes("copy phase") || 
+          result.error.includes("traversal operations are locked")
+        )) {
+          errorMessage = "Retry sweep is only available during traversal review";
+        }
         setToast({
-          message: result.error || "Failed to start retry discovery",
+          message: errorMessage,
           type: "error",
         });
         setIsTriggeringSweep(false);
@@ -1000,7 +1124,11 @@ export default function PathReview() {
         </button>
         <header className="path-review__header">
           <h1>
-            Review the <span className="path-review__highlight">Action Plan</span>
+            {isCopyPhase(migrationStatus) ? (
+              <>Review <span className="path-review__highlight">Copy Results</span></>
+            ) : (
+              <>Review the <span className="path-review__highlight">Action Plan</span></>
+            )}
           </h1>
         </header>
 
@@ -1070,7 +1198,7 @@ export default function PathReview() {
 
         {/* Status Legend */}
         {!loading && items.length > 0 && (
-          <PathReviewLegend zoomLevel={zoomLevel} />
+          <PathReviewLegend zoomLevel={zoomLevel} phase={getCurrentPhase()} />
         )}
 
         {/* Items List */}
@@ -1116,6 +1244,7 @@ export default function PathReview() {
                           isMarkedForRetry={isMarkedForRetry}
                           isLocked={isLocked}
                           zoomLevel={zoomLevel}
+                          phase={getCurrentPhase()}
                           onRetryClick={handleRetryClick}
                           onExcludeClick={handleCheckboxChange}
                         />
@@ -1268,46 +1397,59 @@ export default function PathReview() {
               </div>
             )}
             
-            {/* Retry Discovery or Start Copying Button */}
-            {(stats?.pendingRetriesCount ?? 0) > 0 ? (
-              <button
-                type="button"
-                className="glass-button"
-                onClick={handleStartRetryDiscovery}
-                disabled={isTriggeringSweep || hasRunningTasks}
-                title="Retry failed items and re-traverse them"
-              >
-                <RotateCw size={20} style={{ marginRight: "0.5rem" }} />
-                Retry Discovery of Failed Items
-              </button>
+            {/* Retry Discovery, Retry Copying, or Start Copying Button */}
+            {isCopyPhase(migrationStatus) ? (
+              // Copy phase: show "Retry Copying of Failed Items" if pendingRetriesCount > 0
+              (stats?.pendingRetriesCount ?? 0) > 0 ? (
+                <button
+                  type="button"
+                  className="glass-button"
+                  onClick={handleStartCopying}
+                  disabled={isTriggeringSweep || hasRunningTasks}
+                  title="Retry copying failed and pending items"
+                >
+                  <RotateCw size={20} style={{ marginRight: "0.5rem" }} />
+                  Retry Copying of Failed Items
+                </button>
+              ) : null // Hide button if there's nothing to retry
             ) : (
-              <button
-                type="button"
-                className="glass-button"
-                onClick={handleStartCopying}
-                disabled={!checkCanStartCopy() || hasRunningTasks}
-                title={
-                  !checkCanStartCopy()
-                    ? migrationStatus
-                      ? (() => {
-                          const checkpointStatus = (migrationStatus as any).checkpointStatus;
-                          if (checkpointStatus && checkpointStatus !== "Awaiting-Path-Review") {
-                            return `Migration checkpoint: ${checkpointStatus} (needs: Awaiting-Path-Review)`;
-                          }
-                          if (!checkpointStatus && migrationStatus.status !== "completed") {
-                            return `Migration status: ${migrationStatus.status} (needs: completed)`;
-                          }
-                          return "Migration not ready for copy phase";
-                        })()
-                      : "Loading migration status..."
-                    : pendingWork?.hasPathReviewChanges
-                    ? "Exclusion sweep will run automatically before copy phase"
-                    : "Start the copy phase"
-                }
-              >
-                <Copy size={20} style={{ marginRight: "0.5rem" }} />
-                Start Copying
-              </button>
+              // Traversal phase: show retry discovery or start copying
+              (stats?.pendingRetriesCount ?? 0) > 0 ? (
+                <button
+                  type="button"
+                  className="glass-button"
+                  onClick={handleStartRetryDiscovery}
+                  disabled={isTriggeringSweep || hasRunningTasks}
+                  title="Retry failed items and re-traverse them"
+                >
+                  <RotateCw size={20} style={{ marginRight: "0.5rem" }} />
+                  Retry Discovery of Failed Items
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="glass-button"
+                  onClick={handleStartCopying}
+                  disabled={!checkCanStartCopy() || hasRunningTasks}
+                  title={
+                    !checkCanStartCopy()
+                      ? migrationStatus
+                        ? (() => {
+                            if (migrationStatus.status !== "Awaiting-Path-Review") {
+                              return `Migration status: ${migrationStatus.status} (needs: Awaiting-Path-Review)`;
+                            }
+                            return "Migration not ready for copy phase";
+                          })()
+                        : "Loading migration status..."
+                      : pendingWork?.hasPathReviewChanges
+                      ? "Exclusion sweep will run automatically before copy phase"
+                      : "Start the copy phase"
+                  }
+                >
+                  <Copy size={20} style={{ marginRight: "0.5rem" }} />
+                  Start Copying
+                </button>
+              )
             )}
           </div>
         </div>
@@ -1316,10 +1458,12 @@ export default function PathReview() {
       {/* Confirmation Dialog */}
       {showConfirmDialog && (
         <ConfirmDialog
-          title={confirmDialogType === "retry" ? "Retry Discovery" : "Confirm Copy"}
+          title={confirmDialogType === "retry" ? "Retry Discovery" : (isCopyPhase(migrationStatus) ? "Retry Copying" : "Confirm Copy")}
           message={
             confirmDialogType === "retry"
               ? "We'll try to discover what is in those folders that you marked to retry. We'll send you back here to review the results when the process is complete. Would you like to proceed?"
+              : isCopyPhase(migrationStatus)
+              ? "We'll retry copying the failed and pending items. We'll send you back here to review the results when the process is complete. Would you like to proceed?"
               : "Are you sure you'd like to copy over these selected items?"
           }
           confirmLabel="Yes"

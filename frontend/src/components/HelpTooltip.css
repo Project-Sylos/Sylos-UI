@@ -3,6 +3,8 @@
   display: inline-flex;
   align-items: center;
   vertical-align: middle;
+  z-index: 9999;
+  isolation: isolate;
 }
 
 .help-tooltip__icon {
@@ -55,7 +57,7 @@
 
 .help-tooltip__bubble {
   position: absolute;
-  z-index: 1000;
+  z-index: 9999;
   min-width: 300px;
   max-width: min(520px, calc(100vw - 2rem));
   padding: 1rem;

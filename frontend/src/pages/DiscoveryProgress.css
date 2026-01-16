@@ -247,6 +247,92 @@
   color: #00ffff;
 }
 
+/* Split header for copy phase - inside the metric card */
+
+.discovery-progress__metric-header-split {
+  display: flex;
+  align-items: stretch;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+  position: relative;
+}
+
+.discovery-progress__metric-header-split::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(
+    var(--color-base-slate-r),
+    var(--color-base-slate-g),
+    var(--color-base-slate-b),
+    var(--glass-border-opacity-subtle)
+  );
+  transform: translateX(-50%);
+}
+
+.discovery-progress__metric-header-half {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding-right: 0.5rem;
+  padding-left: 0.5rem;
+}
+
+.discovery-progress__metric-header-half--source {
+  padding-right: 1rem;
+}
+
+.discovery-progress__metric-header-half--destination {
+  padding-left: 1rem;
+}
+
+.discovery-progress__metric-header-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.discovery-progress__metric-header-half--source .discovery-progress__metric-title {
+  margin: 0;
+  flex-shrink: 0;
+}
+
+.discovery-progress__metric-header-half--destination .discovery-progress__metric-title {
+  margin: 0;
+  flex-shrink: 0;
+}
+
+.discovery-progress__metric-header-arrow {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  background: rgba(
+    var(--glass-bg-base-r),
+    var(--glass-bg-base-g),
+    var(--glass-bg-base-b),
+    var(--glass-bg-opacity-primary)
+  );
+  padding: 0.5rem;
+  border-radius: 50%;
+  z-index: 2;
+  border: 1px solid rgba(
+    var(--color-base-slate-r),
+    var(--color-base-slate-g),
+    var(--color-base-slate-b),
+    var(--glass-border-opacity-subtle)
+  );
+}
+
 .discovery-progress__metric-details {
   display: flex;
   flex-direction: column;

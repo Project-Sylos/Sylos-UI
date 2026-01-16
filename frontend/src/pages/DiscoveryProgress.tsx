@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { ArrowLeft, ChevronDown, ChevronRight, FolderOpen, Cloud, Eye } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronRight, FolderOpen, Cloud, Eye, Copy, ArrowRight } from "lucide-react";
 
 import {
   getMigrationStatus,
@@ -57,9 +57,21 @@ export default function DiscoveryProgress() {
   const queueMetricsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const logIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Phase detection helpers
+  const isCopyPhase = (status?: string): boolean => {
+    return status === "Awaiting-Copy-Review" || 
+           status === "Preparing-For-Copy" || 
+           status === "Copy-In-Progress" || 
+           status === "Copy-Complete";
+  };
+
   // Check if migration is in a terminal state (no longer running)
   const isTerminalState = (status?: string) => {
-    return status === "Awaiting-Path-Review" || status === "Complete" || status === "failed" || status === "suspended";
+    return status === "Awaiting-Path-Review" || 
+           status === "Awaiting-Copy-Review" || 
+           status === "Complete" || 
+           status === "failed" || 
+           status === "suspended";
   };
 
   // Format timestamp for display
@@ -77,6 +89,26 @@ export default function DiscoveryProgress() {
     } catch {
       return timestamp;
     }
+  };
+
+  // Format bytes to human-readable format
+  const formatBytes = (bytes: number): string => {
+    if (bytes === 0) return "0 B";
+    const k = 1024;
+    const sizes = ["B", "KB", "MB", "GB", "TB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    const value = bytes / Math.pow(k, i);
+    return `${value.toFixed(2)} ${sizes[i]}`;
+  };
+
+  // Format bytes per second to human-readable format (e.g., "1.5 MB/s")
+  const formatBytesPerSec = (bytesPerSec: number): string => {
+    if (bytesPerSec === 0) return "0 B/s";
+    const k = 1024;
+    const sizes = ["B/s", "KB/s", "MB/s", "GB/s", "TB/s"];
+    const i = Math.floor(Math.log(bytesPerSec) / Math.log(k));
+    const value = bytesPerSec / Math.pow(k, i);
+    return `${value.toFixed(2)} ${sizes[i]}`;
   };
 
   // Merge and sort logs by timestamp
@@ -260,7 +292,11 @@ export default function DiscoveryProgress() {
   // Check if migration is ready for path review to show results button
   // But block it if we're monitoring a retry sweep (wait for retry to complete)
   useEffect(() => {
-    if (status?.status === "Awaiting-Path-Review" || status?.status === "Complete") {
+    if (
+      status?.status === "Awaiting-Path-Review" || 
+      status?.status === "Awaiting-Copy-Review" || 
+      status?.status === "Complete"
+    ) {
       // If monitoring a retry sweep, don't show results button yet
       // Wait for the retry to complete and navigate back to path review
       if (isMonitoringSweep && sweepType === "retry") {
@@ -281,7 +317,7 @@ export default function DiscoveryProgress() {
     const prevStatus = prevStatusRef.current;
     
     // Navigate when status changes to Awaiting-Path-Review (traversal complete)
-    if (prevStatus !== "Awaiting-Path-Review" && currentStatus === "Awaiting-Path-Review") {
+    if (prevStatus !== "Awaiting-Path-Review" && (currentStatus === "Awaiting-Path-Review" || currentStatus === "Awaiting-Copy-Review")) {
       // Sweep completed successfully - navigate back to path review
       const nextIteration = reviewIteration + 1;
       setReviewIteration(nextIteration);
@@ -437,7 +473,11 @@ export default function DiscoveryProgress() {
         </button>
         <header className="discovery-progress__header">
           <h1>
-            Discovery <span className="discovery-progress__highlight">Progress</span>
+            {isCopyPhase(status?.status) ? (
+              <>Copy <span className="discovery-progress__highlight">Progress</span></>
+            ) : (
+              <>Discovery <span className="discovery-progress__highlight">Progress</span></>
+            )}
           </h1>
         </header>
 
@@ -448,151 +488,259 @@ export default function DiscoveryProgress() {
         {/* Metrics Section */}
         {queueMetrics && (
           <div className="discovery-progress__metrics">
-            <div className="discovery-progress__metric-card">
-              <div className="discovery-progress__metric-header">
-                <div className="discovery-progress__metric-service">
-                  {getServiceIcon(getSourceServiceType())}
-                  <span>{source?.service?.displayName || status?.sourceId || "Unknown"}</span>
-                </div>
-                <h3 className="discovery-progress__metric-title discovery-progress__metric-title--source">
-                  Source
-                </h3>
-              </div>
-              {(source?.root?.locationPath && source.root.locationPath !== '/') ? (
-                <div className="discovery-progress__metric-context">
-                  <div className="discovery-progress__metric-context-row">
-                    <span className="discovery-progress__metric-context-label">Root Path:</span>
-                    <span className="discovery-progress__metric-context-value" title={source?.root?.locationPath || source?.root?.name || ""}>
-                      {source?.root?.locationPath || source?.root?.name || "Not specified"}
-                    </span>
+            <div className={`discovery-progress__metric-card ${isCopyPhase(status?.status) ? 'discovery-progress__metric-card--split' : ''}`}>
+              {isCopyPhase(status?.status) ? (
+                // Copy phase: split header with Source (left) and Destination (right)
+                <>
+                  <div className="discovery-progress__metric-header-split">
+                    <div className="discovery-progress__metric-header-half discovery-progress__metric-header-half--source">
+                      <div className="discovery-progress__metric-header-top">
+                        <div className="discovery-progress__metric-service">
+                          {getServiceIcon(getSourceServiceType())}
+                          <span>{source?.service?.displayName || status?.sourceId || "Unknown"}</span>
+                        </div>
+                        <h3 className="discovery-progress__metric-title discovery-progress__metric-title--source">
+                          Source
+                        </h3>
+                      </div>
+                      {(source?.root?.locationPath && source.root.locationPath !== '/') ? (
+                        <div className="discovery-progress__metric-context">
+                          <div className="discovery-progress__metric-context-row">
+                            <span className="discovery-progress__metric-context-label">Root Path:</span>
+                            <span className="discovery-progress__metric-context-value" title={source?.root?.locationPath || source?.root?.name || ""}>
+                              {source?.root?.locationPath || source?.root?.name || "Not specified"}
+                            </span>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="discovery-progress__metric-context discovery-progress__metric-context--empty" />
+                      )}
+                    </div>
+                    <div className="discovery-progress__metric-header-arrow">
+                      <ArrowRight size={24} />
+                    </div>
+                    <div className="discovery-progress__metric-header-half discovery-progress__metric-header-half--destination">
+                      <div className="discovery-progress__metric-header-top">
+                        <div className="discovery-progress__metric-service">
+                          {getServiceIcon(getDestinationServiceType())}
+                          <span>{destination?.service?.displayName || status?.destinationId || "Unknown"}</span>
+                        </div>
+                        <h3 className="discovery-progress__metric-title discovery-progress__metric-title--destination">
+                          Destination
+                        </h3>
+                      </div>
+                      {(destination?.root?.locationPath && destination.root.locationPath !== '/') ? (
+                        <div className="discovery-progress__metric-context">
+                          <div className="discovery-progress__metric-context-row">
+                            <span className="discovery-progress__metric-context-label">Root Path:</span>
+                            <span className="discovery-progress__metric-context-value" title={destination?.root?.locationPath || destination?.root?.name || ""}>
+                              {destination?.root?.locationPath || destination?.root?.name || "Not specified"}
+                            </span>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="discovery-progress__metric-context discovery-progress__metric-context--empty" />
+                      )}
+                    </div>
                   </div>
-                </div>
+                </>
               ) : (
-                <div className="discovery-progress__metric-context discovery-progress__metric-context--empty" />
+                // Traversal phase: normal header
+                <>
+                  <div className="discovery-progress__metric-header">
+                    <div className="discovery-progress__metric-service">
+                      {getServiceIcon(getSourceServiceType())}
+                      <span>{source?.service?.displayName || status?.sourceId || "Unknown"}</span>
+                    </div>
+                    <h3 className="discovery-progress__metric-title discovery-progress__metric-title--source">
+                      Source
+                    </h3>
+                  </div>
+                  {(source?.root?.locationPath && source.root.locationPath !== '/') ? (
+                    <div className="discovery-progress__metric-context">
+                      <div className="discovery-progress__metric-context-row">
+                        <span className="discovery-progress__metric-context-label">Root Path:</span>
+                        <span className="discovery-progress__metric-context-value" title={source?.root?.locationPath || source?.root?.name || ""}>
+                          {source?.root?.locationPath || source?.root?.name || "Not specified"}
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="discovery-progress__metric-context discovery-progress__metric-context--empty" />
+                  )}
+                </>
               )}
-              {queueMetrics.srcTraversal ? (
-                <div className="discovery-progress__metric-details">
-                  {queueMetrics.srcTraversal.discovery_rate_items_per_sec !== undefined && (
+              {isCopyPhase(status?.status) ? (
+                // Copy phase: show simplified copy metrics from copy queue
+                queueMetrics.copy ? (
+                  <div className="discovery-progress__metric-details">
+                    {/* Totals */}
                     <div className="discovery-progress__metric-row">
-                      <span>
-                        Discovery Rate:
-                        <HelpTooltip
-                          tipId="discovery-rate-explanation"
-                          category="discovery-rate-source"
-                          position="above"
-                          content={
-                            <p>
-                              The discovery rate shows how many files and folders are being discovered per second. 
-                              This is an exponentially weighted moving average (EMA) that smooths out short-term fluctuations 
-                              to give you a more stable view of the discovery progress.
-                            </p>
-                          }
-                        />
-                      </span>
-                      <span>{queueMetrics.srcTraversal.discovery_rate_items_per_sec.toFixed(1)} items/sec</span>
+                      <span>Folders:</span>
+                      <span>{(queueMetrics.copy.folders_discovered_total || 0).toLocaleString()}</span>
                     </div>
-                  )}
-                  {queueMetrics.srcTraversal.folders_discovered_total !== undefined && (
                     <div className="discovery-progress__metric-row">
-                      <span>Folders Discovered:</span>
-                      <span>{queueMetrics.srcTraversal.folders_discovered_total.toLocaleString()}</span>
+                      <span>Files:</span>
+                      <span>{(queueMetrics.copy.files_discovered_total || 0).toLocaleString()}</span>
                     </div>
-                  )}
-                  {queueMetrics.srcTraversal.files_discovered_total !== undefined && (
                     <div className="discovery-progress__metric-row">
-                      <span>Files Discovered:</span>
-                      <span>{queueMetrics.srcTraversal.files_discovered_total.toLocaleString()}</span>
+                      <span>Total:</span>
+                      <span>{((queueMetrics.copy.folders_discovered_total || 0) + (queueMetrics.copy.files_discovered_total || 0)).toLocaleString()}</span>
                     </div>
-                  )}
-                  {queueMetrics.srcTraversal.total_discovered !== undefined && (
+                    {/* Total bytes moved - API may not return this yet, show 0 if not available */}
                     <div className="discovery-progress__metric-row">
-                      <span>Total Discovered:</span>
-                      <span>{queueMetrics.srcTraversal.total_discovered.toLocaleString()}</span>
+                      <span>Bytes:</span>
+                      <span>{formatBytes(
+                        queueMetrics.copy.bytes_copied_total || 
+                        queueMetrics.copy.total_bytes_copied || 
+                        queueMetrics.copy.bytes_total || 
+                        0
+                      )}</span>
                     </div>
-                  )}
-                </div>
+                    {/* Rates */}
+                    <div className="discovery-progress__metric-row">
+                      <span>Items/sec:</span>
+                      <span>{(queueMetrics.copy.discovery_rate_items_per_sec || 0).toFixed(1)}</span>
+                    </div>
+                    {/* Bytes per second - API may not return this yet, show 0 if not available */}
+                    <div className="discovery-progress__metric-row">
+                      <span>Bytes/sec:</span>
+                      <span>{formatBytesPerSec(
+                        queueMetrics.copy.bytes_per_sec || 
+                        queueMetrics.copy.copy_rate_bytes_per_sec || 
+                        queueMetrics.copy.bytes_copied_per_sec || 
+                        0
+                      )}</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="discovery-progress__metric-empty">Not started</div>
+                )
               ) : (
-                <div className="discovery-progress__metric-empty">Not started</div>
+                // Traversal phase: show discovery metrics from srcTraversal
+                queueMetrics.srcTraversal ? (
+                  <div className="discovery-progress__metric-details">
+                    {queueMetrics.srcTraversal.discovery_rate_items_per_sec !== undefined && (
+                      <div className="discovery-progress__metric-row">
+                        <span>
+                          Discovery Rate:
+                          <HelpTooltip
+                            tipId="discovery-rate-explanation"
+                            category="discovery-rate-source"
+                            position="above"
+                            content={
+                              <p>
+                                The discovery rate shows how many files and folders are being discovered per second. This is an exponentially weighted moving average (EMA) that smooths out short-term fluctuations to give you a more stable view of the discovery progress.
+                              </p>
+                            }
+                          />
+                        </span>
+                        <span>{queueMetrics.srcTraversal.discovery_rate_items_per_sec.toFixed(1)} items/sec</span>
+                      </div>
+                    )}
+                    {queueMetrics.srcTraversal.folders_discovered_total !== undefined && (
+                      <div className="discovery-progress__metric-row">
+                        <span>Folders Discovered:</span>
+                        <span>{queueMetrics.srcTraversal.folders_discovered_total.toLocaleString()}</span>
+                      </div>
+                    )}
+                    {queueMetrics.srcTraversal.files_discovered_total !== undefined && (
+                      <div className="discovery-progress__metric-row">
+                        <span>Files Discovered:</span>
+                        <span>{queueMetrics.srcTraversal.files_discovered_total.toLocaleString()}</span>
+                      </div>
+                    )}
+                    {queueMetrics.srcTraversal.total_discovered !== undefined && (
+                      <div className="discovery-progress__metric-row">
+                        <span>Total Discovered:</span>
+                        <span>{queueMetrics.srcTraversal.total_discovered.toLocaleString()}</span>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="discovery-progress__metric-empty">Not started</div>
+                )
               )}
             </div>
 
-            <div className="discovery-progress__metric-card">
-              <div className="discovery-progress__metric-header">
-                <div className="discovery-progress__metric-service">
-                  {getServiceIcon(getDestinationServiceType())}
-                  <span>{destination?.service?.displayName || status?.destinationId || "Unknown"}</span>
-                </div>
-                <h3 className="discovery-progress__metric-title discovery-progress__metric-title--destination">
-                  Destination
-                </h3>
-              </div>
-              {(destination?.root?.locationPath && destination.root.locationPath !== '/') ? (
-                <div className="discovery-progress__metric-context">
-                  <div className="discovery-progress__metric-context-row">
-                    <span className="discovery-progress__metric-context-label">Root Path:</span>
-                    <span className="discovery-progress__metric-context-value" title={destination?.root?.locationPath || destination?.root?.name || ""}>
-                      {destination?.root?.locationPath || destination?.root?.name || "Not specified"}
-                    </span>
+            {/* Destination card - only show in traversal phase */}
+            {!isCopyPhase(status?.status) && (
+              <div className="discovery-progress__metric-card">
+                <div className="discovery-progress__metric-header">
+                  <div className="discovery-progress__metric-service">
+                    {getServiceIcon(getDestinationServiceType())}
+                    <span>{destination?.service?.displayName || status?.destinationId || "Unknown"}</span>
                   </div>
+                  <h3 className="discovery-progress__metric-title discovery-progress__metric-title--destination">
+                    Destination
+                  </h3>
                 </div>
-              ) : (
-                <div className="discovery-progress__metric-context discovery-progress__metric-context--empty" />
-              )}
-              {queueMetrics.dstTraversal ? (
-                <div className="discovery-progress__metric-details">
-                  {queueMetrics.dstTraversal.discovery_rate_items_per_sec !== undefined && (
-                    <div className="discovery-progress__metric-row">
-                      <span>
-                        Discovery Rate:
-                        <HelpTooltip
-                          tipId="discovery-rate-explanation-dst"
-                          category="discovery-rate-destination"
-                          position="above"
-                          content={
-                            <p>
-                              The discovery rate shows how many files and folders are being discovered per second. 
-                              This is an exponentially weighted moving average (EMA) that smooths out short-term fluctuations 
-                              to give you a more stable view of the discovery progress.
-                            </p>
-                          }
-                        />
+                {(destination?.root?.locationPath && destination.root.locationPath !== '/') ? (
+                  <div className="discovery-progress__metric-context">
+                    <div className="discovery-progress__metric-context-row">
+                      <span className="discovery-progress__metric-context-label">Root Path:</span>
+                      <span className="discovery-progress__metric-context-value" title={destination?.root?.locationPath || destination?.root?.name || ""}>
+                        {destination?.root?.locationPath || destination?.root?.name || "Not specified"}
                       </span>
-                      <span>{queueMetrics.dstTraversal.discovery_rate_items_per_sec.toFixed(1)} items/sec</span>
                     </div>
-                  )}
-                  {queueMetrics.dstTraversal.folders_discovered_total !== undefined && (
-                    <div className="discovery-progress__metric-row">
-                      <span>Folders Discovered:</span>
-                      <span>{queueMetrics.dstTraversal.folders_discovered_total.toLocaleString()}</span>
-                    </div>
-                  )}
-                  {queueMetrics.dstTraversal.files_discovered_total !== undefined && (
-                    <div className="discovery-progress__metric-row">
-                      <span>Files Discovered:</span>
-                      <span>{queueMetrics.dstTraversal.files_discovered_total.toLocaleString()}</span>
-                    </div>
-                  )}
-                  {queueMetrics.dstTraversal.total_discovered !== undefined && (
-                    <div className="discovery-progress__metric-row">
-                      <span>
-                        Total Discovered:
-                        <HelpTooltip
-                          tipId="destination-total-discovered-explanation"
-                          category="discovery-destination-total"
-                          position="above"
-                          content={
-                            <p>This is specifically only the overlapping items explored, not the total items inside of your destination root folder.</p>
-                          }
-                        />
-                      </span>
-                      <span>{queueMetrics.dstTraversal.total_discovered.toLocaleString()}</span>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="discovery-progress__metric-empty">Not started</div>
-              )}
-            </div>
+                  </div>
+                ) : (
+                  <div className="discovery-progress__metric-context discovery-progress__metric-context--empty" />
+                )}
+                {queueMetrics.dstTraversal ? (
+                  <div className="discovery-progress__metric-details">
+                    {queueMetrics.dstTraversal.discovery_rate_items_per_sec !== undefined && (
+                      <div className="discovery-progress__metric-row">
+                        <span>
+                          Discovery Rate:
+                          <HelpTooltip
+                            tipId="discovery-rate-explanation-dst"
+                            category="discovery-rate-destination"
+                            position="above"
+                            content={
+                              <p>
+                                The discovery rate shows how many files and folders are being discovered per second. This is an exponentially weighted moving average (EMA) that smooths out short-term fluctuations to give you a more stable view of the discovery progress.
+                              </p>
+                            }
+                          />
+                        </span>
+                        <span>{queueMetrics.dstTraversal.discovery_rate_items_per_sec.toFixed(1)} items/sec</span>
+                      </div>
+                    )}
+                    {queueMetrics.dstTraversal.folders_discovered_total !== undefined && (
+                      <div className="discovery-progress__metric-row">
+                        <span>Folders Discovered:</span>
+                        <span>{queueMetrics.dstTraversal.folders_discovered_total.toLocaleString()}</span>
+                      </div>
+                    )}
+                    {queueMetrics.dstTraversal.files_discovered_total !== undefined && (
+                      <div className="discovery-progress__metric-row">
+                        <span>Files Discovered:</span>
+                        <span>{queueMetrics.dstTraversal.files_discovered_total.toLocaleString()}</span>
+                      </div>
+                    )}
+                    {queueMetrics.dstTraversal.total_discovered !== undefined && (
+                      <div className="discovery-progress__metric-row">
+                        <span>
+                          Total Discovered:
+                          <HelpTooltip
+                            tipId="destination-total-discovered-explanation"
+                            category="discovery-destination-total"
+                            position="above"
+                            content={
+                              <p>This is specifically only the overlapping items explored, not the total items inside of your destination root folder.</p>
+                            }
+                          />
+                        </span>
+                        <span>{queueMetrics.dstTraversal.total_discovered.toLocaleString()}</span>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="discovery-progress__metric-empty">Not started</div>
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -716,7 +864,7 @@ export default function DiscoveryProgress() {
             </button>
           )}
           
-          {/* View Discovery Results Button (when discovery completed) */}
+          {/* View Discovery Results or Copy Results Button (when traversal/copy completed) */}
           {!isMonitoringSweep && (
             <button
               type="button"
@@ -731,7 +879,9 @@ export default function DiscoveryProgress() {
               disabled={!showResultsButton}
             >
               <Eye size={20} style={{ marginRight: "0.5rem" }} />
-              View Discovery Results
+              {isCopyPhase(status?.status) || status?.status === "Awaiting-Copy-Review"
+                ? "View Copy Results"
+                : "View Discovery Results"}
             </button>
           )}
         </div>

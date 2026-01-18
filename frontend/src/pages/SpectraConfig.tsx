@@ -83,15 +83,18 @@ export default function SpectraConfigPage() {
     value: string
   ) => {
     const key = `${section}.${field}`;
-    // Update the input value (allow empty)
     setInputValues((prev) => ({
       ...prev,
       [key]: value,
     }));
 
-    // Update config only if value is not empty
     if (value !== "") {
-      const numValue = section === "secondary_tables" 
+      const isFloatField = section === "secondary_tables" || 
+        field === "folder_backoff_factor" || 
+        field === "folder_depth_decay_factor" ||
+        field === "file_backoff_factor" ||
+        field === "file_depth_decay_factor";
+      const numValue = isFloatField 
         ? parseFloat(value) || 0
         : parseInt(value, 10) || 0;
       
@@ -117,6 +120,20 @@ export default function SpectraConfigPage() {
     }
   };
 
+  const handleBooleanInputChange = (
+    section: "seed",
+    field: string,
+    checked: boolean
+  ) => {
+    setConfig((prev) => ({
+      ...prev,
+      [section]: {
+        ...prev[section],
+        [field]: checked,
+      },
+    }));
+  };
+
   const handleNumberInputBlur = (
     section: "seed" | "api" | "secondary_tables",
     field: string,
@@ -125,7 +142,6 @@ export default function SpectraConfigPage() {
     const key = `${section}.${field}`;
     const currentValue = inputValues[key];
     
-    // If empty on blur, set to default value
     if (currentValue === "" || currentValue === undefined) {
       setInputValues((prev) => {
         const newValues = { ...prev };
@@ -169,24 +185,20 @@ export default function SpectraConfigPage() {
     }));
   };
 
-  // Validation logic
   const validationErrors = useMemo(() => {
     const errors: string[] = [];
     const seed = config.seed;
     
-    // Check max_depth > 2
     if (seed.max_depth <= 2) {
       errors.push("Max Depth must be greater than 2");
     }
     
-    // Check max_folders >= min_folders
-    if (seed.max_folders < seed.min_folders) {
-      errors.push("Max Folders must be greater than or equal to Min Folders");
+    if (seed.max_folders <= 0) {
+      errors.push("Max Folders must be greater than 0");
     }
     
-    // Check max_files >= min_files
-    if (seed.max_files < seed.min_files) {
-      errors.push("Max Files must be greater than or equal to Min Files");
+    if (seed.max_files <= 0) {
+      errors.push("Max Files must be greater than 0");
     }
     
     return errors;
@@ -325,34 +337,36 @@ export default function SpectraConfigPage() {
             required
           />
           <FormField
-            id="min_folders"
-            label="Min Folders"
-            type="number"
-            value={getInputValue("seed", "min_folders")}
-            onChange={(value) => handleNumberInputChange("seed", "min_folders", value)}
-            onBlur={() => handleNumberInputBlur("seed", "min_folders", 0)}
-            min={0}
-            required
-          />
-          <FormField
             id="max_folders"
             label="Max Folders"
             type="number"
             value={getInputValue("seed", "max_folders")}
             onChange={(value) => handleNumberInputChange("seed", "max_folders", value)}
-            onBlur={() => handleNumberInputBlur("seed", "max_folders", 0)}
-            min={0}
+            onBlur={() => handleNumberInputBlur("seed", "max_folders", 8)}
+            min={1}
             required
           />
           <FormField
-            id="min_files"
-            label="Min Files"
+            id="folder_backoff_factor"
+            label="Folder Backoff Factor"
             type="number"
-            value={getInputValue("seed", "min_files")}
-            onChange={(value) => handleNumberInputChange("seed", "min_files", value)}
-            onBlur={() => handleNumberInputBlur("seed", "min_files", 0)}
+            value={getInputValue("seed", "folder_backoff_factor")}
+            onChange={(value) => handleNumberInputChange("seed", "folder_backoff_factor", value)}
+            onBlur={() => handleNumberInputBlur("seed", "folder_backoff_factor", 0.5)}
+            step={0.1}
             min={0}
-            required
+            max={1}
+          />
+          <FormField
+            id="folder_depth_decay_factor"
+            label="Folder Depth Decay Factor"
+            type="number"
+            value={getInputValue("seed", "folder_depth_decay_factor")}
+            onChange={(value) => handleNumberInputChange("seed", "folder_depth_decay_factor", value)}
+            onBlur={() => handleNumberInputBlur("seed", "folder_depth_decay_factor", 0.8)}
+            step={0.1}
+            min={0}
+            max={1}
           />
           <FormField
             id="max_files"
@@ -360,9 +374,31 @@ export default function SpectraConfigPage() {
             type="number"
             value={getInputValue("seed", "max_files")}
             onChange={(value) => handleNumberInputChange("seed", "max_files", value)}
-            onBlur={() => handleNumberInputBlur("seed", "max_files", 0)}
-            min={0}
+            onBlur={() => handleNumberInputBlur("seed", "max_files", 20)}
+            min={1}
             required
+          />
+          <FormField
+            id="file_backoff_factor"
+            label="File Backoff Factor"
+            type="number"
+            value={getInputValue("seed", "file_backoff_factor")}
+            onChange={(value) => handleNumberInputChange("seed", "file_backoff_factor", value)}
+            onBlur={() => handleNumberInputBlur("seed", "file_backoff_factor", 0.5)}
+            step={0.1}
+            min={0}
+            max={1}
+          />
+          <FormField
+            id="file_depth_decay_factor"
+            label="File Depth Decay Factor"
+            type="number"
+            value={getInputValue("seed", "file_depth_decay_factor")}
+            onChange={(value) => handleNumberInputChange("seed", "file_depth_decay_factor", value)}
+            onBlur={() => handleNumberInputBlur("seed", "file_depth_decay_factor", 0.8)}
+            step={0.1}
+            min={0}
+            max={1}
           />
           <FormField
             id="seed"
@@ -371,7 +407,6 @@ export default function SpectraConfigPage() {
             value={getInputValue("seed", "seed")}
             onChange={(value) => handleNumberInputChange("seed", "seed", value)}
             onBlur={() => handleNumberInputBlur("seed", "seed", 0)}
-            required
           />
           <FormField
             id="db_path"
@@ -381,6 +416,18 @@ export default function SpectraConfigPage() {
             onChange={(value) => handleTextInputChange("seed", "db_path", value)}
             required
           />
+          <div className="form-field">
+            <label htmlFor="enable_cache" className="form-field__label">
+              Enable Cache
+            </label>
+            <input
+              id="enable_cache"
+              type="checkbox"
+              checked={config.seed.enable_cache ?? false}
+              onChange={(e) => handleBooleanInputChange("seed", "enable_cache", e.target.checked)}
+              className="form-field__input"
+            />
+          </div>
         </FormSection>
 
         <FormSection title="API Configuration">

@@ -194,12 +194,25 @@ export interface QueueMetrics {
   round: number;
   pending: number;
   inProgress: number;
-  totalTracked: number;
+  totalTracked?: number;
   workers: number;
+  // Traversal phase fields
   files_discovered_total?: number;
   folders_discovered_total?: number;
   discovery_rate_items_per_sec?: number;
   total_discovered?: number;
+  // Copy phase fields
+  folders?: number;
+  files?: number;
+  total?: number;
+  items_per_second?: number;
+  total_pending?: number;
+  bytes_copied_total?: number;
+  total_bytes_copied?: number;
+  bytes_total?: number;
+  bytes_per_sec?: number;
+  copy_rate_bytes_per_sec?: number;
+  bytes_copied_per_sec?: number;
 }
 
 export interface MigrationQueueMetricsResponse {

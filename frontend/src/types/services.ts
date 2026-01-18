@@ -43,12 +43,20 @@ export interface ChildrenResponse {
 export interface SpectraConfig {
   seed: {
     max_depth: number;
-    min_folders: number;
-    max_folders: number;
-    min_files: number;
-    max_files: number;
-    seed: number;
     db_path: string;
+    seed?: number;
+    // Old format (deprecated, kept for backwards compatibility)
+    min_folders?: number;
+    min_files?: number;
+    // New format - weighted distribution (required)
+    max_folders: number;
+    folder_backoff_factor?: number;
+    folder_depth_decay_factor?: number;
+    max_files: number;
+    file_backoff_factor?: number;
+    file_depth_decay_factor?: number;
+    // Cache configuration (optional, defaults to false)
+    enable_cache?: boolean;
   };
   api: {
     host: string;
@@ -60,12 +68,15 @@ export interface SpectraConfig {
 export const DEFAULT_SPECTRA_CONFIG: SpectraConfig = {
   seed: {
     max_depth: 4,
-    min_folders: 4,
     max_folders: 8,
-    min_files: 10,
+    folder_backoff_factor: 0.5,
+    folder_depth_decay_factor: 0.8,
     max_files: 20,
+    file_backoff_factor: 0.5,
+    file_depth_decay_factor: 0.8,
     seed: 0,
     db_path: "./spectra.db",
+    enable_cache: true,
   },
   api: {
     host: "localhost",

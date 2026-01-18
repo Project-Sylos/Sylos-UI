@@ -15,7 +15,7 @@ import "./DiscoveryProgress.css";
 
 const LOG_LEVELS: LogLevel[] = ["trace", "debug", "info", "warning", "error", "critical"];
 const MAX_LOG_LINES = 10000;
-const STATUS_POLL_INTERVAL = 200;
+const STATUS_POLL_INTERVAL = 500;
 const LOG_POLL_INTERVAL = 500;
 
 interface MergedLog extends MigrationLog {
@@ -360,12 +360,12 @@ export default function DiscoveryProgress() {
     fetchQueueMetrics();
     fetchLogs();
 
-    // Set up status polling (every 200ms) - always poll status to detect completion
+    // Set up status polling (every 500ms) - always poll status to detect completion
     statusIntervalRef.current = setInterval(() => {
       fetchStatus();
     }, STATUS_POLL_INTERVAL);
 
-    // Set up queue metrics polling (every 200ms) - only if not terminal
+    // Set up queue metrics polling (every 500ms) - only if not terminal
     queueMetricsIntervalRef.current = setInterval(() => {
       if (!isTerminalStateRef.current) {
         fetchQueueMetrics();
@@ -486,8 +486,7 @@ export default function DiscoveryProgress() {
         )}
 
         {/* Metrics Section */}
-        {queueMetrics && (
-          <div className="discovery-progress__metrics">
+        <div className="discovery-progress__metrics">
             <div className={`discovery-progress__metric-card ${isCopyPhase(status?.status) ? 'discovery-progress__metric-card--split' : ''}`}>
               {isCopyPhase(status?.status) ? (
                 // Copy phase: split header with Source (left) and Destination (right)
@@ -572,20 +571,20 @@ export default function DiscoveryProgress() {
               )}
               {isCopyPhase(status?.status) ? (
                 // Copy phase: show simplified copy metrics from copy queue
-                queueMetrics.copy ? (
+                queueMetrics?.copy ? (
                   <div className="discovery-progress__metric-details">
                     {/* Totals */}
                     <div className="discovery-progress__metric-row">
                       <span>Folders:</span>
-                      <span>{(queueMetrics.copy.folders_discovered_total || 0).toLocaleString()}</span>
+                      <span>{(queueMetrics.copy.folders || 0).toLocaleString()}</span>
                     </div>
                     <div className="discovery-progress__metric-row">
                       <span>Files:</span>
-                      <span>{(queueMetrics.copy.files_discovered_total || 0).toLocaleString()}</span>
+                      <span>{(queueMetrics.copy.files || 0).toLocaleString()}</span>
                     </div>
                     <div className="discovery-progress__metric-row">
                       <span>Total:</span>
-                      <span>{((queueMetrics.copy.folders_discovered_total || 0) + (queueMetrics.copy.files_discovered_total || 0)).toLocaleString()}</span>
+                      <span>{(queueMetrics.copy.total || 0).toLocaleString()}</span>
                     </div>
                     {/* Total bytes moved - API may not return this yet, show 0 if not available */}
                     <div className="discovery-progress__metric-row">
@@ -600,7 +599,7 @@ export default function DiscoveryProgress() {
                     {/* Rates */}
                     <div className="discovery-progress__metric-row">
                       <span>Items/sec:</span>
-                      <span>{(queueMetrics.copy.discovery_rate_items_per_sec || 0).toFixed(1)}</span>
+                      <span>{(queueMetrics.copy.items_per_second || 0).toFixed(1)}</span>
                     </div>
                     {/* Bytes per second - API may not return this yet, show 0 if not available */}
                     <div className="discovery-progress__metric-row">
@@ -618,7 +617,7 @@ export default function DiscoveryProgress() {
                 )
               ) : (
                 // Traversal phase: show discovery metrics from srcTraversal
-                queueMetrics.srcTraversal ? (
+                queueMetrics?.srcTraversal ? (
                   <div className="discovery-progress__metric-details">
                     {queueMetrics.srcTraversal.discovery_rate_items_per_sec !== undefined && (
                       <div className="discovery-progress__metric-row">
@@ -687,7 +686,7 @@ export default function DiscoveryProgress() {
                 ) : (
                   <div className="discovery-progress__metric-context discovery-progress__metric-context--empty" />
                 )}
-                {queueMetrics.dstTraversal ? (
+                {queueMetrics?.dstTraversal ? (
                   <div className="discovery-progress__metric-details">
                     {queueMetrics.dstTraversal.discovery_rate_items_per_sec !== undefined && (
                       <div className="discovery-progress__metric-row">
@@ -742,7 +741,6 @@ export default function DiscoveryProgress() {
               </div>
             )}
           </div>
-        )}
 
         {/* Log Terminal Section */}
         <div className="discovery-progress__terminal-section">

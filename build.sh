@@ -18,7 +18,7 @@ sleep 3
 # Step 2: Start Electron
 cd "$SCRIPT_DIR"
 export NODE_ENV=development
-npx electron .
+npx electron . --no-sandbox
 
 # Cleanup: kill Vite when Electron exits
 kill $VITE_PID 2>/dev/null || true

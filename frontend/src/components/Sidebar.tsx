@@ -17,7 +17,7 @@ export default function Sidebar() {
   };
 
   const handleContributeClick = () => {
-    window.open("https://github.com/project-sylos", "_blank", "noopener,noreferrer");
+    window.open("https://codeberg.org/Sylos", "_blank", "noopener,noreferrer");
   };
 
   const handleSettingsClick = () => {

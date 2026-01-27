@@ -13,7 +13,6 @@ const PreferencesContext = createContext<PreferencesContextType | undefined>(und
 export function PreferencesProvider({ children }: { children: ReactNode }) {
   const [preferences, setPreferences] = useState<UserPreferences>(DEFAULT_PREFERENCES);
   const [isLoading, setIsLoading] = useState(true);
-  const [hasLoaded, setHasLoaded] = useState(false);
 
   // Load preferences on mount
   useEffect(() => {
@@ -23,27 +22,25 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
         setPreferences(prefs);
       } catch (error) {
         console.error("Failed to load preferences, using defaults", error);
-        setPreferences(DEFAULT_PREFERENCES);
+        // Just use defaults, no need to set again since that's the initial state
       } finally {
         setIsLoading(false);
-        setHasLoaded(true);
       }
     }
 
     loadPrefs();
   }, []);
 
-  // Save preferences to API whenever they change (but not on initial load)
-  useEffect(() => {
-    if (hasLoaded) {
-      savePreferences(preferences).catch((error) => {
+  // Only save when user explicitly updates preferences
+  const updatePreferences = (updates: Partial<UserPreferences>) => {
+    setPreferences((prev) => {
+      const newPrefs = { ...prev, ...updates };
+      // Save to API when user changes preferences
+      savePreferences(newPrefs).catch((error) => {
         console.error("Failed to save preferences", error);
       });
-    }
-  }, [preferences, hasLoaded]);
-
-  const updatePreferences = (updates: Partial<UserPreferences>) => {
-    setPreferences((prev) => ({ ...prev, ...updates }));
+      return newPrefs;
+    });
   };
 
   return (

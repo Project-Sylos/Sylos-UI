@@ -7,6 +7,7 @@ import FormField from "../components/FormField";
 import FormSection from "../components/FormSection";
 import ValidationErrors from "../components/ValidationErrors";
 import FormFooter from "../components/FormFooter";
+import HelpTooltip from "../components/HelpTooltip";
 import { useSelection } from "../context/SelectionContext";
 import { usePreferences } from "../contexts/PreferencesContext";
 import { getPresetRootForServiceType } from "../data/presetRoots";
@@ -130,6 +131,23 @@ export default function SpectraConfigPage() {
       [section]: {
         ...prev[section],
         [field]: checked,
+      },
+    }));
+  };
+
+  const handleModeChange = (checked: boolean) => {
+    setConfig((prev) => ({
+      ...prev,
+      mode: checked ? "ephemeral" : "persistent",
+      seed: {
+        ...prev.seed,
+        // Disable cache when ephemeral mode is enabled
+        enable_cache: checked ? false : prev.seed.enable_cache,
+      },
+      secondary_tables: {
+        ...prev.secondary_tables,
+        // Reset destination probability to 0 when ephemeral mode is enabled
+        s1: checked ? 0 : prev.secondary_tables.s1,
       },
     }));
   };
@@ -325,6 +343,34 @@ export default function SpectraConfigPage() {
       )}
 
       <form onSubmit={handleSubmit} className="spectra-config__form">
+        <div className="spectra-config__checkbox-field" style={{ marginBottom: '1rem' }}>
+          <input
+            id="ephemeral_mode"
+            type="checkbox"
+            checked={config.mode === "ephemeral"}
+            onChange={(e) => handleModeChange(e.target.checked)}
+            className="spectra-config__checkbox-input"
+          />
+          <label htmlFor="ephemeral_mode" className="form-field__label-with-tooltip" style={{ margin: 0 }}>
+            Ephemeral Mode
+            <HelpTooltip
+              tipId="spectra-ephemeral-mode"
+              category="spectra-config"
+              position="right"
+              content={
+                <>
+                  <p>
+                    When enabled, Spectra will run in ephemeral mode, skipping database operations in spectra's internals.
+                  </p>
+                  <p style={{ marginTop: '0.5rem' }}>
+                    This automatically disables caching and destination probability since ephemeral mode doesn't persist data between sessions.
+                  </p>
+                </>
+              }
+            />
+          </label>
+        </div>
+
         <FormSection title="Seed Configuration">
           <FormField
             id="max_depth"
@@ -415,18 +461,20 @@ export default function SpectraConfigPage() {
             value={config.seed.db_path}
             onChange={(value) => handleTextInputChange("seed", "db_path", value)}
             required
+            disabled={config.mode === "ephemeral"}
           />
-          <div className="form-field">
-            <label htmlFor="enable_cache" className="form-field__label">
-              Enable Cache
-            </label>
+          <div className="spectra-config__checkbox-field">
             <input
               id="enable_cache"
               type="checkbox"
               checked={config.seed.enable_cache ?? false}
               onChange={(e) => handleBooleanInputChange("seed", "enable_cache", e.target.checked)}
-              className="form-field__input"
+              disabled={config.mode === "ephemeral"}
+              className="spectra-config__checkbox-input"
             />
+            <label htmlFor="enable_cache" className="form-field__label" style={{ margin: 0 }}>
+              Enable Cache
+            </label>
           </div>
         </FormSection>
 
@@ -464,6 +512,7 @@ export default function SpectraConfigPage() {
             min={0}
             max={1}
             required
+            disabled={config.mode === "ephemeral"}
             helpTooltip={{
               tipId: "spectra-destination-probability",
               category: "spectra-config",

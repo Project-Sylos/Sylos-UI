@@ -3,8 +3,8 @@
 .form-footer {
   display: flex;
   justify-content: flex-end;
-  padding-top: 0.75rem;
-  margin-top: 0.5rem;
+  padding-top: 0.65rem;
+  margin-top: 0.4rem;
   border-top: 1px solid rgba(
     var(--color-base-slate-r),
     var(--color-base-slate-g),

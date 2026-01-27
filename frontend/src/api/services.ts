@@ -703,10 +703,13 @@ export async function excludeNode(
   const token = getAuthToken() ?? undefined;
 
   const response = await fetch(
-    `${API_BASE}/api/migrations/${migrationId}/node/${encodeURIComponent(nodeId)}/exclude`,
+    `${API_BASE}/api/migrations/${migrationId}/exclude`,
     {
       method: "POST",
       headers: buildHeaders(token),
+      body: JSON.stringify({
+        nodeIDs: [nodeId],
+      }),
     }
   );
 
@@ -741,10 +744,13 @@ export async function unexcludeNode(
   const token = getAuthToken() ?? undefined;
 
   const response = await fetch(
-    `${API_BASE}/api/migrations/${migrationId}/node/${encodeURIComponent(nodeId)}/unexclude`,
+    `${API_BASE}/api/migrations/${migrationId}/unexclude`,
     {
       method: "POST",
       headers: buildHeaders(token),
+      body: JSON.stringify({
+        nodeIDs: [nodeId],
+      }),
     }
   );
 

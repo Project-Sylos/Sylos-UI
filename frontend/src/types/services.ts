@@ -41,6 +41,7 @@ export interface ChildrenResponse {
 }
 
 export interface SpectraConfig {
+  mode: "ephemeral" | "persistent";
   seed: {
     max_depth: number;
     db_path: string;
@@ -66,6 +67,7 @@ export interface SpectraConfig {
 }
 
 export const DEFAULT_SPECTRA_CONFIG: SpectraConfig = {
+  mode: "ephemeral",
   seed: {
     max_depth: 4,
     max_folders: 8,

@@ -3,6 +3,8 @@ import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   ArrowLeft,
   ChevronRight,
+  ChevronLeft,
+  ChevronDown,
   Folder,
   File,
   Copy,
@@ -87,6 +89,14 @@ export default function PathReview() {
   const [listItemsPerPage, setListItemsPerPage] = useState<number>(100);
   const [highlightedItemId, setHighlightedItemId] = useState<string | null>(null);
   
+  // Tree view pagination
+  const [treeCurrentPage, setTreeCurrentPage] = useState(0);
+  const [treeItemsPerPage, setTreeItemsPerPage] = useState(100);
+  const [showTreeItemsPerPageDropdown, setShowTreeItemsPerPageDropdown] = useState(false);
+  const treeItemsPerPageDropdownRef = useRef<HTMLDivElement>(null);
+  // Map of locationPath -> page number to remember pagination per folder
+  const [folderPageMap, setFolderPageMap] = useState<Map<string, number>>(new Map());
+  
   const [searchParams, setSearchParams] = useSearchParams();
 
   const fetchPendingWork = async () => {
@@ -167,6 +177,13 @@ export default function PathReview() {
       return;
     }
     // Only load once when component mounts or migrationId changes
+    // Check for saved page for root, otherwise start at 0
+    const rootSavedPage = folderPageMap.get("/");
+    if (rootSavedPage !== undefined) {
+      setTreeCurrentPage(rootSavedPage);
+    } else {
+      setTreeCurrentPage(0);
+    }
     loadItems(undefined);  // undefined for root (children of all roots)
     
     // Fetch migration status on startup
@@ -186,6 +203,13 @@ export default function PathReview() {
         setReviewIteration(iteration);
         // Refresh pending work status (API will have cleared hasPathReviewChanges automatically)
         fetchPendingWork();
+        // Check for saved page for root, otherwise start at 0
+        const rootSavedPage = folderPageMap.get("/");
+        if (rootSavedPage !== undefined) {
+          setTreeCurrentPage(rootSavedPage);
+        } else {
+          setTreeCurrentPage(0);
+        }
         loadItems("/");
         setToast({
           message: "Sweep completed. Review updated paths.",
@@ -261,6 +285,45 @@ export default function PathReview() {
       isPollingStatsRef.current = false;
     };
   }, []);
+
+  // Reload items when pagination changes (only in tree view)
+  useEffect(() => {
+    if (activeTab === "tree" && migrationId) {
+      const currentLocationPath = breadcrumbs.length > 0 
+        ? breadcrumbs[breadcrumbs.length - 1].path 
+        : undefined;
+      const pathKey = currentLocationPath || "/";
+      
+      // Save the current page for this folder
+      setFolderPageMap((prev) => {
+        const newMap = new Map(prev);
+        newMap.set(pathKey, treeCurrentPage);
+        return newMap;
+      });
+      
+      loadItems(currentLocationPath, treeCurrentPage);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [treeCurrentPage, treeItemsPerPage]);
+
+  // Handle click outside items per page dropdown
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        treeItemsPerPageDropdownRef.current &&
+        !treeItemsPerPageDropdownRef.current.contains(event.target as Node)
+      ) {
+        setShowTreeItemsPerPageDropdown(false);
+      }
+    };
+
+    if (showTreeItemsPerPageDropdown) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => {
+        document.removeEventListener("mousedown", handleClickOutside);
+      };
+    }
+  }, [showTreeItemsPerPageDropdown]);
 
   // Handle stats change from list view (from API polling)
   const handleStatsChange = (newStats: PathReviewStats | null) => {
@@ -376,22 +439,26 @@ export default function PathReview() {
     }
   };
 
-  const loadItems = async (locationPath: string | undefined, append = false) => {
+  const loadItems = async (locationPath: string | undefined, page?: number) => {
     if (!migrationId) return;
 
-    if (!append) {
-      setLoading(true);
-      setError(null);
-    } else {
-      setLoadingMore(true);
-    }
+    // Use the provided page, or check if we have a saved page for this path, or default to 0
+    const pathKey = locationPath || "/";
+    const savedPage = folderPageMap.get(pathKey);
+    const targetPage = page !== undefined ? page : (savedPage !== undefined ? savedPage : treeCurrentPage);
+    
+    // Update current page state
+    setTreeCurrentPage(targetPage);
+    
+    setLoading(true);
+    setError(null);
 
     try {
-      const offset = append && pagination ? pagination.offset + pagination.limit : 0;
+      const offset = targetPage * treeItemsPerPage;
       const response = await getMigrationDiffs(migrationId, {
         locationPath: locationPath || "/",
         offset,
-        limit: 100,
+        limit: treeItemsPerPage,
       });
 
       // Response already filters out DST-only items and returns items with inSrc/inDst flags
@@ -416,23 +483,16 @@ export default function PathReview() {
       // Initialize pending: 
       // - Items that exist only on src (not on dst) should be marked as pending 
       // - Items that exist on both should NOT be checked (they already exist)
-      if (!append) {
-        const initialPending = new Set<string>();
-        filteredItems.forEach((item) => {
-          // Only check items that exist on src but NOT on dst (pending items to copy)
-          if (item?.copyStatus === "pending") {
-            initialPending.add(item.id);
-          }
-        });
-        setPendingItems(initialPending);
-      }
+      const initialPending = new Set<string>();
+      filteredItems.forEach((item) => {
+        // Only check items that exist on src but NOT on dst (pending items to copy)
+        if (item?.copyStatus === "pending") {
+          initialPending.add(item.id);
+        }
+      });
+      setPendingItems(initialPending);
 
-      if (append) {
-        setItems((prev) => [...prev, ...filteredItems]);
-      } else {
-        setItems(filteredItems);
-      }
-
+      setItems(filteredItems);
       setPagination(response.pagination);
     } catch (err) {
       setError(
@@ -467,15 +527,36 @@ export default function PathReview() {
       return;
     }
     
+    // Save current page for the current folder before navigating
+    const currentLocationPath = breadcrumbs.length > 0 
+      ? breadcrumbs[breadcrumbs.length - 1].path 
+      : "/";
+    setFolderPageMap((prev) => {
+      const newMap = new Map(prev);
+      newMap.set(currentLocationPath, treeCurrentPage);
+      return newMap;
+    });
+    
     const newBreadcrumb: BreadcrumbItem = {
       path: item.locationPath,  // locationPath for navigation
       name: item.name,
     };
     setBreadcrumbs((prev) => [...prev, newBreadcrumb]);
+    // Don't reset page - loadItems will check for saved page or default to 0
     loadItems(item.locationPath);  // Use locationPath
   };
 
   const handleBack = () => {
+    // Save current page for the current folder before going back
+    const currentLocationPath = breadcrumbs.length > 0 
+      ? breadcrumbs[breadcrumbs.length - 1].path 
+      : "/";
+    setFolderPageMap((prev) => {
+      const newMap = new Map(prev);
+      newMap.set(currentLocationPath, treeCurrentPage);
+      return newMap;
+    });
+    
     if (breadcrumbs.length > 0) {
       const newBreadcrumbs = breadcrumbs.slice(0, -1);
       setBreadcrumbs(newBreadcrumbs);
@@ -483,19 +564,32 @@ export default function PathReview() {
         newBreadcrumbs.length > 0
           ? newBreadcrumbs[newBreadcrumbs.length - 1].path
           : undefined;
+      // Don't reset page - loadItems will check for saved page or default to 0
       loadItems(targetLocationPath);
     } else {
+      // Don't reset page - loadItems will check for saved page or default to 0
       loadItems(undefined);  // Root (children of all roots)
     }
   };
 
   const handleBreadcrumbClick = (index: number) => {
+    // Save current page for the current folder before navigating
+    const currentLocationPath = breadcrumbs.length > 0 
+      ? breadcrumbs[breadcrumbs.length - 1].path 
+      : "/";
+    setFolderPageMap((prev) => {
+      const newMap = new Map(prev);
+      newMap.set(currentLocationPath, treeCurrentPage);
+      return newMap;
+    });
+    
     const newBreadcrumbs = breadcrumbs.slice(0, index + 1);
     setBreadcrumbs(newBreadcrumbs);
     const targetLocationPath =
       newBreadcrumbs.length > 0
         ? newBreadcrumbs[newBreadcrumbs.length - 1].path
         : undefined;
+    // Don't reset page - loadItems will check for saved page or default to 0
     loadItems(targetLocationPath);
   };
 
@@ -545,7 +639,7 @@ export default function PathReview() {
     // Switch to tree view tab
     setActiveTab("tree");
     
-    // Load items for the parent folder
+    // Load items for the parent folder (will use saved page if available)
     await loadItems(parentPath || undefined);
     
     // Highlight the item for 2 seconds
@@ -1196,9 +1290,99 @@ export default function PathReview() {
           </div>
         </div>
 
-        {/* Status Legend */}
+        {/* Status Legend with Pagination */}
         {!loading && items.length > 0 && (
-          <PathReviewLegend zoomLevel={zoomLevel} phase={getCurrentPhase()} />
+          <div className="path-review-list__legend-wrapper">
+            <PathReviewLegend zoomLevel={zoomLevel} className="path-review__legend--compact" phase={getCurrentPhase()} />
+            {pagination && (
+              <div className="path-review-list__page-nav">
+                <div className="path-review-list__items-per-page-compact" ref={treeItemsPerPageDropdownRef}>
+                  <button
+                    type="button"
+                    className="path-review-list__items-per-page-button"
+                    onClick={() => setShowTreeItemsPerPageDropdown(!showTreeItemsPerPageDropdown)}
+                    title="Items per page"
+                    aria-label="Items per page"
+                  >
+                    {treeItemsPerPage}
+                    <ChevronDown size={14 * zoomLevel} />
+                  </button>
+                  {showTreeItemsPerPageDropdown && (
+                    <div className="path-review-list__items-per-page-dropdown">
+                      {[50, 100, 500, 1000].map((value) => (
+                        <button
+                          key={value}
+                          type="button"
+                          className={`path-review-list__items-per-page-option ${
+                            treeItemsPerPage === value ? "path-review-list__items-per-page-option--selected" : ""
+                          }`}
+                          onClick={() => {
+                            setTreeItemsPerPage(value);
+                            setTreeCurrentPage(0);
+                            setShowTreeItemsPerPageDropdown(false);
+                          }}
+                        >
+                          {value}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  className="path-review-list__page-nav-button"
+                  onClick={() => {
+                    const newPage = Math.max(0, treeCurrentPage - 1);
+                    const currentLocationPath = breadcrumbs.length > 0 
+                      ? breadcrumbs[breadcrumbs.length - 1].path 
+                      : "/";
+                    setTreeCurrentPage(newPage);
+                    // Save the page immediately
+                    setFolderPageMap((prev) => {
+                      const newMap = new Map(prev);
+                      newMap.set(currentLocationPath, newPage);
+                      return newMap;
+                    });
+                  }}
+                  disabled={treeCurrentPage === 0 || loading}
+                  title="Previous page"
+                  aria-label="Previous page"
+                >
+                  <ChevronLeft size={18 * zoomLevel} />
+                </button>
+                <span className="path-review__page-info" style={{ fontSize: `${zoomLevel * 0.875}rem` }}>
+                  Page {treeCurrentPage + 1} of {pagination.total > 0 ? Math.ceil(pagination.total / treeItemsPerPage) : 1}
+                </span>
+                <button
+                  type="button"
+                  className="path-review-list__page-nav-button"
+                  onClick={() => {
+                    const totalPages = pagination.total > 0 ? Math.ceil(pagination.total / treeItemsPerPage) : 1;
+                    const newPage = Math.min(totalPages - 1, treeCurrentPage + 1);
+                    const currentLocationPath = breadcrumbs.length > 0 
+                      ? breadcrumbs[breadcrumbs.length - 1].path 
+                      : "/";
+                    setTreeCurrentPage(newPage);
+                    // Save the page immediately
+                    setFolderPageMap((prev) => {
+                      const newMap = new Map(prev);
+                      newMap.set(currentLocationPath, newPage);
+                      return newMap;
+                    });
+                  }}
+                  disabled={
+                    pagination.total > 0
+                      ? treeCurrentPage >= Math.ceil(pagination.total / treeItemsPerPage) - 1
+                      : !pagination.hasMore
+                  }
+                  title="Next page"
+                  aria-label="Next page"
+                >
+                  <ChevronRight size={18 * zoomLevel} />
+                </button>
+              </div>
+            )}
+          </div>
         )}
 
         {/* Items List */}
@@ -1290,17 +1474,6 @@ export default function PathReview() {
                     </div>
                   );
                 })}
-
-                {pagination?.hasMore && (
-                  <button
-                    type="button"
-                    className="path-review__load-more"
-                    onClick={() => loadItems(currentNodeId, true)}
-                    disabled={loadingMore}
-                  >
-                    {loadingMore ? "Loading..." : "Load More"}
-                  </button>
-                )}
               </>
             )}
           </div>

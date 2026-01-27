@@ -299,6 +299,19 @@
   font-size: calc(0.8rem * var(--zoom, 1));
 }
 
+.path-review__pagination {
+  display: flex;
+  align-items: center;
+  gap: calc(0.4rem * var(--zoom, 1));
+  flex-shrink: 0;
+}
+
+.path-review__page-info {
+  color: var(--text-secondary);
+  white-space: nowrap;
+  margin: 0 calc(0.5rem * var(--zoom, 1));
+}
+
 .path-review-list__page-nav {
   display: flex;
   align-items: center;

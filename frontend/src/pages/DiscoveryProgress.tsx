@@ -15,8 +15,8 @@ import "./DiscoveryProgress.css";
 
 const LOG_LEVELS: LogLevel[] = ["trace", "debug", "info", "warning", "error", "critical"];
 const MAX_LOG_LINES = 10000;
-const STATUS_POLL_INTERVAL = 500;
-const LOG_POLL_INTERVAL = 500;
+const STATUS_POLL_INTERVAL = 1000;
+const LOG_POLL_INTERVAL = 1000;
 
 interface MergedLog extends MigrationLog {
   timestamp: number;

@@ -11,7 +11,8 @@ import {
   RotateCw,
 } from "lucide-react";
 import { 
-  getMigrationDiffs, 
+  getMigrationDiffs,
+  getMigrationDiffsStats,
   excludeNode, 
   unexcludeNode,
   markNodeForRetryDiscovery,
@@ -19,6 +20,7 @@ import {
   markNodeForRetryCopy,
   unmarkNodeForRetryCopy,
   DiffItem,
+  DiffsStatsResponse,
   getPendingWork,
   changePhase,
   PendingWorkResponse,
@@ -73,10 +75,10 @@ export default function PathReview() {
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [confirmDialogType, setConfirmDialogType] = useState<"copy" | "retry">("copy");
   const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pendingUpdatesRef = useRef<Map<string, boolean>>(new Map());
-  const pendingRetryUpdatesRef = useRef<Map<string, boolean>>(new Map());
   const statsPollingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isPollingStatsRef = useRef<boolean>(false);
+  const pendingRetryUpdatesRef = useRef<Map<string, boolean>>(new Map());
+  const pendingUpdatesRef = useRef<Map<string, boolean>>(new Map());
   
   // Workflow state tracking
   const [reviewIteration, setReviewIteration] = useState(1);
@@ -96,6 +98,9 @@ export default function PathReview() {
   const treeItemsPerPageDropdownRef = useRef<HTMLDivElement>(null);
   // Map of locationPath -> page number to remember pagination per folder
   const [folderPageMap, setFolderPageMap] = useState<Map<string, number>>(new Map());
+  // Stats for current folder (from diffs/stats endpoint) for "Page X of Y"
+  const [treeDiffsStats, setTreeDiffsStats] = useState<DiffsStatsResponse | null>(null);
+  const currentTreePathRef = useRef<string>("/");
   
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -444,6 +449,9 @@ export default function PathReview() {
 
     // Use the provided page, or check if we have a saved page for this path, or default to 0
     const pathKey = locationPath || "/";
+    currentTreePathRef.current = pathKey;
+    setTreeDiffsStats(null); // Clear until we have stats for this path
+
     const savedPage = folderPageMap.get(pathKey);
     const targetPage = page !== undefined ? page : (savedPage !== undefined ? savedPage : treeCurrentPage);
     
@@ -492,8 +500,39 @@ export default function PathReview() {
       });
       setPendingItems(initialPending);
 
+      // Sync retryItems from API so icons stay correct after navigation/refetch
+      const currentPhase = getCurrentPhase();
+      const initialRetry = new Set<string>();
+      if (currentPhase === "traversal") {
+        // Traversal phase: API uses traversalStatus "pending" for items marked for retry
+        filteredItems.forEach((item) => {
+          const srcPending = item.src?.traversalStatus === "pending";
+          const dstPending = item.dst?.traversalStatus === "pending";
+          const srcFailed = item.src?.traversalStatus === "failed";
+          const dstFailed = item.dst?.traversalStatus === "failed";
+          if ((srcPending || dstPending) && !srcFailed && !dstFailed) {
+            initialRetry.add(item.id);
+          }
+        });
+        setRetryItems(initialRetry);
+      }
+
       setItems(filteredItems);
       setPagination(response.pagination);
+
+      // Fetch stats for this path (diffs endpoint no longer includes total/totalFolders/totalFiles)
+      getMigrationDiffsStats(migrationId, { path: pathKey })
+        .then((stats) => {
+          if (currentTreePathRef.current === pathKey) {
+            setTreeDiffsStats(stats);
+          }
+        })
+        .catch(() => {
+          // Non-fatal: page nav still works via hasMore
+          if (currentTreePathRef.current === pathKey) {
+            setTreeDiffsStats(null);
+          }
+        });
     } catch (err) {
       setError(
         err instanceof Error
@@ -1351,13 +1390,17 @@ export default function PathReview() {
                   <ChevronLeft size={18 * zoomLevel} />
                 </button>
                 <span className="path-review__page-info" style={{ fontSize: `${zoomLevel * 0.875}rem` }}>
-                  Page {treeCurrentPage + 1} of {pagination.total > 0 ? Math.ceil(pagination.total / treeItemsPerPage) : 1}
+                  Page {treeCurrentPage + 1} of {(() => {
+                    const total = treeDiffsStats?.total ?? pagination.total;
+                    return total > 0 ? Math.ceil(total / treeItemsPerPage) : 1;
+                  })()}
                 </span>
                 <button
                   type="button"
                   className="path-review-list__page-nav-button"
                   onClick={() => {
-                    const totalPages = pagination.total > 0 ? Math.ceil(pagination.total / treeItemsPerPage) : 1;
+                    const total = treeDiffsStats?.total ?? pagination.total;
+                    const totalPages = total > 0 ? Math.ceil(total / treeItemsPerPage) : 1;
                     const newPage = Math.min(totalPages - 1, treeCurrentPage + 1);
                     const currentLocationPath = breadcrumbs.length > 0 
                       ? breadcrumbs[breadcrumbs.length - 1].path 
@@ -1370,11 +1413,13 @@ export default function PathReview() {
                       return newMap;
                     });
                   }}
-                  disabled={
-                    pagination.total > 0
-                      ? treeCurrentPage >= Math.ceil(pagination.total / treeItemsPerPage) - 1
-                      : !pagination.hasMore
-                  }
+                  disabled={(() => {
+                    const total = treeDiffsStats?.total ?? pagination.total;
+                    if (total > 0) {
+                      return treeCurrentPage >= Math.ceil(total / treeItemsPerPage) - 1;
+                    }
+                    return !pagination.hasMore;
+                  })()}
                   title="Next page"
                   aria-label="Next page"
                 >
@@ -1497,6 +1542,7 @@ export default function PathReview() {
               onSelectionStatsWarning={handleSelectionWarning}
               onPaginationChange={handlePaginationChange}
               onNavigateToTreeView={navigateToTreeView}
+              onToast={(message, type) => setToast({ message, type })}
             />
           </div>
         )}

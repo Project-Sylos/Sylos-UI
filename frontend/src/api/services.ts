@@ -538,6 +538,13 @@ export interface ListChildrenDiffsResponse {
   pagination: PaginationInfo;
 }
 
+/** Response from GET /api/migrations/{id}/diffs/stats */
+export interface DiffsStatsResponse {
+  total: number;
+  totalFolders: number;
+  totalFiles: number;
+}
+
 // Transformed item for UI consumption
 export interface DiffItem {
   id: string;                // Migration Engine ULID (26 chars) from src if available, otherwise dst - USE THIS FOR API OPERATIONS
@@ -678,6 +685,50 @@ export async function getMigrationDiffs(
   return {
     items: transformedItems,
     pagination: paginationData,
+  };
+}
+
+/**
+ * Get diffs stats (total, totalFolders, totalFiles) for a path.
+ * Use this when you need counts for footers or "Page X of Y"; the diffs list endpoint no longer includes stats.
+ */
+export async function getMigrationDiffsStats(
+  migrationId: string,
+  options?: {
+    path?: string;       // locationPath, default "/"
+    foldersOnly?: boolean;
+  }
+): Promise<DiffsStatsResponse> {
+  const token = getAuthToken() ?? undefined;
+
+  const params = new URLSearchParams();
+  if (options?.path !== undefined) {
+    params.append("path", options.path);
+  }
+  if (options?.foldersOnly !== undefined) {
+    params.append("foldersOnly", options.foldersOnly.toString());
+  }
+
+  const query = params.toString();
+  const url = `${API_BASE}/api/migrations/${migrationId}/diffs/stats${query ? `?${query}` : ""}`;
+
+  const response = await fetch(url, {
+    method: "GET",
+    headers: buildHeaders(token),
+  });
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(
+      `Failed to get migration diffs stats (${response.status}): ${message || "Unknown error"}`
+    );
+  }
+
+  const data = (await response.json()) as DiffsStatsResponse;
+  return {
+    total: data.total ?? 0,
+    totalFolders: data.totalFolders ?? 0,
+    totalFiles: data.totalFiles ?? 0,
   };
 }
 

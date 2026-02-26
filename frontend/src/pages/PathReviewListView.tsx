@@ -42,6 +42,7 @@ interface PathReviewListViewProps {
   onSelectionStatsWarning?: (hasWarning: boolean) => void; // Callback to show/hide selection warning
   onPaginationChange?: (pagination: PaginationInfo | null, itemsPerPage: number) => void; // Callback for pagination info
   onNavigateToTreeView?: (item: DiffItem) => void; // Callback to navigate to tree view and highlight item
+  onToast?: (message: string, type: "success" | "error") => void; // Callback to show toast (e.g. retry/exclude success or error)
 }
 
 export default function PathReviewListView({
@@ -51,6 +52,7 @@ export default function PathReviewListView({
   onSelectionStatsWarning,
   onPaginationChange,
   onNavigateToTreeView,
+  onToast,
 }: PathReviewListViewProps) {
   const { zoomLevel } = useZoom();
   const [items, setItems] = useState<DiffItem[]>([]);
@@ -629,6 +631,7 @@ export default function PathReviewListView({
     const dstNodeId = item.dst?.id && (!item.src?.id || item.dst.id !== item.src.id) ? item.dst.id : null;
 
     if (!srcNodeId && !dstNodeId) {
+      onToast?.("No node ID available for this item.", "error");
       return;
     }
 
@@ -675,14 +678,14 @@ export default function PathReviewListView({
               return i;
             })
           );
-          // Check if error is due to phase locking
+          let errorMessage = srcResult.error || "Failed to update source node. Please try again.";
           if (srcResult.error && (
-            srcResult.error.includes("copy phase") || 
+            srcResult.error.includes("copy phase") ||
             srcResult.error.includes("exclusion operations are not available")
           )) {
-            // Don't show error toast for phase-locked operations - UI should already be disabled
-            return;
+            errorMessage = "Exclusion is only available during traversal review";
           }
+          onToast?.(errorMessage, "error");
           return;
         }
       }
@@ -711,16 +714,18 @@ export default function PathReviewListView({
               return i;
             })
           );
+          onToast?.(dstResult.error || "Failed to update destination node. Changes have been rolled back.", "error");
           return;
         }
       }
-      
+
       // Both succeeded (or only one node exists and it succeeded)
       // Success - reload items to ensure consistency with backend
       loadItems();
       if (onItemUpdate) {
         onItemUpdate();
       }
+      onToast?.(isExcluding ? "Item excluded" : "Item unexcluded", "success");
     } catch (err) {
       // Revert optimistic update on network error
       setItems((prevItems) =>
@@ -731,7 +736,8 @@ export default function PathReviewListView({
           return i;
         })
       );
-      console.error("Failed to exclude/unexclude item:", err);
+      const message = err instanceof Error ? err.message : `Network error: Failed to ${isExcluding ? "exclude" : "unexclude"} node.`;
+      onToast?.(message, "error");
     }
   };
 
@@ -785,8 +791,11 @@ export default function PathReviewListView({
     }
 
     if (!nodeIdToUpdate) {
+      onToast?.("No node with failed or pending status available for this item.", "error");
       return;
     }
+
+    const newRetryState = !isMarkedForRetry;
 
     // Store original item state for rollback
     const originalItem = { ...item };
@@ -853,14 +862,16 @@ export default function PathReviewListView({
             return i;
           })
         );
+        onToast?.(result.error || "Failed to update node. Please try again.", "error");
         return;
       }
-      
+
       // Success - reload items to ensure consistency with backend
       loadItems();
       if (onItemUpdate) {
         onItemUpdate();
       }
+      onToast?.(newRetryState ? "Item marked for retry" : "Item unmarked for retry", "success");
     } catch (err) {
       // Revert optimistic update on network error
       setItems((prevItems) =>
@@ -871,7 +882,8 @@ export default function PathReviewListView({
           return i;
         })
       );
-      console.error("Failed to mark item for retry:", err);
+      const message = err instanceof Error ? err.message : "Network error: Failed to update node. Please try again.";
+      onToast?.(message, "error");
     }
   };
 

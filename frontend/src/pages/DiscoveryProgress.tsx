@@ -1,27 +1,17 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { ArrowLeft, ChevronDown, ChevronRight, FolderOpen, Cloud, Eye, Copy, ArrowRight } from "lucide-react";
+import { ArrowLeft, FolderOpen, Cloud, Eye, Copy, ArrowRight } from "lucide-react";
 
 import {
   getMigrationStatus,
-  getMigrationLogs,
   getMigrationQueueMetrics,
   fetchServices,
 } from "../api/services";
-import { MigrationLog, LogLevel } from "../types/migrations";
 import { useSelection } from "../context/SelectionContext";
 import HelpTooltip from "../components/HelpTooltip";
 import "./DiscoveryProgress.css";
 
-const LOG_LEVELS: LogLevel[] = ["trace", "debug", "info", "warning", "error", "critical"];
-const MAX_LOG_LINES = 10000;
 const STATUS_POLL_INTERVAL = 1000;
-const LOG_POLL_INTERVAL = 1000;
-
-interface MergedLog extends MigrationLog {
-  timestamp: number;
-  displayTime: string;
-}
 
 export default function DiscoveryProgress() {
   const { migrationId } = useParams<{ migrationId: string }>();
@@ -38,24 +28,13 @@ export default function DiscoveryProgress() {
 
   const [status, setStatus] = useState<any>(null);
   const [queueMetrics, setQueueMetrics] = useState<any>(null);
-  const [logs, setLogs] = useState<MergedLog[]>([]);
-  const [filterLevel, setFilterLevel] = useState<LogLevel | "all">("all");
-  const [isAutoScrolling, setIsAutoScrolling] = useState(true);
-  const [isLogPollingPaused, setIsLogPollingPaused] = useState(false);
-  const [isLogsCollapsed, setIsLogsCollapsed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [allServices, setAllServices] = useState(services);
   const [showResultsButton, setShowResultsButton] = useState(false);
-  const [showLogFilterDropdown, setShowLogFilterDropdown] = useState(false);
 
-  const logContainerRef = useRef<HTMLDivElement>(null);
-  const logFilterDropdownRef = useRef<HTMLDivElement>(null);
-  const userScrolledRef = useRef(false);
-  const isLogPollingPausedRef = useRef(false);
   const isTerminalStateRef = useRef(false);
   const statusIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const queueMetricsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const logIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Phase detection helpers
   const isCopyPhase = (status?: string): boolean => {
@@ -72,23 +51,6 @@ export default function DiscoveryProgress() {
            status === "Complete" || 
            status === "failed" || 
            status === "suspended";
-  };
-
-  // Format timestamp for display
-  const formatTimestamp = (timestamp?: string): string => {
-    if (!timestamp) return "";
-    try {
-      const date = new Date(timestamp);
-      return date.toLocaleTimeString("en-US", {
-        hour12: false,
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-        fractionalSecondDigits: 3,
-      });
-    } catch {
-      return timestamp;
-    }
   };
 
   // Format bytes to human-readable format
@@ -111,34 +73,6 @@ export default function DiscoveryProgress() {
     return `${value.toFixed(2)} ${sizes[i]}`;
   };
 
-  // Merge and sort logs by timestamp
-  const mergeAndSortLogs = useCallback((newLogs: MigrationLog[], existingLogs: MergedLog[]): MergedLog[] => {
-    const merged: MergedLog[] = newLogs.map((log) => {
-      const timestamp = log.data?.timestamp
-        ? new Date(log.data.timestamp).getTime()
-        : Date.now();
-      return {
-        ...log,
-        timestamp,
-        displayTime: formatTimestamp(log.data?.timestamp),
-      };
-    });
-
-    // Combine with existing logs
-    const combined = [...existingLogs, ...merged];
-    
-    // Remove duplicates by ID
-    const uniqueLogs = Array.from(
-      new Map(combined.map((log) => [log.id, log])).values()
-    );
-
-    // Sort by timestamp descending (newest first)
-    uniqueLogs.sort((a, b) => b.timestamp - a.timestamp);
-
-    // Keep only the most recent MAX_LOG_LINES
-    return uniqueLogs.slice(0, MAX_LOG_LINES);
-  }, []);
-
   // Fetch status
   const fetchStatus = useCallback(async () => {
     if (!migrationId) return;
@@ -160,10 +94,6 @@ export default function DiscoveryProgress() {
         if (queueMetricsIntervalRef.current) {
           clearInterval(queueMetricsIntervalRef.current);
           queueMetricsIntervalRef.current = null;
-        }
-        if (logIntervalRef.current) {
-          clearInterval(logIntervalRef.current);
-          logIntervalRef.current = null;
         }
       }
     } catch (err) {
@@ -204,91 +134,6 @@ export default function DiscoveryProgress() {
     }
   }, [migrationId]);
 
-  // Fetch logs - filter duplicates on frontend using in-memory map
-  const fetchLogs = useCallback(async () => {
-    if (!migrationId) return;
-
-    try {
-      // Fetch all logs without lastSeenIds - API returns up to 1K per level
-      const response = await getMigrationLogs(migrationId, {});
-
-      // Handle structured response - ignore non-critical database errors
-      if (!response.success) {
-        if (response.errorCode === "DATABASE_NOT_AVAILABLE") {
-          // Database closed after migration completed - this is expected, ignore it
-          return;
-        }
-        // Other errors - log but don't throw
-        console.warn("Logs error:", response.errorCode, response.error);
-        return;
-      }
-
-      // Only process if we have valid logs data
-      if (!response.logs) {
-        return;
-      }
-
-      // Collect all logs and filter out duplicates using our in-memory map
-      const allLogs: MigrationLog[] = [];
-      Object.entries(response.logs).forEach(([level, levelLogs]) => {
-        if (levelLogs && levelLogs.length > 0) {
-          allLogs.push(...levelLogs);
-        }
-      });
-
-      if (allLogs.length > 0) {
-        setLogs((prevLogs) => {
-          // Filter out logs we've already seen by checking IDs
-          const existingIds = new Set(prevLogs.map((log) => log.id));
-          const newLogs = allLogs.filter((log) => !existingIds.has(log.id));
-          
-          if (newLogs.length > 0) {
-            return mergeAndSortLogs(newLogs, prevLogs);
-          }
-          return prevLogs;
-        });
-      }
-    } catch (err) {
-      // Only log actual network/HTTP errors
-      console.error("Failed to fetch logs:", err);
-    }
-  }, [migrationId, mergeAndSortLogs]);
-
-  // Handle scroll to detect user scrolling up
-  const handleScroll = useCallback(() => {
-    if (!logContainerRef.current) return;
-
-    const container = logContainerRef.current;
-    const isAtBottom =
-      container.scrollHeight - container.scrollTop <= container.clientHeight + 10;
-
-    if (isAtBottom) {
-      const wasPaused = isLogPollingPausedRef.current;
-      setIsAutoScrolling(true);
-      setIsLogPollingPaused(false);
-      isLogPollingPausedRef.current = false;
-      userScrolledRef.current = false;
-      
-      // If we were paused and now resumed, fetch logs immediately to catch up
-      if (wasPaused && migrationId) {
-        fetchLogs();
-      }
-    } else {
-      setIsAutoScrolling(false);
-      setIsLogPollingPaused(true);
-      isLogPollingPausedRef.current = true;
-      userScrolledRef.current = true;
-    }
-  }, [migrationId, fetchLogs]);
-
-  // Auto-scroll to bottom when new logs arrive
-  useEffect(() => {
-    if (isAutoScrolling && logContainerRef.current && !userScrolledRef.current) {
-      const container = logContainerRef.current;
-      container.scrollTop = container.scrollHeight;
-    }
-  }, [logs, isAutoScrolling]);
-
   // Check if migration is ready for path review to show results button
   // But block it if we're monitoring a retry sweep (wait for retry to complete)
   useEffect(() => {
@@ -324,29 +169,11 @@ export default function DiscoveryProgress() {
       navigate(`/path-review/${migrationId}?reviewIteration=${nextIteration}`);
     } else if (prevStatus === "running" && currentStatus === "failed") {
       // Sweep failed - show error but stay on monitor page
-      setError("Sweep failed. Please check the logs for details.");
+      setError("Sweep failed.");
     }
     
     prevStatusRef.current = currentStatus;
   }, [isMonitoringSweep, status?.status, migrationId, navigate, reviewIteration]);
-
-  // Close log filter dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (
-        showLogFilterDropdown &&
-        logFilterDropdownRef.current &&
-        !logFilterDropdownRef.current.contains(event.target as Node)
-      ) {
-        setShowLogFilterDropdown(false);
-      }
-    };
-
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-    };
-  }, [showLogFilterDropdown]);
 
   // Set up polling intervals
   useEffect(() => {
@@ -358,7 +185,6 @@ export default function DiscoveryProgress() {
     // Initial fetch
     fetchStatus();
     fetchQueueMetrics();
-    fetchLogs();
 
     // Set up status polling (every 500ms) - always poll status to detect completion
     statusIntervalRef.current = setInterval(() => {
@@ -372,13 +198,6 @@ export default function DiscoveryProgress() {
       }
     }, STATUS_POLL_INTERVAL);
 
-    // Set up log polling (every 500ms) - only if not terminal and not paused
-    logIntervalRef.current = setInterval(() => {
-      if (!isTerminalStateRef.current && !isLogPollingPausedRef.current) {
-        fetchLogs();
-      }
-    }, LOG_POLL_INTERVAL);
-
     return () => {
       if (statusIntervalRef.current) {
         clearInterval(statusIntervalRef.current);
@@ -386,39 +205,8 @@ export default function DiscoveryProgress() {
       if (queueMetricsIntervalRef.current) {
         clearInterval(queueMetricsIntervalRef.current);
       }
-      if (logIntervalRef.current) {
-        clearInterval(logIntervalRef.current);
-      }
     };
-  }, [migrationId, navigate, fetchStatus, fetchQueueMetrics, fetchLogs]);
-
-  // Filter logs by level
-  const filteredLogs = logs.filter((log) => {
-    if (filterLevel === "all") return true;
-    return log.level === filterLevel;
-  });
-
-  // Reverse for display (oldest first)
-  const displayLogs = [...filteredLogs].reverse();
-
-  const getLogLevelColor = (level: LogLevel) => {
-    switch (level) {
-      case "trace":
-        return "#94a3b8";
-      case "debug":
-        return "#60a5fa";
-      case "info":
-        return "#34d399";
-      case "warning":
-        return "#fbbf24";
-      case "error":
-        return "#f87171";
-      case "critical":
-        return "#dc2626";
-      default:
-        return "#f8fafc";
-    }
-  };
+  }, [migrationId, navigate, fetchStatus, fetchQueueMetrics]);
 
   if (!migrationId) {
     return null;
@@ -461,8 +249,8 @@ export default function DiscoveryProgress() {
   };
 
   return (
-    <section className={`discovery-progress ${!isLogsCollapsed ? 'discovery-progress--logs-expanded' : ''}`}>
-      <div className={`discovery-progress__content ${isLogsCollapsed ? 'discovery-progress__content--logs-collapsed' : ''}`}>
+    <section className="discovery-progress">
+      <div className="discovery-progress__content">
         <button
           type="button"
           className="discovery-progress__back"
@@ -741,107 +529,6 @@ export default function DiscoveryProgress() {
               </div>
             )}
           </div>
-
-        {/* Log Terminal Section */}
-        <div className="discovery-progress__terminal-section">
-          <div className="discovery-progress__terminal-header">
-            <div 
-              className="discovery-progress__terminal-title"
-              onClick={() => setIsLogsCollapsed(!isLogsCollapsed)}
-            >
-              {isLogsCollapsed ? (
-                <ChevronRight size={18} style={{ marginRight: "0.5rem" }} />
-              ) : (
-                <ChevronDown size={18} style={{ marginRight: "0.5rem" }} />
-              )}
-              Logs ({displayLogs.length.toLocaleString()})
-            </div>
-            {!isLogsCollapsed && (
-              <div className="discovery-progress__log-filter-wrapper" ref={logFilterDropdownRef}>
-                <button
-                  type="button"
-                  className="discovery-progress__log-filter-button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setShowLogFilterDropdown(!showLogFilterDropdown);
-                  }}
-                  title="Filter log levels"
-                  aria-label="Filter log levels"
-                >
-                  {filterLevel === "all" ? "All Levels" : filterLevel.toUpperCase()}
-                  <ChevronDown size={14} />
-                </button>
-                {showLogFilterDropdown && (
-                  <div className="discovery-progress__log-filter-dropdown">
-                    <button
-                      type="button"
-                      className={`discovery-progress__log-filter-option ${
-                        filterLevel === "all" ? "discovery-progress__log-filter-option--selected" : ""
-                      }`}
-                      onClick={() => {
-                        setFilterLevel("all");
-                        setShowLogFilterDropdown(false);
-                      }}
-                    >
-                      All Levels
-                    </button>
-                    {LOG_LEVELS.map((level) => (
-                      <button
-                        key={level}
-                        type="button"
-                        className={`discovery-progress__log-filter-option ${
-                          filterLevel === level ? "discovery-progress__log-filter-option--selected" : ""
-                        }`}
-                        onClick={() => {
-                          setFilterLevel(level);
-                          setShowLogFilterDropdown(false);
-                        }}
-                      >
-                        {level.toUpperCase()}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-          {!isLogsCollapsed && (
-            <div
-              className="discovery-progress__terminal"
-              ref={logContainerRef}
-              onScroll={handleScroll}
-            >
-            {displayLogs.length === 0 ? (
-              <div className="discovery-progress__terminal-empty">
-                No logs available
-              </div>
-            ) : (
-              displayLogs.map((log) => (
-                <div
-                  key={log.id}
-                  className="discovery-progress__log-line"
-                  style={{
-                    borderLeftColor: getLogLevelColor(log.level),
-                  }}
-                >
-                  <span className="discovery-progress__log-time">
-                    {log.displayTime || "N/A"}
-                  </span>
-                  <span
-                    className="discovery-progress__log-level"
-                    style={{ color: getLogLevelColor(log.level) }}
-                  >
-                    [{log.level.toUpperCase()}]
-                  </span>
-                  <span className="discovery-progress__log-message">
-                    {log.data?.message || JSON.stringify(log.data)}
-                  </span>
-                </div>
-              ))
-            )}
-            </div>
-          )}
-        </div>
 
         {/* Footer Buttons */}
         <div className="discovery-progress__footer">

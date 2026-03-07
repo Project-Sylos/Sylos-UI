@@ -734,11 +734,18 @@ export async function getMigrationDiffsStats(
 
 // TODO: API endpoint needed - Update item copy status
 // This should update whether an item should be copied or not
-// Exclusion API types
+// Path review action result: engine returns deltas for UI to apply without refetching stats
+export interface PathReviewActionResult {
+  affectedCount: number;
+  deltas: Record<string, number>;
+}
+// Exclusion API types (success responses may include action result deltas)
 export interface ExclusionResponse {
   success: boolean;
   error?: string;
   taskID?: string;  // Present for bulk operations (all: true)
+  affectedCount?: number;
+  deltas?: Record<string, number>;  // Per-status deltas to apply to local stats
 }
 
 /**
@@ -1136,6 +1143,66 @@ export interface PathReviewStats {
   };
 }
 
+/** API can return flat PathReviewStats or legacy PathReviewStatsRaw. Normalize to PathReviewStats. */
+function normalizePathReviewStats(
+  raw: PathReviewStatsRaw | PathReviewStats,
+  phase?: "traversal" | "copy"
+): PathReviewStats {
+  const isCopy = phase === "copy";
+  // Already flat (current API shape)
+  if (typeof (raw as PathReviewStats).pendingCount === "number") {
+    const flat = raw as PathReviewStats;
+    return {
+      pendingCount: flat.pendingCount,
+      failedCount: flat.failedCount,
+      excludedCount: flat.excludedCount,
+      pendingRetriesCount: flat.pendingRetriesCount ?? 0,
+      foldersCount: flat.foldersCount ?? 0,
+      filesCount: flat.filesCount ?? 0,
+      foldersRatio: flat.foldersRatio ?? 0,
+      filesRatio: flat.filesRatio ?? 0,
+      totalFileSize: {
+        src: flat.totalFileSize?.src ?? 0,
+        dst: flat.totalFileSize?.dst ?? 0,
+      },
+    };
+  }
+  const legacy = raw as PathReviewStatsRaw;
+  const excluded =
+    (legacy.copyStatusCounts?.exclusion_explicit ?? 0) +
+    (legacy.copyStatusCounts?.exclusion_inherited ?? 0);
+  if (isCopy) {
+    return {
+      pendingCount: legacy.copyStatusCounts?.pending ?? 0,
+      failedCount: legacy.copyStatusCounts?.failed ?? 0,
+      excludedCount: excluded,
+      pendingRetriesCount: legacy.copyStatusCounts?.pending ?? 0,
+      foldersCount: legacy.foldersCount ?? 0,
+      filesCount: legacy.filesCount ?? 0,
+      foldersRatio: legacy.foldersRatio ?? 0,
+      filesRatio: legacy.filesRatio ?? 0,
+      totalFileSize: {
+        src: (legacy.totalFileSize?.src ?? 0) as number,
+        dst: (legacy.totalFileSize?.dst ?? 0) as number,
+      },
+    };
+  }
+  return {
+    pendingCount: legacy.copyStatusCounts?.pending ?? 0,
+    failedCount: legacy.traversalStatusCounts?.failed ?? 0,
+    excludedCount: excluded,
+    pendingRetriesCount: legacy.traversalStatusCounts?.pending ?? 0,
+    foldersCount: legacy.foldersCount ?? 0,
+    filesCount: legacy.filesCount ?? 0,
+    foldersRatio: legacy.foldersRatio ?? 0,
+    filesRatio: legacy.filesRatio ?? 0,
+    totalFileSize: {
+      src: (legacy.totalFileSize?.src ?? 0) as number,
+      dst: (legacy.totalFileSize?.dst ?? 0) as number,
+    },
+  };
+}
+
 /**
  * Get path review statistics
  * @param migrationId The ID of the migration
@@ -1165,51 +1232,8 @@ export async function getPathReviewStats(
     );
   }
 
-  const raw: PathReviewStatsRaw = await response.json();
-  const isCopy = phase === "copy";
-
-  // Transform based on phase
-  if (isCopy) {
-    // Copy phase:
-    // - pending = copyStatusCounts.pending
-    // - failed = copyStatusCounts.failed
-    // - excluded = copyStatusCounts.exclusion_explicit + exclusion_inherited
-    // - pending retry = copyStatusCounts.pending (items that need to be copied again)
-    return {
-      pendingCount: raw.copyStatusCounts?.pending ?? 0,
-      failedCount: raw.copyStatusCounts?.failed ?? 0,
-      excludedCount: (raw.copyStatusCounts?.exclusion_explicit ?? 0) + (raw.copyStatusCounts?.exclusion_inherited ?? 0),
-      pendingRetriesCount: raw.copyStatusCounts?.pending ?? 0,
-      foldersCount: raw.foldersCount ?? 0,
-      filesCount: raw.filesCount ?? 0,
-      foldersRatio: raw.foldersRatio ?? 0,
-      filesRatio: raw.filesRatio ?? 0,
-      totalFileSize: {
-        src: (raw.totalFileSize?.src ?? 0) as number,
-        dst: (raw.totalFileSize?.dst ?? 0) as number,
-      },
-    };
-  } else {
-    // Traversal phase:
-    // - pending = copyStatusCounts.pending (normal pending)
-    // - failed = traversalStatusCounts.failed
-    // - excluded = copyStatusCounts.exclusion_explicit + exclusion_inherited
-    // - pending retry = traversalStatusCounts.pending (items marked for retry)
-    return {
-      pendingCount: raw.copyStatusCounts?.pending ?? 0,
-      failedCount: raw.traversalStatusCounts?.failed ?? 0,
-      excludedCount: (raw.copyStatusCounts?.exclusion_explicit ?? 0) + (raw.copyStatusCounts?.exclusion_inherited ?? 0),
-      pendingRetriesCount: raw.traversalStatusCounts?.pending ?? 0,
-      foldersCount: raw.foldersCount ?? 0,
-      filesCount: raw.filesCount ?? 0,
-      foldersRatio: raw.foldersRatio ?? 0,
-      filesRatio: raw.filesRatio ?? 0,
-      totalFileSize: {
-        src: (raw.totalFileSize?.src ?? 0) as number,
-        dst: (raw.totalFileSize?.dst ?? 0) as number,
-      },
-    };
-  }
+  const raw = (await response.json()) as PathReviewStatsRaw | PathReviewStats;
+  return normalizePathReviewStats(raw, phase);
 }
 
 // Search API types and functions
@@ -1458,50 +1482,8 @@ export async function searchPathReviewItems(
   // Extract and transform stats from response if present
   let transformedStats: PathReviewStats | null = null;
   if (data.stats) {
-    const rawStats = data.stats as PathReviewStatsRaw;
-    const isCopy = options?.phase === "copy";
-    
-    if (isCopy) {
-      // Copy phase:
-      // - pending = copyStatusCounts.pending
-      // - failed = copyStatusCounts.failed
-      // - excluded = copyStatusCounts.exclusion_explicit + exclusion_inherited
-      // - pending retry = copyStatusCounts.pending (items that need to be copied again)
-      transformedStats = {
-        pendingCount: rawStats.copyStatusCounts?.pending ?? 0,
-        failedCount: rawStats.copyStatusCounts?.failed ?? 0,
-        excludedCount: (rawStats.copyStatusCounts?.exclusion_explicit ?? 0) + (rawStats.copyStatusCounts?.exclusion_inherited ?? 0),
-        pendingRetriesCount: rawStats.copyStatusCounts?.pending ?? 0,
-        foldersCount: rawStats.foldersCount ?? 0,
-        filesCount: rawStats.filesCount ?? 0,
-        foldersRatio: rawStats.foldersRatio ?? 0,
-        filesRatio: rawStats.filesRatio ?? 0,
-        totalFileSize: {
-          src: (rawStats.totalFileSize?.src ?? 0) as number,
-          dst: (rawStats.totalFileSize?.dst ?? 0) as number,
-        },
-      };
-    } else {
-      // Traversal phase:
-      // - pending = copyStatusCounts.pending (normal pending)
-      // - failed = traversalStatusCounts.failed
-      // - excluded = copyStatusCounts.exclusion_explicit + exclusion_inherited
-      // - pending retry = traversalStatusCounts.pending (items marked for retry)
-      transformedStats = {
-        pendingCount: rawStats.copyStatusCounts?.pending ?? 0,
-        failedCount: rawStats.traversalStatusCounts?.failed ?? 0,
-        excludedCount: (rawStats.copyStatusCounts?.exclusion_explicit ?? 0) + (rawStats.copyStatusCounts?.exclusion_inherited ?? 0),
-        pendingRetriesCount: rawStats.traversalStatusCounts?.pending ?? 0,
-        foldersCount: rawStats.foldersCount ?? 0,
-        filesCount: rawStats.filesCount ?? 0,
-        foldersRatio: rawStats.foldersRatio ?? 0,
-        filesRatio: rawStats.filesRatio ?? 0,
-        totalFileSize: {
-          src: (rawStats.totalFileSize?.src ?? 0) as number,
-          dst: (rawStats.totalFileSize?.dst ?? 0) as number,
-        },
-      };
-    }
+    const rawStats = data.stats as PathReviewStatsRaw | PathReviewStats;
+    transformedStats = normalizePathReviewStats(rawStats, options?.phase);
   }
 
   return {

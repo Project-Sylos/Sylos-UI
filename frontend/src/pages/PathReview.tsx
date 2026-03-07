@@ -54,6 +54,46 @@ interface ToastState {
   type: "error" | "success" | "info";
 }
 
+/** Apply API deltas to local stats (no refetch). Keys: pending, failed, excluded, pendingRetries, folders, files, sizeSrc, sizeDst. */
+function applyStatsDeltas(
+  prev: PathReviewStats | null,
+  deltas: Record<string, number> | undefined
+): PathReviewStats | null {
+  if (!prev || !deltas || Object.keys(deltas).length === 0) return prev;
+  const d = (k: string) => deltas[k] ?? 0;
+  const foldersCount = Math.max(0, prev.foldersCount + d("folders"));
+  const filesCount = Math.max(0, prev.filesCount + d("files"));
+  const total = foldersCount + filesCount;
+  return {
+    pendingCount: Math.max(0, prev.pendingCount + d("pending")),
+    failedCount: Math.max(0, prev.failedCount + d("failed")),
+    excludedCount: Math.max(0, prev.excludedCount + d("excluded")),
+    pendingRetriesCount: Math.max(0, (prev.pendingRetriesCount ?? 0) + d("pendingRetries")),
+    foldersCount,
+    filesCount,
+    foldersRatio: total > 0 ? foldersCount / total : prev.foldersRatio,
+    filesRatio: total > 0 ? filesCount / total : prev.filesRatio,
+    totalFileSize: {
+      src: Math.max(0, prev.totalFileSize.src + d("sizeSrc")),
+      dst: Math.max(0, prev.totalFileSize.dst + d("sizeDst")),
+    },
+  };
+}
+
+/** Merge deltas from multiple action responses (e.g. exclude src + dst). */
+function mergeDeltas(
+  ...responses: Array<{ deltas?: Record<string, number> } | null>
+): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const r of responses) {
+    if (!r?.deltas) continue;
+    for (const [k, v] of Object.entries(r.deltas)) {
+      out[k] = (out[k] ?? 0) + v;
+    }
+  }
+  return out;
+}
+
 export default function PathReview() {
   const { migrationId } = useParams<{ migrationId: string }>();
   const navigate = useNavigate();
@@ -337,6 +377,11 @@ export default function PathReview() {
     }
   };
 
+  // Apply action deltas to local stats (no refetch)
+  const handleApplyStatsDeltas = (deltas: Record<string, number>) => {
+    setStats((prev) => applyStatsDeltas(prev, deltas));
+  };
+
   // Handle pagination change from list view
   const handlePaginationChange = (pagination: PaginationInfo | null, itemsPerPage: number) => {
     setListPagination(pagination);
@@ -559,6 +604,10 @@ export default function PathReview() {
         type: "info",
       });
       return; // Don't allow navigation into failed folders
+    }
+
+    if (retryItems.has(item.id) && item.type === "folder") {
+      return; // Don't allow navigation into folders marked for retry (same as failed: just unclickable)
     }
     
     // Don't allow navigation into folders that exist only on destination
@@ -842,11 +891,11 @@ export default function PathReview() {
         return;
       }
       
-      // Success
+      // Success – apply deltas from response instead of refetching stats
       pendingRetryUpdatesRef.current.delete(item.id);
-      
-      // Start polling stats based on background tasks (stats will update pendingRetriesCount)
-      startStatsPolling();
+      if (result.deltas && Object.keys(result.deltas).length > 0) {
+        handleApplyStatsDeltas(result.deltas);
+      }
       
       // Show success message
       setToast({
@@ -1046,9 +1095,10 @@ export default function PathReview() {
       
       // Both succeeded (or only one node exists and it succeeded)
       pendingUpdatesRef.current.delete(item.id);
-      
-      // Start polling stats based on background tasks
-      startStatsPolling();
+      const merged = mergeDeltas(srcResult, dstResult);
+      if (Object.keys(merged).length > 0) {
+        handleApplyStatsDeltas(merged);
+      }
     } catch (err) {
       // Revert optimistic update on network error
       setPendingItems((prev) => {
@@ -1490,14 +1540,14 @@ export default function PathReview() {
                       <div
                         className={`path-review__item-info ${isFolder ? "path-review__item-info--folder" : "path-review__item-info--file"}`}
                         onClick={() => {
-                          if (isFolder && !status.isExcluded && !status.isFailed && !status.existsOnlyOnDst) {
+                          if (isFolder && !status.isExcluded && !status.isFailed && !isMarkedForRetry && !status.existsOnlyOnDst) {
                             handleFolderClick(item);
                           }
                         }}
                         style={{ 
-                          cursor: isFolder && !status.isExcluded && !status.isFailed && !status.existsOnlyOnDst
+                          cursor: isFolder && !status.isExcluded && !status.isFailed && !isMarkedForRetry && !status.existsOnlyOnDst
                             ? "pointer" 
-                            : (status.isExcluded || status.isFailed || status.existsOnlyOnDst) 
+                            : (status.isExcluded || status.isFailed || isMarkedForRetry || status.existsOnlyOnDst) 
                             ? "not-allowed" 
                             : "default" 
                         }}
@@ -1534,10 +1584,9 @@ export default function PathReview() {
             <PathReviewListView
               migrationId={migrationId}
               onItemUpdate={() => {
-                // Reload items will trigger stats update automatically
-                // Start polling stats based on background tasks
                 startStatsPolling();
               }}
+              onApplyStatsDeltas={handleApplyStatsDeltas}
               onStatsChange={handleStatsChange}
               onSelectionStatsWarning={handleSelectionWarning}
               onPaginationChange={handlePaginationChange}

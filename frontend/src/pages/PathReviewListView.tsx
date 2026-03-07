@@ -35,9 +35,10 @@ import PathReviewStatusIcon from "../components/PathReviewStatusIcon";
 import PathReviewLegend from "../components/PathReviewLegend";
 import "./PathReview.css";
 
-interface PathReviewListViewProps {
+export interface PathReviewListViewProps {
   migrationId: string;
-  onItemUpdate?: () => void; // Callback for when items are updated (for stats refresh)
+  onItemUpdate?: () => void; // Callback for when items are updated (e.g. start stats polling for background tasks)
+  onApplyStatsDeltas?: (deltas: Record<string, number>) => void; // Apply action deltas to parent stats (no refetch)
   onStatsChange?: (stats: PathReviewStats | null) => void; // Callback for when stats change
   onSelectionStatsWarning?: (hasWarning: boolean) => void; // Callback to show/hide selection warning
   onPaginationChange?: (pagination: PaginationInfo | null, itemsPerPage: number) => void; // Callback for pagination info
@@ -48,6 +49,7 @@ interface PathReviewListViewProps {
 export default function PathReviewListView({
   migrationId,
   onItemUpdate,
+  onApplyStatsDeltas,
   onStatsChange,
   onSelectionStatsWarning,
   onPaginationChange,
@@ -720,11 +722,12 @@ export default function PathReviewListView({
       }
 
       // Both succeeded (or only one node exists and it succeeded)
-      // Success - reload items to ensure consistency with backend
-      loadItems();
-      if (onItemUpdate) {
-        onItemUpdate();
+      const merged: Record<string, number> = {};
+      for (const r of [srcResult, dstResult]) {
+        if (r?.deltas) for (const [k, v] of Object.entries(r.deltas)) merged[k] = (merged[k] ?? 0) + (v as number);
       }
+      if (Object.keys(merged).length > 0) onApplyStatsDeltas?.(merged);
+      loadItems();
       onToast?.(isExcluding ? "Item excluded" : "Item unexcluded", "success");
     } catch (err) {
       // Revert optimistic update on network error
@@ -866,11 +869,8 @@ export default function PathReviewListView({
         return;
       }
 
-      // Success - reload items to ensure consistency with backend
+      if (result.deltas && Object.keys(result.deltas).length > 0) onApplyStatsDeltas?.(result.deltas);
       loadItems();
-      if (onItemUpdate) {
-        onItemUpdate();
-      }
       onToast?.(newRetryState ? "Item marked for retry" : "Item unmarked for retry", "success");
     } catch (err) {
       // Revert optimistic update on network error
@@ -1404,12 +1404,10 @@ export default function PathReviewListView({
                     if (result.taskID) {
                       // Background task started - add to active tasks
                       setActiveTaskIds((prev) => new Set(prev).add(result.taskID!));
+                      if (onItemUpdate) onItemUpdate();
                     } else {
-                      // Immediate completion - reload items
+                      if (result.deltas && Object.keys(result.deltas).length > 0) onApplyStatsDeltas?.(result.deltas);
                       await loadItems();
-                      if (onItemUpdate) {
-                        onItemUpdate();
-                      }
                     }
                   }
                 } catch (err) {
@@ -1468,12 +1466,10 @@ export default function PathReviewListView({
                     if (result.taskID) {
                       // Background task started - add to active tasks
                       setActiveTaskIds((prev) => new Set(prev).add(result.taskID!));
+                      if (onItemUpdate) onItemUpdate();
                     } else {
-                      // Immediate completion - reload items
+                      if (result.deltas && Object.keys(result.deltas).length > 0) onApplyStatsDeltas?.(result.deltas);
                       await loadItems();
-                      if (onItemUpdate) {
-                        onItemUpdate();
-                      }
                     }
                   }
                 } catch (err) {

@@ -7,24 +7,22 @@ import {
   getMigrationQueueMetrics,
   fetchServices,
 } from "../api/services";
+import {
+  getMigrationPhase,
+  isCopyReviewPhase,
+  isMigrationLive,
+} from "../types/migrations";
 import { useSelection } from "../context/SelectionContext";
 import HelpTooltip from "../components/HelpTooltip";
-import "./DiscoveryProgress.css";
+import "./ProgressMonitor.css";
 
 const STATUS_POLL_INTERVAL = 1000;
 
-export default function DiscoveryProgress() {
+export default function ProgressMonitor() {
   const { migrationId } = useParams<{ migrationId: string }>();
   const navigate = useNavigate();
-  const { source, destination, services } = useSelection();
   const [searchParams] = useSearchParams();
-
-  // Sweep monitoring state
-  const phase = searchParams.get("phase");
-  const sweepType = searchParams.get("type");
-  const isMonitoringSweep = phase === "sweep" && (sweepType === "exclusion" || sweepType === "retry");
-  const [reviewIteration, setReviewIteration] = useState(1);
-  const prevStatusRef = useRef<string | null>(null);
+  const { source, destination, services } = useSelection();
 
   const [status, setStatus] = useState<any>(null);
   const [queueMetrics, setQueueMetrics] = useState<any>(null);
@@ -32,26 +30,30 @@ export default function DiscoveryProgress() {
   const [allServices, setAllServices] = useState(services);
   const [showResultsButton, setShowResultsButton] = useState(false);
 
-  const isTerminalStateRef = useRef(false);
+  /** After a retry sweep, status can briefly still say "review" before the run starts — require run activity before re-enabling review. */
+  const isRetryRun = searchParams.get("retry") === "1";
+  const hasSeenActiveRunRef = useRef(false);
+  const isRetryRunRef = useRef(isRetryRun);
+  const prevPhaseRef = useRef<string>("");
+  const prevCompletedAtRef = useRef<string | null | undefined>(undefined);
+  /** Re-run review-button logic when refs change (refs don’t trigger effects). */
+  const [runGate, setRunGate] = useState(0);
+
   const statusIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const queueMetricsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Phase detection helpers
-  const isCopyPhase = (status?: string): boolean => {
-    return status === "Awaiting-Copy-Review" || 
-           status === "Preparing-For-Copy" || 
-           status === "Copy-In-Progress" || 
-           status === "Copy-Complete";
-  };
+  useEffect(() => {
+    isRetryRunRef.current = searchParams.get("retry") === "1";
+  }, [searchParams]);
 
-  // Check if migration is in a terminal state (no longer running)
-  const isTerminalState = (status?: string) => {
-    return status === "Awaiting-Path-Review" || 
-           status === "Awaiting-Copy-Review" || 
-           status === "Complete" || 
-           status === "failed" || 
-           status === "suspended";
-  };
+  // Intent from navigation: Start Copy → copy, Retry Discovery → discovery. No param = derive from API.
+  const modeFromUrl = searchParams.get("mode");
+  const showCopyUI =
+    modeFromUrl === "copy"
+      ? true
+      : modeFromUrl === "discovery"
+        ? false
+        : isCopyReviewPhase(status);
 
   // Format bytes to human-readable format
   const formatBytes = (bytes: number): string => {
@@ -73,28 +75,75 @@ export default function DiscoveryProgress() {
     return `${value.toFixed(2)} ${sizes[i]}`;
   };
 
-  // Fetch status
+  // Fetch status — keep polling while on this page so phase/live updates after retry (don’t stop on “review” alone).
   const fetchStatus = useCallback(async () => {
     if (!migrationId) return;
 
     try {
       const statusData = await getMigrationStatus(migrationId);
       setStatus(statusData);
-      
-      // Update terminal state ref
-      const isTerminal = isTerminalState(statusData.status);
-      isTerminalStateRef.current = isTerminal;
-      
-      // Stop all polling if migration reached terminal state
-      if (isTerminal) {
-        if (statusIntervalRef.current) {
-          clearInterval(statusIntervalRef.current);
-          statusIntervalRef.current = null;
+      const phase = getMigrationPhase(statusData);
+      const hadRunBefore = hasSeenActiveRunRef.current;
+
+      if (isRetryRunRef.current) {
+        const prevPhase = prevPhaseRef.current;
+        if (prevPhase !== "") {
+          const inReview = (p: string) =>
+            p === "awaiting-traversal-review" || p === "awaiting-copy-review";
+          if (inReview(prevPhase) && !inReview(phase) && phase) {
+            hasSeenActiveRunRef.current = true;
+          }
+          if (!inReview(prevPhase) && inReview(phase)) {
+            hasSeenActiveRunRef.current = true;
+          }
         }
-        if (queueMetricsIntervalRef.current) {
-          clearInterval(queueMetricsIntervalRef.current);
-          queueMetricsIntervalRef.current = null;
+        prevPhaseRef.current = phase;
+
+        const ca = statusData.completedAt ?? null;
+        // Sweep just reported completion (was null, now set).
+        if (
+          prevCompletedAtRef.current !== undefined &&
+          prevCompletedAtRef.current === null &&
+          ca != null
+        ) {
+          hasSeenActiveRunRef.current = true;
         }
+        // Timestamp changed between polls (e.g. sweep finished updating completedAt).
+        if (
+          prevCompletedAtRef.current != null &&
+          ca != null &&
+          ca !== prevCompletedAtRef.current
+        ) {
+          hasSeenActiveRunRef.current = true;
+        }
+        prevCompletedAtRef.current = ca;
+      }
+
+      if (
+        isMigrationLive(statusData) ||
+        phase === "traversal-in-progress" ||
+        phase === "copy-in-progress"
+      ) {
+        hasSeenActiveRunRef.current = true;
+      }
+
+      // Retry: backend may omit live/phase transitions; if review is not live and completedAt
+      // is on or after startedAt, the sweep for this run has finished (stale pre-sweep should
+      // clear completedAt or move startedAt forward on retry).
+      if (isRetryRunRef.current && !isMigrationLive(statusData)) {
+        const inReview =
+          phase === "awaiting-traversal-review" || phase === "awaiting-copy-review";
+        if (inReview && statusData.startedAt && statusData.completedAt) {
+          const sa = Date.parse(statusData.startedAt);
+          const cd = Date.parse(String(statusData.completedAt));
+          if (!Number.isNaN(sa) && !Number.isNaN(cd) && cd >= sa) {
+            hasSeenActiveRunRef.current = true;
+          }
+        }
+      }
+
+      if (!hadRunBefore && hasSeenActiveRunRef.current) {
+        setRunGate((g) => g + 1);
       }
     } catch (err) {
       console.error("Failed to fetch status:", err);
@@ -134,46 +183,34 @@ export default function DiscoveryProgress() {
     }
   }, [migrationId]);
 
-  // Check if migration is ready for path review to show results button
-  // But block it if we're monitoring a retry sweep (wait for retry to complete)
+  // Show “View … Results” when in the matching review phase and not running. Retries: ignore stale “review” until a run has actually started (see fetchStatus).
   useEffect(() => {
-    if (
-      status?.status === "Awaiting-Path-Review" || 
-      status?.status === "Awaiting-Copy-Review" || 
-      status?.status === "Complete"
-    ) {
-      // If monitoring a retry sweep, don't show results button yet
-      // Wait for the retry to complete and navigate back to path review
-      if (isMonitoringSweep && sweepType === "retry") {
-        setShowResultsButton(false);
-      } else {
-        setShowResultsButton(true);
-      }
-    } else {
+    if (!status) {
       setShowResultsButton(false);
+      return;
     }
-  }, [status?.status, isMonitoringSweep, sweepType]);
-  
-  // Handle sweep completion - navigate back to path review
+    const phase = getMigrationPhase(status);
+    const inTraversalReview = phase === "awaiting-traversal-review";
+    const inCopyReview = phase === "awaiting-copy-review";
+    const inMatchingReview =
+      (showCopyUI && inCopyReview) || (!showCopyUI && inTraversalReview);
+    const live = isMigrationLive(status);
+    const canReview =
+      inMatchingReview &&
+      !live &&
+      (!isRetryRun || hasSeenActiveRunRef.current);
+    setShowResultsButton(!!canReview);
+  }, [status, showCopyUI, isRetryRun, runGate]);
+
+  // Retry sweep: clear metrics and gate review like a fresh run (stale API may still say “review”).
   useEffect(() => {
-    if (!isMonitoringSweep || !status?.status) return;
-    
-    const currentStatus = status.status;
-    const prevStatus = prevStatusRef.current;
-    
-    // Navigate when status changes to Awaiting-Path-Review (traversal complete)
-    if (prevStatus !== "Awaiting-Path-Review" && (currentStatus === "Awaiting-Path-Review" || currentStatus === "Awaiting-Copy-Review")) {
-      // Sweep completed successfully - navigate back to path review
-      const nextIteration = reviewIteration + 1;
-      setReviewIteration(nextIteration);
-      navigate(`/path-review/${migrationId}?reviewIteration=${nextIteration}`);
-    } else if (prevStatus === "running" && currentStatus === "failed") {
-      // Sweep failed - show error but stay on monitor page
-      setError("Sweep failed.");
-    }
-    
-    prevStatusRef.current = currentStatus;
-  }, [isMonitoringSweep, status?.status, migrationId, navigate, reviewIteration]);
+    if (!isRetryRun) return;
+    hasSeenActiveRunRef.current = false;
+    prevPhaseRef.current = "";
+    prevCompletedAtRef.current = undefined;
+    setQueueMetrics(null);
+    setShowResultsButton(false);
+  }, [migrationId, isRetryRun]);
 
   // Set up polling intervals
   useEffect(() => {
@@ -191,11 +228,8 @@ export default function DiscoveryProgress() {
       fetchStatus();
     }, STATUS_POLL_INTERVAL);
 
-    // Set up queue metrics polling (every 500ms) - only if not terminal
     queueMetricsIntervalRef.current = setInterval(() => {
-      if (!isTerminalStateRef.current) {
-        fetchQueueMetrics();
-      }
+      fetchQueueMetrics();
     }, STATUS_POLL_INTERVAL);
 
     return () => {
@@ -207,6 +241,19 @@ export default function DiscoveryProgress() {
       }
     };
   }, [migrationId, navigate, fetchStatus, fetchQueueMetrics]);
+
+  // Stop polling once we’re ready for review — no need to keep hitting the API every second.
+  useEffect(() => {
+    if (!showResultsButton) return;
+    if (statusIntervalRef.current) {
+      clearInterval(statusIntervalRef.current);
+      statusIntervalRef.current = null;
+    }
+    if (queueMetricsIntervalRef.current) {
+      clearInterval(queueMetricsIntervalRef.current);
+      queueMetricsIntervalRef.current = null;
+    }
+  }, [showResultsButton]);
 
   if (!migrationId) {
     return null;
@@ -249,84 +296,84 @@ export default function DiscoveryProgress() {
   };
 
   return (
-    <section className="discovery-progress">
-      <div className="discovery-progress__content">
+    <section className="progress-monitor">
+      <div className="progress-monitor__content">
         <button
           type="button"
-          className="discovery-progress__back"
+          className="progress-monitor__back"
           onClick={() => navigate("/")}
         >
           <ArrowLeft size={16} style={{ marginRight: "0.5rem" }} />
           Back to home
         </button>
-        <header className="discovery-progress__header">
+        <header className="progress-monitor__header">
           <h1>
-            {isCopyPhase(status?.status) ? (
-              <>Copy <span className="discovery-progress__highlight">Progress</span></>
+            {showCopyUI ? (
+              <>Copy <span className="progress-monitor__highlight">Progress</span></>
             ) : (
-              <>Discovery <span className="discovery-progress__highlight">Progress</span></>
+              <>Discovery <span className="progress-monitor__highlight">Progress</span></>
             )}
           </h1>
         </header>
 
         {error && (
-          <div className="discovery-progress__error">{error}</div>
+          <div className="progress-monitor__error">{error}</div>
         )}
 
         {/* Metrics Section */}
-        <div className="discovery-progress__metrics">
-            <div className={`discovery-progress__metric-card ${isCopyPhase(status?.status) ? 'discovery-progress__metric-card--split' : ''}`}>
-              {isCopyPhase(status?.status) ? (
+        <div className="progress-monitor__metrics">
+            <div className={`progress-monitor__metric-card ${showCopyUI ? 'progress-monitor__metric-card--split' : ''}`}>
+              {showCopyUI ? (
                 // Copy phase: split header with Source (left) and Destination (right)
                 <>
-                  <div className="discovery-progress__metric-header-split">
-                    <div className="discovery-progress__metric-header-half discovery-progress__metric-header-half--source">
-                      <div className="discovery-progress__metric-header-top">
-                        <div className="discovery-progress__metric-service">
+                  <div className="progress-monitor__metric-header-split">
+                    <div className="progress-monitor__metric-header-half progress-monitor__metric-header-half--source">
+                      <div className="progress-monitor__metric-header-top">
+                        <div className="progress-monitor__metric-service">
                           {getServiceIcon(getSourceServiceType())}
                           <span>{source?.service?.displayName || status?.sourceId || "Unknown"}</span>
                         </div>
-                        <h3 className="discovery-progress__metric-title discovery-progress__metric-title--source">
+                        <h3 className="progress-monitor__metric-title progress-monitor__metric-title--source">
                           Source
                         </h3>
                       </div>
                       {(source?.root?.locationPath && source.root.locationPath !== '/') ? (
-                        <div className="discovery-progress__metric-context">
-                          <div className="discovery-progress__metric-context-row">
-                            <span className="discovery-progress__metric-context-label">Root Path:</span>
-                            <span className="discovery-progress__metric-context-value" title={source?.root?.locationPath || source?.root?.name || ""}>
+                        <div className="progress-monitor__metric-context">
+                          <div className="progress-monitor__metric-context-row">
+                            <span className="progress-monitor__metric-context-label">Root Path:</span>
+                            <span className="progress-monitor__metric-context-value" title={source?.root?.locationPath || source?.root?.name || ""}>
                               {source?.root?.locationPath || source?.root?.name || "Not specified"}
                             </span>
                           </div>
                         </div>
                       ) : (
-                        <div className="discovery-progress__metric-context discovery-progress__metric-context--empty" />
+                        <div className="progress-monitor__metric-context progress-monitor__metric-context--empty" />
                       )}
                     </div>
-                    <div className="discovery-progress__metric-header-arrow">
+                    <div className="progress-monitor__metric-header-arrow">
                       <ArrowRight size={24} />
                     </div>
-                    <div className="discovery-progress__metric-header-half discovery-progress__metric-header-half--destination">
-                      <div className="discovery-progress__metric-header-top">
-                        <div className="discovery-progress__metric-service">
+                    <div className="progress-monitor__metric-header-half progress-monitor__metric-header-half--destination">
+                      <div className="progress-monitor__metric-header-top">
+                        <div className="progress-monitor__metric-service">
                           {getServiceIcon(getDestinationServiceType())}
                           <span>{destination?.service?.displayName || status?.destinationId || "Unknown"}</span>
                         </div>
-                        <h3 className="discovery-progress__metric-title discovery-progress__metric-title--destination">
+                        <h3 className="progress-monitor__metric-title progress-monitor__metric-title--destination">
                           Destination
                         </h3>
                       </div>
                       {(destination?.root?.locationPath && destination.root.locationPath !== '/') ? (
-                        <div className="discovery-progress__metric-context">
-                          <div className="discovery-progress__metric-context-row">
-                            <span className="discovery-progress__metric-context-label">Root Path:</span>
-                            <span className="discovery-progress__metric-context-value" title={destination?.root?.locationPath || destination?.root?.name || ""}>
+                        <div className="progress-monitor__metric-context">
+                          <div className="progress-monitor__metric-context-row">
+                            <span className="progress-monitor__metric-context-label">Root Path:</span>
+                            <span className="progress-monitor__metric-context-value" title={destination?.root?.locationPath || destination?.root?.name || ""}>
                               {destination?.root?.locationPath || destination?.root?.name || "Not specified"}
                             </span>
                           </div>
                         </div>
                       ) : (
-                        <div className="discovery-progress__metric-context discovery-progress__metric-context--empty" />
+                        <div className="progress-monitor__metric-context progress-monitor__metric-context--empty" />
                       )}
                     </div>
                   </div>
@@ -334,48 +381,47 @@ export default function DiscoveryProgress() {
               ) : (
                 // Traversal phase: normal header
                 <>
-                  <div className="discovery-progress__metric-header">
-                    <div className="discovery-progress__metric-service">
+                  <div className="progress-monitor__metric-header">
+                    <div className="progress-monitor__metric-service">
                       {getServiceIcon(getSourceServiceType())}
                       <span>{source?.service?.displayName || status?.sourceId || "Unknown"}</span>
                     </div>
-                    <h3 className="discovery-progress__metric-title discovery-progress__metric-title--source">
+                    <h3 className="progress-monitor__metric-title progress-monitor__metric-title--source">
                       Source
                     </h3>
                   </div>
                   {(source?.root?.locationPath && source.root.locationPath !== '/') ? (
-                    <div className="discovery-progress__metric-context">
-                      <div className="discovery-progress__metric-context-row">
-                        <span className="discovery-progress__metric-context-label">Root Path:</span>
-                        <span className="discovery-progress__metric-context-value" title={source?.root?.locationPath || source?.root?.name || ""}>
+                    <div className="progress-monitor__metric-context">
+                      <div className="progress-monitor__metric-context-row">
+                        <span className="progress-monitor__metric-context-label">Root Path:</span>
+                        <span className="progress-monitor__metric-context-value" title={source?.root?.locationPath || source?.root?.name || ""}>
                           {source?.root?.locationPath || source?.root?.name || "Not specified"}
                         </span>
                       </div>
                     </div>
                   ) : (
-                    <div className="discovery-progress__metric-context discovery-progress__metric-context--empty" />
+                    <div className="progress-monitor__metric-context progress-monitor__metric-context--empty" />
                   )}
                 </>
               )}
-              {isCopyPhase(status?.status) ? (
-                // Copy phase: show simplified copy metrics from copy queue
+              {showCopyUI ? (
                 queueMetrics?.copy ? (
-                  <div className="discovery-progress__metric-details">
+                  <div className="progress-monitor__metric-details">
                     {/* Totals */}
-                    <div className="discovery-progress__metric-row">
+                    <div className="progress-monitor__metric-row">
                       <span>Folders:</span>
                       <span>{(queueMetrics.copy.folders || 0).toLocaleString()}</span>
                     </div>
-                    <div className="discovery-progress__metric-row">
+                    <div className="progress-monitor__metric-row">
                       <span>Files:</span>
                       <span>{(queueMetrics.copy.files || 0).toLocaleString()}</span>
                     </div>
-                    <div className="discovery-progress__metric-row">
+                    <div className="progress-monitor__metric-row">
                       <span>Total:</span>
                       <span>{(queueMetrics.copy.total || 0).toLocaleString()}</span>
                     </div>
                     {/* Total bytes moved - API may not return this yet, show 0 if not available */}
-                    <div className="discovery-progress__metric-row">
+                    <div className="progress-monitor__metric-row">
                       <span>Bytes:</span>
                       <span>{formatBytes(
                         queueMetrics.copy.bytes_copied_total || 
@@ -385,12 +431,12 @@ export default function DiscoveryProgress() {
                       )}</span>
                     </div>
                     {/* Rates */}
-                    <div className="discovery-progress__metric-row">
+                    <div className="progress-monitor__metric-row">
                       <span>Items/sec:</span>
                       <span>{(queueMetrics.copy.items_per_second || 0).toFixed(1)}</span>
                     </div>
                     {/* Bytes per second - API may not return this yet, show 0 if not available */}
-                    <div className="discovery-progress__metric-row">
+                    <div className="progress-monitor__metric-row">
                       <span>Bytes/sec:</span>
                       <span>{formatBytesPerSec(
                         queueMetrics.copy.bytes_per_sec || 
@@ -401,14 +447,14 @@ export default function DiscoveryProgress() {
                     </div>
                   </div>
                 ) : (
-                  <div className="discovery-progress__metric-empty">Not started</div>
+                  <div className="progress-monitor__metric-empty">Not started</div>
                 )
               ) : (
                 // Traversal phase: show discovery metrics from srcTraversal
                 queueMetrics?.srcTraversal ? (
-                  <div className="discovery-progress__metric-details">
+                  <div className="progress-monitor__metric-details">
                     {queueMetrics.srcTraversal.discovery_rate_items_per_sec !== undefined && (
-                      <div className="discovery-progress__metric-row">
+                      <div className="progress-monitor__metric-row">
                         <span>
                           Discovery Rate:
                           <HelpTooltip
@@ -426,58 +472,58 @@ export default function DiscoveryProgress() {
                       </div>
                     )}
                     {queueMetrics.srcTraversal.folders_discovered_total !== undefined && (
-                      <div className="discovery-progress__metric-row">
+                      <div className="progress-monitor__metric-row">
                         <span>Folders Discovered:</span>
                         <span>{queueMetrics.srcTraversal.folders_discovered_total.toLocaleString()}</span>
                       </div>
                     )}
                     {queueMetrics.srcTraversal.files_discovered_total !== undefined && (
-                      <div className="discovery-progress__metric-row">
+                      <div className="progress-monitor__metric-row">
                         <span>Files Discovered:</span>
                         <span>{queueMetrics.srcTraversal.files_discovered_total.toLocaleString()}</span>
                       </div>
                     )}
                     {queueMetrics.srcTraversal.total_discovered !== undefined && (
-                      <div className="discovery-progress__metric-row">
+                      <div className="progress-monitor__metric-row">
                         <span>Total Discovered:</span>
                         <span>{queueMetrics.srcTraversal.total_discovered.toLocaleString()}</span>
                       </div>
                     )}
                   </div>
                 ) : (
-                  <div className="discovery-progress__metric-empty">Not started</div>
+                  <div className="progress-monitor__metric-empty">Not started</div>
                 )
               )}
             </div>
 
             {/* Destination card - only show in traversal phase */}
-            {!isCopyPhase(status?.status) && (
-              <div className="discovery-progress__metric-card">
-                <div className="discovery-progress__metric-header">
-                  <div className="discovery-progress__metric-service">
+            {!showCopyUI && (
+              <div className="progress-monitor__metric-card">
+                <div className="progress-monitor__metric-header">
+                  <div className="progress-monitor__metric-service">
                     {getServiceIcon(getDestinationServiceType())}
                     <span>{destination?.service?.displayName || status?.destinationId || "Unknown"}</span>
                   </div>
-                  <h3 className="discovery-progress__metric-title discovery-progress__metric-title--destination">
+                  <h3 className="progress-monitor__metric-title progress-monitor__metric-title--destination">
                     Destination
                   </h3>
                 </div>
                 {(destination?.root?.locationPath && destination.root.locationPath !== '/') ? (
-                  <div className="discovery-progress__metric-context">
-                    <div className="discovery-progress__metric-context-row">
-                      <span className="discovery-progress__metric-context-label">Root Path:</span>
-                      <span className="discovery-progress__metric-context-value" title={destination?.root?.locationPath || destination?.root?.name || ""}>
+                  <div className="progress-monitor__metric-context">
+                    <div className="progress-monitor__metric-context-row">
+                      <span className="progress-monitor__metric-context-label">Root Path:</span>
+                      <span className="progress-monitor__metric-context-value" title={destination?.root?.locationPath || destination?.root?.name || ""}>
                         {destination?.root?.locationPath || destination?.root?.name || "Not specified"}
                       </span>
                     </div>
                   </div>
                 ) : (
-                  <div className="discovery-progress__metric-context discovery-progress__metric-context--empty" />
+                  <div className="progress-monitor__metric-context progress-monitor__metric-context--empty" />
                 )}
                 {queueMetrics?.dstTraversal ? (
-                  <div className="discovery-progress__metric-details">
+                  <div className="progress-monitor__metric-details">
                     {queueMetrics.dstTraversal.discovery_rate_items_per_sec !== undefined && (
-                      <div className="discovery-progress__metric-row">
+                      <div className="progress-monitor__metric-row">
                         <span>
                           Discovery Rate:
                           <HelpTooltip
@@ -495,19 +541,19 @@ export default function DiscoveryProgress() {
                       </div>
                     )}
                     {queueMetrics.dstTraversal.folders_discovered_total !== undefined && (
-                      <div className="discovery-progress__metric-row">
+                      <div className="progress-monitor__metric-row">
                         <span>Folders Discovered:</span>
                         <span>{queueMetrics.dstTraversal.folders_discovered_total.toLocaleString()}</span>
                       </div>
                     )}
                     {queueMetrics.dstTraversal.files_discovered_total !== undefined && (
-                      <div className="discovery-progress__metric-row">
+                      <div className="progress-monitor__metric-row">
                         <span>Files Discovered:</span>
                         <span>{queueMetrics.dstTraversal.files_discovered_total.toLocaleString()}</span>
                       </div>
                     )}
                     {queueMetrics.dstTraversal.total_discovered !== undefined && (
-                      <div className="discovery-progress__metric-row">
+                      <div className="progress-monitor__metric-row">
                         <span>
                           Total Discovered:
                           <HelpTooltip
@@ -524,51 +570,31 @@ export default function DiscoveryProgress() {
                     )}
                   </div>
                 ) : (
-                  <div className="discovery-progress__metric-empty">Not started</div>
+                  <div className="progress-monitor__metric-empty">Not started</div>
                 )}
               </div>
             )}
           </div>
 
-        {/* Footer Buttons */}
-        <div className="discovery-progress__footer">
-          {/* Return to Path Review Button (when monitoring sweep) */}
-          {isMonitoringSweep && (
-            <button
-              type="button"
-              className="discovery-progress__return-button glass-button glass-button--secondary"
-              onClick={() => {
-                if (migrationId) {
-                  navigate(`/path-review/${migrationId}`);
-                }
-              }}
-              title={status?.status === "running" ? "Sweep is still in progress. You can return to review, but the sweep will continue." : "Return to path review"}
-            >
-              <ArrowLeft size={20} style={{ marginRight: "0.5rem" }} />
-              Return to Path Review
-            </button>
-          )}
-          
-          {/* View Discovery Results or Copy Results Button (when traversal/copy completed) */}
-          {!isMonitoringSweep && (
-            <button
-              type="button"
-              className={`discovery-progress__see-results ${
-                showResultsButton ? "discovery-progress__see-results--enabled" : ""
-              }`}
-              onClick={() => {
-                if (showResultsButton && migrationId) {
-                  navigate(`/path-review/${migrationId}`);
-                }
-              }}
-              disabled={!showResultsButton}
-            >
-              <Eye size={20} style={{ marginRight: "0.5rem" }} />
-              {isCopyPhase(status?.status) || status?.status === "Awaiting-Copy-Review"
-                ? "View Copy Results"
-                : "View Discovery Results"}
-            </button>
-          )}
+        {/* Footer: View Results when API returns a review phase */}
+        <div className="progress-monitor__footer">
+          <button
+            type="button"
+            className={`progress-monitor__see-results ${
+              showResultsButton ? "progress-monitor__see-results--enabled" : ""
+            }`}
+            onClick={() => {
+              if (showResultsButton && migrationId) {
+                navigate(`/path-review/${migrationId}`);
+              }
+            }}
+            disabled={!showResultsButton}
+          >
+            <Eye size={20} style={{ marginRight: "0.5rem" }} />
+            {showCopyUI
+              ? "View Copy Results"
+              : "View Discovery Results"}
+          </button>
         </div>
       </div>
     </section>

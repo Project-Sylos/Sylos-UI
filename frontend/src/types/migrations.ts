@@ -56,6 +56,51 @@ export interface MigrationResponse {
   error?: string;
 }
 
+/** Lifecycle phases (lowercase-with-hyphens). */
+export type MigrationPhase =
+  | "roots-set"
+  | "filters-set"
+  | "traversal-in-progress"
+  | "awaiting-traversal-review"
+  | "copy-in-progress"
+  | "awaiting-copy-review";
+
+/** Normalize phase string for comparison: trim, lowercase, spaces to hyphens. */
+export function normalizeMigrationPhase(value: string | undefined): string {
+  if (!value || typeof value !== "string") return "";
+  return value.trim().toLowerCase().replace(/\s+/g, "-");
+}
+
+/** Current phase from migration details (phase or status field). */
+export function getMigrationPhase(
+  response: { phase?: string; status?: string } | null | undefined
+): string {
+  if (!response) return "";
+  const raw = response.phase ?? response.status ?? "";
+  return normalizeMigrationPhase(raw);
+}
+
+/** True when migration is in traversal (discovery) review step. */
+export function isTraversalReviewPhase(
+  response: { phase?: string; status?: string } | null | undefined
+): boolean {
+  return getMigrationPhase(response) === "awaiting-traversal-review";
+}
+
+/** True when migration is in copy phase (copy running or copy review). */
+export function isCopyReviewPhase(
+  response: { phase?: string; status?: string } | null | undefined
+): boolean {
+  const phase = getMigrationPhase(response);
+  return phase === "copy-in-progress" || phase === "awaiting-copy-review";
+}
+
+/** True when a run is active (traversal, copy, or retry in progress). Use for "in progress" UX. */
+export function isMigrationLive(response: { live?: boolean; Live?: boolean } | null | undefined): boolean {
+  if (!response) return false;
+  return (response as { live?: boolean; Live?: boolean }).live === true || (response as { live?: boolean; Live?: boolean }).Live === true;
+}
+
 export interface MigrationDBFile {
   filename: string;
   path: string;
@@ -70,6 +115,8 @@ export interface MigrationUploadResponse {
 }
 
 export interface MigrationStatusResponse extends MigrationResponse {
+  phase?: string;
+  live?: boolean;
   completedAt?: string | null;
   result?: {
     rootSummary?: {
@@ -127,6 +174,8 @@ export interface MigrationMetadata {
 
 export interface MigrationWithStatus extends MigrationMetadata {
   status?: string;
+  phase?: string;
+  live?: boolean;
   sourceId?: string;
   destinationId?: string;
   startedAt?: string;

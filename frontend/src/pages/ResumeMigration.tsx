@@ -11,7 +11,11 @@ import {
   getMigrationStatus,
   uploadMigrationDB,
 } from "../api/services";
-import { MigrationWithStatus } from "../types/migrations";
+import {
+  MigrationWithStatus,
+  getMigrationPhase,
+  isMigrationLive,
+} from "../types/migrations";
 import { pickDBFile, formatDate } from "../utils/fileUpload";
 import { useSelection } from "../context/SelectionContext";
 import "./ResumeMigration.css";
@@ -154,74 +158,27 @@ export default function ResumeMigration() {
    * Determines the appropriate page to navigate to based on migration state
    */
   const determineNavigationTarget = (statusData: any): string => {
-    const status = statusData.status;
-    const statusLower = status?.toLowerCase();
-    const hasRoots = statusData.result?.rootSummary !== undefined;
-    const hasRuntime = statusData.result?.runtime !== undefined;
-    const migrationId = statusData.id;
+    const phase = getMigrationPhase(statusData);
+    const hasRoots = statusData?.result?.rootSummary !== undefined;
+    const migrationId = statusData?.id;
 
-    // Checkpoint statuses that come from the API
-    const checkpointStatuses = [
-      "Roots-Set",
-      "Filters-Set",
-      "Traversal-In-Progress",
-      "Awaiting-Path-Review",
-      "Preparing-For-Copy",
-      "Copy-In-Progress",
-      "Copy-Complete",
-      "Awaiting-Copy-Review",
-      "Complete"
-    ];
-
-    // Priority 1: Check checkpoint status (now in status field)
-    if (status && checkpointStatuses.includes(status)) {
-      switch (status) {
-        case "Awaiting-Path-Review":
-        case "Awaiting-Copy-Review":
-          return `/path-review/${migrationId}`;
-        case "Traversal-In-Progress":
-        case "Preparing-For-Copy":
-        case "Copy-In-Progress":
-        case "Copy-Complete":
-          return `/discovery-progress/${migrationId}`;
-        case "Complete":
-          return `/path-review/${migrationId}`; // Completed migrations can still review paths
-        case "Roots-Set":
-        case "Filters-Set":
-          // Roots are set but traversal hasn't started - go to summary to review and start
-          return `/summary`;
-        default:
-          // Unknown checkpoint status, fall through
-          break;
-      }
-    }
-
-    // Priority 2: Check fallback statuses
-    if (statusLower === "running") {
-      return `/discovery-progress/${migrationId}`;
-    }
-
-    if (statusLower === "completed") {
-      return `/path-review/${migrationId}`;
-    }
-
-    // Priority 3: Check runtime data to infer state
-    if (hasRuntime) {
-      // If status is suspended/failed but traversal might have completed, try path review
-      // (path review page will handle if traversal isn't actually complete)
-      if (statusLower === "suspended" || statusLower === "failed") {
+    switch (phase) {
+      case "awaiting-traversal-review":
+      case "awaiting-copy-review":
         return `/path-review/${migrationId}`;
-      }
-      // Otherwise, if it has runtime but isn't running/completed, go to discovery to restart
-      return `/discovery-progress/${migrationId}`;
+      case "traversal-in-progress":
+      case "copy-in-progress":
+        return `/progress-monitor/${migrationId}`;
+      case "roots-set":
+      case "filters-set":
+        return `/summary`;
+      default:
+        break;
     }
 
-    // Priority 4: Check if roots are set
     if (hasRoots) {
       return `/summary`;
     }
-
-    // Default: no roots set, go to connect page to set up
     return "/connect";
   };
 
@@ -415,11 +372,9 @@ export default function ResumeMigration() {
                     Created: {formatDate(migration.createdAt)}
                   </div>
                 </div>
-                {(migration.status === "running" || 
-                  migration.status === "Traversal-In-Progress" || 
-                  migration.status === "Preparing-For-Copy" ||
-                  migration.status === "Copy-In-Progress" ||
-                  migration.status === "Copy-Complete") ? (
+                {(isMigrationLive(migration) ||
+                  getMigrationPhase(migration) === "traversal-in-progress" ||
+                  getMigrationPhase(migration) === "copy-in-progress") ? (
                   <button
                     type="button"
                     className="resume-migration__stop-button-inline"

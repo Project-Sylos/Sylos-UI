@@ -12,7 +12,6 @@ import {
 } from "lucide-react";
 import { 
   getMigrationDiffs,
-  getMigrationDiffsStats,
   excludeNode, 
   unexcludeNode,
   markNodeForRetryDiscovery,
@@ -20,7 +19,6 @@ import {
   markNodeForRetryCopy,
   unmarkNodeForRetryCopy,
   DiffItem,
-  DiffsStatsResponse,
   getPendingWork,
   changePhase,
   PendingWorkResponse,
@@ -31,7 +29,12 @@ import {
   triggerRetrySweep,
   getMigrationStatus,
 } from "../api/services";
-import { MigrationStatusResponse } from "../types/migrations";
+import {
+  MigrationStatusResponse,
+  isTraversalReviewPhase,
+  isCopyReviewPhase,
+  getMigrationPhase,
+} from "../types/migrations";
 import ItemHoverCard from "../components/ItemHoverCard";
 import Toast from "../components/Toast";
 import ConfirmDialog from "../components/ConfirmDialog";
@@ -54,21 +57,41 @@ interface ToastState {
   type: "error" | "success" | "info";
 }
 
-/** Apply API deltas to local stats (no refetch). Keys: pending, failed, excluded, pendingRetries, folders, files, sizeSrc, sizeDst. */
+/**
+ * Apply API deltas to local stats (no refetch).
+ * Canonical keys: traversalPending, traversalPendingRetry, traversalFailed, copyPending, copyFailed,
+ * excluded, folders, files, sizeSrc, sizeDst. Only non-zero deltas are present.
+ * Stats mapping matches normalizePathReviewStats: “Pending” is copyStatusCounts.pending (copyPending),
+ * “Pending Retry” is traversal pending in traversal phase / copy pending in copy phase.
+ * - Traversal: copyPending → pendingCount; traversalPending → pendingCount (legacy); traversalFailed → failedCount; traversalPendingRetry → pendingRetriesCount.
+ * - Copy: copyPending → pendingCount and pendingRetriesCount; copyFailed → failedCount.
+ */
 function applyStatsDeltas(
   prev: PathReviewStats | null,
-  deltas: Record<string, number> | undefined
+  deltas: Record<string, number> | undefined,
+  phase: "traversal" | "copy"
 ): PathReviewStats | null {
   if (!prev || !deltas || Object.keys(deltas).length === 0) return prev;
   const d = (k: string) => deltas[k] ?? 0;
+  const isCopy = phase === "copy";
+  const failedDelta = isCopy ? d("copyFailed") : d("traversalFailed");
   const foldersCount = Math.max(0, prev.foldersCount + d("folders"));
   const filesCount = Math.max(0, prev.filesCount + d("files"));
   const total = foldersCount + filesCount;
   return {
-    pendingCount: Math.max(0, prev.pendingCount + d("pending")),
-    failedCount: Math.max(0, prev.failedCount + d("failed")),
+    pendingCount: Math.max(
+      0,
+      prev.pendingCount +
+        d("copyPending") +
+        (isCopy ? 0 : d("traversalPending"))
+    ),
+    failedCount: Math.max(0, prev.failedCount + failedDelta),
     excludedCount: Math.max(0, prev.excludedCount + d("excluded")),
-    pendingRetriesCount: Math.max(0, (prev.pendingRetriesCount ?? 0) + d("pendingRetries")),
+    pendingRetriesCount: Math.max(
+      0,
+      (prev.pendingRetriesCount ?? 0) +
+        (isCopy ? d("copyPending") : d("traversalPendingRetry"))
+    ),
     foldersCount,
     filesCount,
     foldersRatio: total > 0 ? foldersCount / total : prev.foldersRatio,
@@ -138,8 +161,6 @@ export default function PathReview() {
   const treeItemsPerPageDropdownRef = useRef<HTMLDivElement>(null);
   // Map of locationPath -> page number to remember pagination per folder
   const [folderPageMap, setFolderPageMap] = useState<Map<string, number>>(new Map());
-  // Stats for current folder (from diffs/stats endpoint) for "Page X of Y"
-  const [treeDiffsStats, setTreeDiffsStats] = useState<DiffsStatsResponse | null>(null);
   const currentTreePathRef = useRef<string>("/");
   
   const [searchParams, setSearchParams] = useSearchParams();
@@ -377,9 +398,10 @@ export default function PathReview() {
     }
   };
 
-  // Apply action deltas to local stats (no refetch)
+  // Apply action deltas to local stats (no refetch). Uses current phase so traversal vs copy keys map correctly.
   const handleApplyStatsDeltas = (deltas: Record<string, number>) => {
-    setStats((prev) => applyStatsDeltas(prev, deltas));
+    const phase = getCurrentPhase();
+    setStats((prev) => applyStatsDeltas(prev, deltas, phase));
   };
 
   // Handle pagination change from list view
@@ -404,25 +426,14 @@ export default function PathReview() {
 
   // Handle selection state change from list view
 
-  // Phase detection helpers
-  const isCopyPhase = (status: MigrationStatusResponse | null): boolean => {
-    if (!status) return false;
-    // Check status field directly (checkpoint status is in status field)
-    const statusValue = status.status;
-    return statusValue === "Awaiting-Copy-Review" || 
-           statusValue === "Preparing-For-Copy" || 
-           statusValue === "Copy-In-Progress" || 
-           statusValue === "Copy-Complete";
-  };
+  const isCopyPhase = (status: MigrationStatusResponse | null): boolean =>
+    isCopyReviewPhase(status);
 
-  const isTraversalPhase = (status: MigrationStatusResponse | null): boolean => {
-    if (!status) return true; // Default to traversal phase
-    return status.status === "Awaiting-Path-Review";
-  };
+  const isTraversalPhase = (status: MigrationStatusResponse | null): boolean =>
+    isTraversalReviewPhase(status);
 
-  const getCurrentPhase = (): "traversal" | "copy" => {
-    return isCopyPhase(migrationStatus) ? "copy" : "traversal";
-  };
+  const getCurrentPhase = (): "traversal" | "copy" =>
+    isCopyPhase(migrationStatus) ? "copy" : "traversal";
 
   // Determine if we're in traversal review mode (for backwards compatibility)
   const isTraversalReviewMode = () => {
@@ -445,9 +456,11 @@ export default function PathReview() {
       // 1. Failed = src.copyStatus === "failed" (copy failed)
       // 2. Successful = src.copyStatus === "successful" (got brought over) OR item is dst-only
       // 3. Pending = src.copyStatus === "pending" (didn't get brought over - treat same as failed)
-      // 4. Excluded = copyStatus shows exclusion (read-only in copy phase)
-      
-      const isExcluded = copyStatus === "exclusion_explicit" || copyStatus === "exclusion_inherited";
+      // 4. Excluded = copy status excluded (visible but read-only in copy phase; cannot unexclude here)
+      const isExcluded =
+        copyStatus === "exclusion_explicit" ||
+        copyStatus === "exclusion_inherited" ||
+        copyStatus === "excluded";
       const isPending = copyStatus === "pending";
       const isSuccessful = copyStatus === "successful" || existsOnlyOnDst;
       const existsOnBoth = copyStatus === "successful"; // Successful copyStatus means it exists on both
@@ -461,19 +474,16 @@ export default function PathReview() {
         isFailed,
       };
     } else {
-      // Traversal phase: use traversalStatus field (existing behavior)
-      const copyStatus = item.copyStatus || "pending";
-      const isFailed = item.traversalStatus === "failed";
-      const existsOnlyOnDst = item.traversalStatus === "not_on_src";
-      
-      // Traversal phase status logic (existing):
-      // 1. Failed traversalStatus → failed
-      // 2. Excluded copyStatus → excluded
-      // 3. Pending copyStatus → pending
-      // 4. Successful copyStatus → exists on both
-      // 5. traversalStatus 'not_on_src' → exists only on destination
-      
-      const isExcluded = copyStatus === "exclusion_explicit" || copyStatus === "exclusion_inherited";
+      // Traversal (discovery) phase: copyStatus = exclude state (editable here). traversalStatus = traverse/retry state.
+      const copyStatus = item.src?.copyStatus || item.copyStatus || "pending";
+      const isFailed = item.src?.traversalStatus === "failed" || item.dst?.traversalStatus === "failed" || item.traversalStatus === "failed";
+      const existsOnlyOnDst = item.traversalStatus === "not_on_src" || item.dst?.traversalStatus === "not_on_src";
+      // Traversal phase: Failed = traversal failed. Excluded = copy status excluded (editable: can unexclude).
+      // Pending = copy pending. Pending retry = traversal pending. Successful = copy successful.
+      const isExcluded =
+        copyStatus === "exclusion_explicit" ||
+        copyStatus === "exclusion_inherited" ||
+        copyStatus === "excluded";
       const isPending = copyStatus === "pending";
       const isSuccessful = copyStatus === "successful";
       const existsOnBoth = isSuccessful; // Successful copyStatus means it exists on both
@@ -495,7 +505,6 @@ export default function PathReview() {
     // Use the provided page, or check if we have a saved page for this path, or default to 0
     const pathKey = locationPath || "/";
     currentTreePathRef.current = pathKey;
-    setTreeDiffsStats(null); // Clear until we have stats for this path
 
     const savedPage = folderPageMap.get(pathKey);
     const targetPage = page !== undefined ? page : (savedPage !== undefined ? savedPage : treeCurrentPage);
@@ -564,20 +573,6 @@ export default function PathReview() {
 
       setItems(filteredItems);
       setPagination(response.pagination);
-
-      // Fetch stats for this path (diffs endpoint no longer includes total/totalFolders/totalFiles)
-      getMigrationDiffsStats(migrationId, { path: pathKey })
-        .then((stats) => {
-          if (currentTreePathRef.current === pathKey) {
-            setTreeDiffsStats(stats);
-          }
-        })
-        .catch(() => {
-          // Non-fatal: page nav still works via hasMore
-          if (currentTreePathRef.current === pathKey) {
-            setTreeDiffsStats(null);
-          }
-        });
     } catch (err) {
       setError(
         err instanceof Error
@@ -1212,9 +1207,12 @@ export default function PathReview() {
         setIsTriggeringSweep(false);
         return;
       }
-      
-      // Navigate to discovery progress page
-      navigate(`/discovery-progress/${migrationId}`);
+
+      setIsTriggeringSweep(false);
+      const copyRetry = isCopyPhase(migrationStatus);
+      navigate(
+        `/progress-monitor/${migrationId}?mode=copy${copyRetry ? "&retry=1" : ""}`
+      );
     } catch (err) {
       const errorMessage =
         err instanceof Error
@@ -1252,7 +1250,7 @@ export default function PathReview() {
         // Check if error is due to phase locking
         let errorMessage = result.error || "Failed to start retry discovery";
         if (result.error && (
-          result.error.includes("copy phase") || 
+          result.error.includes("copy phase") ||
           result.error.includes("traversal operations are locked")
         )) {
           errorMessage = "Retry sweep is only available during traversal review";
@@ -1264,9 +1262,9 @@ export default function PathReview() {
         setIsTriggeringSweep(false);
         return;
       }
-      
-      // Navigate to discovery progress page
-      navigate(`/discovery-progress/${migrationId}?isMonitoringSweep=true&sweepType=retry`);
+
+      setIsTriggeringSweep(false);
+      navigate(`/progress-monitor/${migrationId}?mode=discovery&retry=1`);
     } catch (err) {
       const errorMessage =
         err instanceof Error
@@ -1441,7 +1439,7 @@ export default function PathReview() {
                 </button>
                 <span className="path-review__page-info" style={{ fontSize: `${zoomLevel * 0.875}rem` }}>
                   Page {treeCurrentPage + 1} of {(() => {
-                    const total = treeDiffsStats?.total ?? pagination.total;
+                    const total = pagination.total;
                     return total > 0 ? Math.ceil(total / treeItemsPerPage) : 1;
                   })()}
                 </span>
@@ -1449,7 +1447,7 @@ export default function PathReview() {
                   type="button"
                   className="path-review-list__page-nav-button"
                   onClick={() => {
-                    const total = treeDiffsStats?.total ?? pagination.total;
+                    const total = pagination.total;
                     const totalPages = total > 0 ? Math.ceil(total / treeItemsPerPage) : 1;
                     const newPage = Math.min(totalPages - 1, treeCurrentPage + 1);
                     const currentLocationPath = breadcrumbs.length > 0 
@@ -1464,7 +1462,7 @@ export default function PathReview() {
                     });
                   }}
                   disabled={(() => {
-                    const total = treeDiffsStats?.total ?? pagination.total;
+                    const total = pagination.total;
                     if (total > 0) {
                       return treeCurrentPage >= Math.ceil(total / treeItemsPerPage) - 1;
                     }
@@ -1703,8 +1701,8 @@ export default function PathReview() {
                     !checkCanStartCopy()
                       ? migrationStatus
                         ? (() => {
-                            if (migrationStatus.status !== "Awaiting-Path-Review") {
-                              return `Migration status: ${migrationStatus.status} (needs: Awaiting-Path-Review)`;
+                            if (getMigrationPhase(migrationStatus) !== "awaiting-traversal-review") {
+                              return `Migration phase: ${getMigrationPhase(migrationStatus)} (needs: awaiting-traversal-review)`;
                             }
                             return "Migration not ready for copy phase";
                           })()

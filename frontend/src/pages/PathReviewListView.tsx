@@ -29,7 +29,10 @@ import {
   PathReviewStats,
   getMigrationStatus,
 } from "../api/services";
-import { MigrationStatusResponse } from "../types/migrations";
+import {
+  MigrationStatusResponse,
+  isCopyReviewPhase,
+} from "../types/migrations";
 import { useZoom } from "../contexts/ZoomContext";
 import PathReviewStatusIcon from "../components/PathReviewStatusIcon";
 import PathReviewLegend from "../components/PathReviewLegend";
@@ -95,14 +98,8 @@ export default function PathReviewListView({
   const itemsPerPageDropdownRef = useRef<HTMLDivElement>(null);
 
   // Phase detection helpers
-  const isCopyPhase = (status: MigrationStatusResponse | null): boolean => {
-    if (!status) return false;
-    const statusValue = status.status;
-    return statusValue === "Awaiting-Copy-Review" || 
-           statusValue === "Preparing-For-Copy" || 
-           statusValue === "Copy-In-Progress" || 
-           statusValue === "Copy-Complete";
-  };
+  const isCopyPhase = (status: MigrationStatusResponse | null): boolean =>
+    isCopyReviewPhase(status);
 
   const getCurrentPhase = (): "traversal" | "copy" => {
     return isCopyPhase(migrationStatus) ? "copy" : "traversal";
@@ -906,7 +903,10 @@ export default function PathReviewListView({
       // 3. Pending = src.copyStatus === "pending" (didn't get brought over - treat same as failed)
       // 4. Excluded = copyStatus shows exclusion (read-only in copy phase)
       
-      const isExcluded = copyStatus === "exclusion_explicit" || copyStatus === "exclusion_inherited";
+      const isExcluded =
+        copyStatus === "exclusion_explicit" ||
+        copyStatus === "exclusion_inherited" ||
+        copyStatus === "excluded";
       const isPending = copyStatus === "pending";
       const isSuccessful = copyStatus === "successful" || existsOnlyOnDst;
       const existsOnBoth = copyStatus === "successful"; // Successful copyStatus means it exists on both
@@ -920,10 +920,10 @@ export default function PathReviewListView({
         isFailed,
       };
     } else {
-      // Traversal phase: use traversalStatus field (existing behavior)
-      const copyStatus = item.copyStatus || "pending";
-      const isFailed = item.traversalStatus === "failed";
-      const existsOnlyOnDst = item.traversalStatus === "not_on_src";
+      // Traversal (discovery) phase: copyStatus from src when present (exclude state, editable)
+      const copyStatus = item.src?.copyStatus || item.copyStatus || "pending";
+      const isFailed = item.src?.traversalStatus === "failed" || item.dst?.traversalStatus === "failed" || item.traversalStatus === "failed";
+      const existsOnlyOnDst = item.traversalStatus === "not_on_src" || item.dst?.traversalStatus === "not_on_src";
       
       // Traversal phase status logic (existing):
       // 1. Failed traversalStatus → failed to traverse
@@ -932,7 +932,10 @@ export default function PathReviewListView({
       // 4. Successful copyStatus → already exists on both
       // 5. traversalStatus 'not_on_src' → exists only on destination
       
-      const isExcluded = copyStatus === "exclusion_explicit" || copyStatus === "exclusion_inherited";
+      const isExcluded =
+        copyStatus === "exclusion_explicit" ||
+        copyStatus === "exclusion_inherited" ||
+        copyStatus === "excluded";
       const isPending = copyStatus === "pending";
       const isSuccessful = copyStatus === "successful";
       const existsOnBoth = isSuccessful; // Successful copyStatus means it exists on both

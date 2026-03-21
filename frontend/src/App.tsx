@@ -16,7 +16,7 @@ import ChooseMigrationType from "./pages/ChooseMigrationType";
 import ResumeMigration from "./pages/ResumeMigration";
 import BrowseFolder from "./pages/BrowseFolder";
 import MigrationSummary from "./pages/MigrationSummary";
-import DiscoveryProgress from "./pages/DiscoveryProgress";
+import ProgressMonitor from "./pages/ProgressMonitor";
 import PathReview from "./pages/PathReview";
 import Settings from "./pages/Settings";
 import SpectraConfigPage from "./pages/SpectraConfig";
@@ -39,7 +39,7 @@ export default function App() {
                 <Route path="/spectra-config" element={<SpectraConfigPage />} />
                 <Route path="/destination" element={<Destination />} />
                 <Route path="/summary" element={<MigrationSummary />} />
-                <Route path="/discovery-progress/:migrationId" element={<DiscoveryProgress />} />
+                <Route path="/progress-monitor/:migrationId" element={<ProgressMonitor />} />
                 <Route path="/path-review/:migrationId" element={<PathReview />} />
                 <Route path="/resume" element={<ResumeMigration />} />
                 <Route path="/browse" element={<BrowseFolder />} />

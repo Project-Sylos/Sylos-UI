@@ -70,7 +70,7 @@ export default function PathReviewStatusIcon({
     }
     
     // 3. Excluded copyStatus - show excluded icon (read-only in copy phase)
-    if (copyStatus === "exclusion_explicit" || copyStatus === "exclusion_inherited") {
+    if (copyStatus === "exclusion_explicit" || copyStatus === "exclusion_inherited" || copyStatus === "excluded") {
       return (
         <X
           size={iconSize}
@@ -120,7 +120,7 @@ export default function PathReviewStatusIcon({
     }
 
     // 2. Excluded copyStatus - show excluded icon (check before pending, since exclusion takes priority)
-    if (copyStatus === "exclusion_explicit" || copyStatus === "exclusion_inherited") {
+    if (copyStatus === "exclusion_explicit" || copyStatus === "exclusion_inherited" || copyStatus === "excluded") {
       return (
         <X
           size={iconSize}

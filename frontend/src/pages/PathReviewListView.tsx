@@ -29,15 +29,23 @@ import {
   PathReviewStats,
   getMigrationStatus,
 } from "../api/services";
-import { MigrationStatusResponse } from "../types/migrations";
+import {
+  MigrationStatusResponse,
+  isCopyReviewPhase,
+} from "../types/migrations";
 import { useZoom } from "../contexts/ZoomContext";
 import PathReviewStatusIcon from "../components/PathReviewStatusIcon";
 import PathReviewLegend from "../components/PathReviewLegend";
 import "./PathReview.css";
 
-interface PathReviewListViewProps {
+export interface PathReviewListViewProps {
   migrationId: string;
-  onItemUpdate?: () => void; // Callback for when items are updated (for stats refresh)
+  /** Incremented from tree view after successful exclude/retry so list search results stay in sync. */
+  treeListRefreshToken?: number;
+  /** Called after list mutations that should refresh the tree view’s current folder. */
+  onListDataMutated?: () => void;
+  onItemUpdate?: () => void; // Callback for when items are updated (e.g. start stats polling for background tasks)
+  onApplyStatsDeltas?: (deltas: Record<string, number>) => void; // Apply action deltas to parent stats (no refetch)
   onStatsChange?: (stats: PathReviewStats | null) => void; // Callback for when stats change
   onSelectionStatsWarning?: (hasWarning: boolean) => void; // Callback to show/hide selection warning
   onPaginationChange?: (pagination: PaginationInfo | null, itemsPerPage: number) => void; // Callback for pagination info
@@ -47,7 +55,10 @@ interface PathReviewListViewProps {
 
 export default function PathReviewListView({
   migrationId,
+  treeListRefreshToken = 0,
+  onListDataMutated,
   onItemUpdate,
+  onApplyStatsDeltas,
   onStatsChange,
   onSelectionStatsWarning,
   onPaginationChange,
@@ -93,14 +104,8 @@ export default function PathReviewListView({
   const itemsPerPageDropdownRef = useRef<HTMLDivElement>(null);
 
   // Phase detection helpers
-  const isCopyPhase = (status: MigrationStatusResponse | null): boolean => {
-    if (!status) return false;
-    const statusValue = status.status;
-    return statusValue === "Awaiting-Copy-Review" || 
-           statusValue === "Preparing-For-Copy" || 
-           statusValue === "Copy-In-Progress" || 
-           statusValue === "Copy-Complete";
-  };
+  const isCopyPhase = (status: MigrationStatusResponse | null): boolean =>
+    isCopyReviewPhase(status);
 
   const getCurrentPhase = (): "traversal" | "copy" => {
     return isCopyPhase(migrationStatus) ? "copy" : "traversal";
@@ -305,10 +310,14 @@ export default function PathReviewListView({
     return normalized;
   };
 
-  const loadItems = async (append = false) => {
+  const loadItems = async (
+    append = false,
+    options?: { silent?: boolean }
+  ) => {
     if (!migrationId) return;
 
-    if (!append) {
+    const showFullLoading = !append && !options?.silent;
+    if (showFullLoading) {
       setLoading(true);
       setError(null);
     }
@@ -409,7 +418,9 @@ export default function PathReviewListView({
           : "Failed to load path review items."
       );
     } finally {
-      setLoading(false);
+      if (showFullLoading) {
+        setLoading(false);
+      }
     }
   };
 
@@ -428,7 +439,7 @@ export default function PathReviewListView({
   useEffect(() => {
     loadItems();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [migrationId, currentPage, itemsPerPage, sortField, sortDir, activeSearchQuery, searchField, typeFilter, depthFilter, depthOperator, sizeFilter, sizeOperator, sizeDisplayUnit, traversalStatusFilter]);
+  }, [migrationId, currentPage, itemsPerPage, sortField, sortDir, activeSearchQuery, searchField, typeFilter, depthFilter, depthOperator, sizeFilter, sizeOperator, sizeDisplayUnit, traversalStatusFilter, treeListRefreshToken]);
 
   // Close items per page dropdown when clicking outside
   useEffect(() => {
@@ -465,7 +476,9 @@ export default function PathReviewListView({
               stillActive.add(task.id);
             } else if (task.status === "completed") {
               // Task completed successfully - reload items and stats
-              loadItems();
+              void loadItems(false, { silent: true }).then(() => {
+                onListDataMutated?.();
+              });
               if (onItemUpdate) {
                 onItemUpdate();
               }
@@ -492,7 +505,7 @@ export default function PathReviewListView({
     const interval = setInterval(pollTasks, 1000);
 
     return () => clearInterval(interval);
-  }, [migrationId, activeTaskIds, onItemUpdate]);
+  }, [migrationId, activeTaskIds, onItemUpdate, onListDataMutated]);
 
   const handleSearch = () => {
     // Sanitize and set the active search query
@@ -720,11 +733,13 @@ export default function PathReviewListView({
       }
 
       // Both succeeded (or only one node exists and it succeeded)
-      // Success - reload items to ensure consistency with backend
-      loadItems();
-      if (onItemUpdate) {
-        onItemUpdate();
+      const merged: Record<string, number> = {};
+      for (const r of [srcResult, dstResult]) {
+        if (r?.deltas) for (const [k, v] of Object.entries(r.deltas)) merged[k] = (merged[k] ?? 0) + (v as number);
       }
+      if (Object.keys(merged).length > 0) onApplyStatsDeltas?.(merged);
+      await loadItems(false, { silent: true });
+      onListDataMutated?.();
       onToast?.(isExcluding ? "Item excluded" : "Item unexcluded", "success");
     } catch (err) {
       // Revert optimistic update on network error
@@ -866,11 +881,9 @@ export default function PathReviewListView({
         return;
       }
 
-      // Success - reload items to ensure consistency with backend
-      loadItems();
-      if (onItemUpdate) {
-        onItemUpdate();
-      }
+      if (result.deltas && Object.keys(result.deltas).length > 0) onApplyStatsDeltas?.(result.deltas);
+      await loadItems(false, { silent: true });
+      onListDataMutated?.();
       onToast?.(newRetryState ? "Item marked for retry" : "Item unmarked for retry", "success");
     } catch (err) {
       // Revert optimistic update on network error
@@ -906,7 +919,10 @@ export default function PathReviewListView({
       // 3. Pending = src.copyStatus === "pending" (didn't get brought over - treat same as failed)
       // 4. Excluded = copyStatus shows exclusion (read-only in copy phase)
       
-      const isExcluded = copyStatus === "exclusion_explicit" || copyStatus === "exclusion_inherited";
+      const isExcluded =
+        copyStatus === "exclusion_explicit" ||
+        copyStatus === "exclusion_inherited" ||
+        copyStatus === "excluded";
       const isPending = copyStatus === "pending";
       const isSuccessful = copyStatus === "successful" || existsOnlyOnDst;
       const existsOnBoth = copyStatus === "successful"; // Successful copyStatus means it exists on both
@@ -920,10 +936,10 @@ export default function PathReviewListView({
         isFailed,
       };
     } else {
-      // Traversal phase: use traversalStatus field (existing behavior)
-      const copyStatus = item.copyStatus || "pending";
-      const isFailed = item.traversalStatus === "failed";
-      const existsOnlyOnDst = item.traversalStatus === "not_on_src";
+      // Traversal (discovery) phase: copyStatus from src when present (exclude state, editable)
+      const copyStatus = item.src?.copyStatus || item.copyStatus || "pending";
+      const isFailed = item.src?.traversalStatus === "failed" || item.dst?.traversalStatus === "failed" || item.traversalStatus === "failed";
+      const existsOnlyOnDst = item.traversalStatus === "not_on_src" || item.dst?.traversalStatus === "not_on_src";
       
       // Traversal phase status logic (existing):
       // 1. Failed traversalStatus → failed to traverse
@@ -932,7 +948,10 @@ export default function PathReviewListView({
       // 4. Successful copyStatus → already exists on both
       // 5. traversalStatus 'not_on_src' → exists only on destination
       
-      const isExcluded = copyStatus === "exclusion_explicit" || copyStatus === "exclusion_inherited";
+      const isExcluded =
+        copyStatus === "exclusion_explicit" ||
+        copyStatus === "exclusion_inherited" ||
+        copyStatus === "excluded";
       const isPending = copyStatus === "pending";
       const isSuccessful = copyStatus === "successful";
       const existsOnBoth = isSuccessful; // Successful copyStatus means it exists on both
@@ -1404,12 +1423,11 @@ export default function PathReviewListView({
                     if (result.taskID) {
                       // Background task started - add to active tasks
                       setActiveTaskIds((prev) => new Set(prev).add(result.taskID!));
+                      if (onItemUpdate) onItemUpdate();
                     } else {
-                      // Immediate completion - reload items
-                      await loadItems();
-                      if (onItemUpdate) {
-                        onItemUpdate();
-                      }
+                      if (result.deltas && Object.keys(result.deltas).length > 0) onApplyStatsDeltas?.(result.deltas);
+                      await loadItems(false, { silent: true });
+                      onListDataMutated?.();
                     }
                   }
                 } catch (err) {
@@ -1468,12 +1486,11 @@ export default function PathReviewListView({
                     if (result.taskID) {
                       // Background task started - add to active tasks
                       setActiveTaskIds((prev) => new Set(prev).add(result.taskID!));
+                      if (onItemUpdate) onItemUpdate();
                     } else {
-                      // Immediate completion - reload items
-                      await loadItems();
-                      if (onItemUpdate) {
-                        onItemUpdate();
-                      }
+                      if (result.deltas && Object.keys(result.deltas).length > 0) onApplyStatsDeltas?.(result.deltas);
+                      await loadItems(false, { silent: true });
+                      onListDataMutated?.();
                     }
                   }
                 } catch (err) {

@@ -122,6 +122,8 @@ export default function PathReview() {
   const navigate = useNavigate();
   const { zoomLevel } = useZoom();
   const [activeTab, setActiveTab] = useState<"tree" | "list">("tree");
+  const activeTabRef = useRef<"tree" | "list">(activeTab);
+  activeTabRef.current = activeTab;
   const [items, setItems] = useState<DiffItem[]>([]);
   const [currentNodeId, setCurrentNodeId] = useState<string | undefined>(undefined);  // undefined for root
   const [breadcrumbs, setBreadcrumbs] = useState<BreadcrumbItem[]>([]);
@@ -152,6 +154,8 @@ export default function PathReview() {
   const [showSelectionWarning, setShowSelectionWarning] = useState(false);
   const [listPagination, setListPagination] = useState<PaginationInfo | null>(null);
   const [listItemsPerPage, setListItemsPerPage] = useState<number>(100);
+  /** Bumped after successful exclude/retry in tree view so list search refetches (only when tree tab is active at completion). */
+  const [treeListRefreshToken, setTreeListRefreshToken] = useState(0);
   const [highlightedItemId, setHighlightedItemId] = useState<string | null>(null);
   
   // Tree view pagination
@@ -499,7 +503,11 @@ export default function PathReview() {
     }
   };
 
-  const loadItems = async (locationPath: string | undefined, page?: number) => {
+  const loadItems = async (
+    locationPath: string | undefined,
+    page?: number,
+    options?: { silent?: boolean }
+  ) => {
     if (!migrationId) return;
 
     // Use the provided page, or check if we have a saved page for this path, or default to 0
@@ -511,9 +519,12 @@ export default function PathReview() {
     
     // Update current page state
     setTreeCurrentPage(targetPage);
-    
-    setLoading(true);
-    setError(null);
+
+    const showFullLoading = !options?.silent;
+    if (showFullLoading) {
+      setLoading(true);
+      setError(null);
+    }
 
     try {
       const offset = targetPage * treeItemsPerPage;
@@ -580,9 +591,21 @@ export default function PathReview() {
           : "Failed to load path review data."
       );
     } finally {
-      setLoading(false);
+      if (showFullLoading) {
+        setLoading(false);
+      }
       setLoadingMore(false);
     }
+  };
+
+  /** Reload current tree folder from API after list-view mutations (silent if tree tab hidden). */
+  const handleListDataMutated = () => {
+    const pathForLoad =
+      breadcrumbs.length > 0
+        ? breadcrumbs[breadcrumbs.length - 1].path
+        : undefined;
+    const silent = activeTabRef.current === "list";
+    void loadItems(pathForLoad, undefined, { silent });
   };
 
   const handleFolderClick = (item: DiffItem) => {
@@ -899,6 +922,9 @@ export default function PathReview() {
           : "Item unmarked for retry",
         type: "success",
       });
+      if (activeTabRef.current === "tree") {
+        setTreeListRefreshToken((n) => n + 1);
+      }
     } catch (err) {
       // Revert optimistic update on network error
       setRetryItems((prev) => {
@@ -1093,6 +1119,9 @@ export default function PathReview() {
       const merged = mergeDeltas(srcResult, dstResult);
       if (Object.keys(merged).length > 0) {
         handleApplyStatsDeltas(merged);
+      }
+      if (activeTabRef.current === "tree") {
+        setTreeListRefreshToken((n) => n + 1);
       }
     } catch (err) {
       // Revert optimistic update on network error
@@ -1581,6 +1610,8 @@ export default function PathReview() {
           >
             <PathReviewListView
               migrationId={migrationId}
+              treeListRefreshToken={treeListRefreshToken}
+              onListDataMutated={handleListDataMutated}
               onItemUpdate={() => {
                 startStatsPolling();
               }}

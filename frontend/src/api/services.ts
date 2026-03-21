@@ -648,7 +648,14 @@ export async function getMigrationDiffs(
   // Transform the API response into a flat array of DiffItems for UI consumption
   const transformedItems: DiffItem[] = [];
 
-  for (const [path, pathNodes] of Object.entries(itemsMap)) {
+  const itemOrderDiffs = Array.isArray(data.itemOrder) ? (data.itemOrder as string[]) : undefined;
+  const entriesDiffs: [string, PathNodes][] = itemOrderDiffs?.length
+    ? itemOrderDiffs
+        .map((p) => [p, itemsMap[p] as PathNodes | undefined])
+        .filter((e): e is [string, PathNodes] => e[1] != null)
+    : Object.entries(itemsMap);
+
+  for (const [path, pathNodes] of entriesDiffs) {
     const nodes = pathNodes as PathNodes;
     const hasSrc = nodes.src !== undefined;
     const hasDst = nodes.dst !== undefined;
@@ -1443,7 +1450,14 @@ export async function searchPathReviewItems(
   // (Same transformation logic as getMigrationDiffs)
   const transformedItems: DiffItem[] = [];
 
-  for (const [path, pathNodes] of Object.entries(itemsMap)) {
+  const itemOrder = Array.isArray(data.itemOrder) ? (data.itemOrder as string[]) : undefined;
+  const entries: [string, PathNodes][] = itemOrder?.length
+    ? itemOrder
+        .map((p) => [p, itemsMap[p] as PathNodes | undefined])
+        .filter((e): e is [string, PathNodes] => e[1] != null)
+    : Object.entries(itemsMap);
+
+  for (const [path, pathNodes] of entries) {
     const nodes = pathNodes as PathNodes;
     const hasSrc = nodes.src !== undefined;
     const hasDst = nodes.dst !== undefined;

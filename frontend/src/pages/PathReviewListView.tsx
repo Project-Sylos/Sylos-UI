@@ -40,6 +40,10 @@ import "./PathReview.css";
 
 export interface PathReviewListViewProps {
   migrationId: string;
+  /** Incremented from tree view after successful exclude/retry so list search results stay in sync. */
+  treeListRefreshToken?: number;
+  /** Called after list mutations that should refresh the tree view’s current folder. */
+  onListDataMutated?: () => void;
   onItemUpdate?: () => void; // Callback for when items are updated (e.g. start stats polling for background tasks)
   onApplyStatsDeltas?: (deltas: Record<string, number>) => void; // Apply action deltas to parent stats (no refetch)
   onStatsChange?: (stats: PathReviewStats | null) => void; // Callback for when stats change
@@ -51,6 +55,8 @@ export interface PathReviewListViewProps {
 
 export default function PathReviewListView({
   migrationId,
+  treeListRefreshToken = 0,
+  onListDataMutated,
   onItemUpdate,
   onApplyStatsDeltas,
   onStatsChange,
@@ -304,10 +310,14 @@ export default function PathReviewListView({
     return normalized;
   };
 
-  const loadItems = async (append = false) => {
+  const loadItems = async (
+    append = false,
+    options?: { silent?: boolean }
+  ) => {
     if (!migrationId) return;
 
-    if (!append) {
+    const showFullLoading = !append && !options?.silent;
+    if (showFullLoading) {
       setLoading(true);
       setError(null);
     }
@@ -408,7 +418,9 @@ export default function PathReviewListView({
           : "Failed to load path review items."
       );
     } finally {
-      setLoading(false);
+      if (showFullLoading) {
+        setLoading(false);
+      }
     }
   };
 
@@ -427,7 +439,7 @@ export default function PathReviewListView({
   useEffect(() => {
     loadItems();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [migrationId, currentPage, itemsPerPage, sortField, sortDir, activeSearchQuery, searchField, typeFilter, depthFilter, depthOperator, sizeFilter, sizeOperator, sizeDisplayUnit, traversalStatusFilter]);
+  }, [migrationId, currentPage, itemsPerPage, sortField, sortDir, activeSearchQuery, searchField, typeFilter, depthFilter, depthOperator, sizeFilter, sizeOperator, sizeDisplayUnit, traversalStatusFilter, treeListRefreshToken]);
 
   // Close items per page dropdown when clicking outside
   useEffect(() => {
@@ -464,7 +476,9 @@ export default function PathReviewListView({
               stillActive.add(task.id);
             } else if (task.status === "completed") {
               // Task completed successfully - reload items and stats
-              loadItems();
+              void loadItems(false, { silent: true }).then(() => {
+                onListDataMutated?.();
+              });
               if (onItemUpdate) {
                 onItemUpdate();
               }
@@ -491,7 +505,7 @@ export default function PathReviewListView({
     const interval = setInterval(pollTasks, 1000);
 
     return () => clearInterval(interval);
-  }, [migrationId, activeTaskIds, onItemUpdate]);
+  }, [migrationId, activeTaskIds, onItemUpdate, onListDataMutated]);
 
   const handleSearch = () => {
     // Sanitize and set the active search query
@@ -724,7 +738,8 @@ export default function PathReviewListView({
         if (r?.deltas) for (const [k, v] of Object.entries(r.deltas)) merged[k] = (merged[k] ?? 0) + (v as number);
       }
       if (Object.keys(merged).length > 0) onApplyStatsDeltas?.(merged);
-      loadItems();
+      await loadItems(false, { silent: true });
+      onListDataMutated?.();
       onToast?.(isExcluding ? "Item excluded" : "Item unexcluded", "success");
     } catch (err) {
       // Revert optimistic update on network error
@@ -867,7 +882,8 @@ export default function PathReviewListView({
       }
 
       if (result.deltas && Object.keys(result.deltas).length > 0) onApplyStatsDeltas?.(result.deltas);
-      loadItems();
+      await loadItems(false, { silent: true });
+      onListDataMutated?.();
       onToast?.(newRetryState ? "Item marked for retry" : "Item unmarked for retry", "success");
     } catch (err) {
       // Revert optimistic update on network error
@@ -1410,7 +1426,8 @@ export default function PathReviewListView({
                       if (onItemUpdate) onItemUpdate();
                     } else {
                       if (result.deltas && Object.keys(result.deltas).length > 0) onApplyStatsDeltas?.(result.deltas);
-                      await loadItems();
+                      await loadItems(false, { silent: true });
+                      onListDataMutated?.();
                     }
                   }
                 } catch (err) {
@@ -1472,7 +1489,8 @@ export default function PathReviewListView({
                       if (onItemUpdate) onItemUpdate();
                     } else {
                       if (result.deltas && Object.keys(result.deltas).length > 0) onApplyStatsDeltas?.(result.deltas);
-                      await loadItems();
+                      await loadItems(false, { silent: true });
+                      onListDataMutated?.();
                     }
                   }
                 } catch (err) {

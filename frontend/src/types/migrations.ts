@@ -61,9 +61,12 @@ export type MigrationPhase =
   | "roots-set"
   | "filters-set"
   | "traversal-in-progress"
+  | "traversal-suspended"
   | "awaiting-traversal-review"
   | "copy-in-progress"
-  | "awaiting-copy-review";
+  | "copy-suspended"
+  | "awaiting-copy-review"
+  | "failed";
 
 /** Normalize phase string for comparison: trim, lowercase, spaces to hyphens. */
 export function normalizeMigrationPhase(value: string | undefined): string {
@@ -87,18 +90,43 @@ export function isTraversalReviewPhase(
   return getMigrationPhase(response) === "awaiting-traversal-review";
 }
 
-/** True when migration is in copy phase (copy running or copy review). */
+/** True when migration is in copy phase (copy running, suspended mid-copy, or copy review). */
 export function isCopyReviewPhase(
   response: { phase?: string; status?: string } | null | undefined
 ): boolean {
   const phase = getMigrationPhase(response);
-  return phase === "copy-in-progress" || phase === "awaiting-copy-review";
+  return (
+    phase === "copy-in-progress" ||
+    phase === "copy-suspended" ||
+    phase === "awaiting-copy-review"
+  );
 }
 
 /** True when a run is active (traversal, copy, or retry in progress). Use for "in progress" UX. */
 export function isMigrationLive(response: { live?: boolean; Live?: boolean } | null | undefined): boolean {
   if (!response) return false;
   return (response as { live?: boolean; Live?: boolean }).live === true || (response as { live?: boolean; Live?: boolean }).Live === true;
+}
+
+/** Soft suspend complete: engine phase is traversal- or copy-suspended (not generic `suspended`). */
+export function isMigrationSoftSuspendedPhase(phase: string): boolean {
+  return phase === "traversal-suspended" || phase === "copy-suspended";
+}
+
+/** True when migration is paused after soft suspend (UI resumes via retry sweep, not phase change). */
+export function isMigrationSuspended(
+  response: { phase?: string; status?: string } | null | undefined
+): boolean {
+  if (!response) return false;
+  return isMigrationSoftSuspendedPhase(getMigrationPhase(response));
+}
+
+/** Terminal failure from status/phase (e.g. soft suspend checkpoint error). */
+export function isMigrationFailed(
+  response: { phase?: string; status?: string } | null | undefined
+): boolean {
+  if (!response) return false;
+  return getMigrationPhase(response) === "failed";
 }
 
 export interface MigrationDBFile {
@@ -118,6 +146,11 @@ export interface MigrationStatusResponse extends MigrationResponse {
   phase?: string;
   live?: boolean;
   completedAt?: string | null;
+  /** Stop API: engine accepted soft suspend; poll until phase is *-suspended and not live. */
+  softSuspendRequested?: boolean;
+  SoftSuspendRequested?: boolean;
+  stopped?: boolean;
+  Stopped?: boolean;
   result?: {
     rootSummary?: {
       srcRoots?: number;

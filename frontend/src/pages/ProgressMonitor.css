@@ -364,11 +364,193 @@
 
 .progress-monitor__footer {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
+  gap: 0.75rem;
   padding: 0.5rem 0 0;
   margin-top: 0rem;
   border-top: 1px solid rgba(148, 163, 184, 0.1);
   flex-shrink: 0;
+}
+
+.progress-monitor__footer-spacer {
+  flex: 1;
+  min-width: 0;
+}
+
+.progress-monitor__footer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+}
+
+.progress-monitor__resume-with-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.progress-monitor__failure-alert {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.35rem;
+  margin: 0;
+  border: none;
+  background: transparent;
+  color: #fbbf24;
+  cursor: pointer;
+  border-radius: 10px;
+  transition: color 0.2s ease, background 0.2s ease;
+}
+
+.progress-monitor__failure-alert:hover:not(:disabled) {
+  color: #fcd34d;
+  background: rgba(251, 191, 36, 0.12);
+}
+
+.progress-monitor__failure-alert:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.progress-monitor__failure-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.progress-monitor__failure-tooltip {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  right: 0;
+  z-index: 80;
+  min-width: min(320px, calc(100vw - 2rem));
+  max-width: min(420px, calc(100vw - 2rem));
+  padding: 0.85rem 1rem;
+  border-radius: 14px;
+  backdrop-filter: blur(var(--glass-blur-primary));
+  background: rgba(
+    var(--color-base-dark-r),
+    var(--color-base-dark-g),
+    var(--color-base-dark-b),
+    0.94
+  );
+  border: 1px solid rgba(
+    var(--color-base-slate-r),
+    var(--color-base-slate-g),
+    var(--color-base-slate-b),
+    0.35
+  );
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+  color: var(--text-primary);
+  pointer-events: auto;
+}
+
+.progress-monitor__failure-tooltip::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  right: 14px;
+  border: 8px solid transparent;
+  border-top-color: rgba(
+    var(--color-base-slate-r),
+    var(--color-base-slate-g),
+    var(--color-base-slate-b),
+    0.25
+  );
+  filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.2));
+}
+
+.progress-monitor__failure-tooltip-text {
+  margin: 0 0 0.75rem;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  color: var(--text-tertiary);
+}
+
+.progress-monitor__failure-tooltip-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.progress-monitor__failure-tooltip-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.45rem 0.75rem;
+  border-radius: 10px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.progress-monitor__failure-tooltip-button--copy {
+  background: rgba(59, 130, 246, 0.2);
+  border-color: rgba(59, 130, 246, 0.45);
+  color: #93c5fd;
+}
+
+.progress-monitor__failure-tooltip-button--copy:hover {
+  background: rgba(59, 130, 246, 0.3);
+}
+
+.progress-monitor__failure-tooltip-button--report {
+  background: transparent;
+  border-color: rgba(148, 163, 184, 0.35);
+  color: var(--text-muted);
+}
+
+.progress-monitor__failure-tooltip-button--report:hover {
+  background: rgba(148, 163, 184, 0.1);
+}
+
+.progress-monitor__control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.85rem 1.25rem;
+  border-radius: 14px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+  border: 1px solid transparent;
+}
+
+.progress-monitor__control:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.progress-monitor__control--stop {
+  background: rgba(220, 38, 38, 0.22);
+  border-color: rgba(220, 38, 38, 0.55);
+  color: #fecaca;
+  box-shadow: 0 0 0 1px rgba(220, 38, 38, 0.15);
+}
+
+.progress-monitor__control--stop:hover:not(:disabled) {
+  background: rgba(220, 38, 38, 0.32);
+  border-color: rgba(248, 113, 113, 0.65);
+  color: #fff;
+}
+
+.progress-monitor__control--resume {
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.35);
+  color: #60a5fa;
+}
+
+.progress-monitor__control--resume:hover:not(:disabled) {
+  background: rgba(59, 130, 246, 0.2);
+  border-color: rgba(59, 130, 246, 0.5);
 }
 
 .progress-monitor__see-results {

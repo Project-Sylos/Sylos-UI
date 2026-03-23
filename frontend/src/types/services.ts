@@ -58,6 +58,7 @@ export interface SpectraConfig {
     file_depth_decay_factor?: number;
     // Cache configuration (optional, defaults to false)
     enable_cache?: boolean;
+    diverging_tree_mode?: boolean;
   };
   api: {
     host: string;
@@ -79,6 +80,7 @@ export const DEFAULT_SPECTRA_CONFIG: SpectraConfig = {
     seed: 0,
     db_path: "./spectra.db",
     enable_cache: true,
+    diverging_tree_mode: true,
   },
   api: {
     host: "localhost",

@@ -1,27 +1,61 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { ArrowLeft, FolderOpen, Cloud, Eye, Copy, ArrowRight } from "lucide-react";
+import {
+  ArrowLeft,
+  FolderOpen,
+  Cloud,
+  Eye,
+  ArrowRight,
+  Square,
+  Play,
+  AlertCircle,
+  ClipboardCopy,
+} from "lucide-react";
 
 import {
   getMigrationStatus,
   getMigrationQueueMetrics,
   fetchServices,
+  stopMigration,
+  triggerRetrySweep,
 } from "../api/services";
 import {
   getMigrationPhase,
   isCopyReviewPhase,
   isMigrationLive,
+  isMigrationSuspended,
+  isMigrationFailed,
 } from "../types/migrations";
 import { useSelection } from "../context/SelectionContext";
 import HelpTooltip from "../components/HelpTooltip";
+import ConfirmDialog from "../components/ConfirmDialog";
 import "./ProgressMonitor.css";
 
 const STATUS_POLL_INTERVAL = 1000;
+const SOFT_SUSPEND_POLL_TIMEOUT_MS = 120_000;
+
+/** Stop response: engine accepted soft suspend; UI should poll until *-suspended and not live. */
+function softSuspendRequestedPayload(data: unknown): boolean {
+  if (!data || typeof data !== "object") return false;
+  const o = data as Record<string, unknown>;
+  return (
+    o.softSuspendRequested === true || o.SoftSuspendRequested === true
+  );
+}
+
+/** Resume only when the API explicitly reports not live (omitted `live` means “running” until we know otherwise). */
+function isLiveExplicitlyFalse(s: unknown): boolean {
+  if (!s || typeof s !== "object") return false;
+  const o = s as { live?: boolean; Live?: boolean };
+  if ("live" in o && o.live === false) return true;
+  if ("Live" in o && o.Live === false) return true;
+  return false;
+}
 
 export default function ProgressMonitor() {
   const { migrationId } = useParams<{ migrationId: string }>();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { source, destination, services } = useSelection();
 
   const [status, setStatus] = useState<any>(null);
@@ -29,6 +63,11 @@ export default function ProgressMonitor() {
   const [error, setError] = useState<string | null>(null);
   const [allServices, setAllServices] = useState(services);
   const [showResultsButton, setShowResultsButton] = useState(false);
+  const [confirmKind, setConfirmKind] = useState<null | "stop" | "resume">(null);
+  const [actionBusy, setActionBusy] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [failureTooltipOpen, setFailureTooltipOpen] = useState(false);
+  const [failureCopied, setFailureCopied] = useState(false);
 
   /** After a retry sweep, status can briefly still say "review" before the run starts — require run activity before re-enabling review. */
   const isRetryRun = searchParams.get("retry") === "1";
@@ -41,6 +80,8 @@ export default function ProgressMonitor() {
 
   const statusIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const queueMetricsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const failureWrapRef = useRef<HTMLDivElement>(null);
+  const failureLeaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     isRetryRunRef.current = searchParams.get("retry") === "1";
@@ -242,9 +283,185 @@ export default function ProgressMonitor() {
     };
   }, [migrationId, navigate, fetchStatus, fetchQueueMetrics]);
 
-  // Stop polling once we’re ready for review — no need to keep hitting the API every second.
+  const phase = status ? getMigrationPhase(status) : "";
+  const inAwaitingReview =
+    phase === "awaiting-traversal-review" || phase === "awaiting-copy-review";
+  const inRunPhase =
+    phase === "traversal-in-progress" || phase === "copy-in-progress";
+  const isSuspended = status ? isMigrationSuspended(status) : false;
+  const isFailed = status ? isMigrationFailed(status) : false;
+  const explicitlyNotLive = status ? isLiveExplicitlyFalse(status) : false;
+  const live = status ? isMigrationLive(status) : false;
+  const showStopButton = Boolean(
+    status &&
+      !isFailed &&
+      !isSuspended &&
+      !inAwaitingReview &&
+      (live || (inRunPhase && !explicitlyNotLive))
+  );
+  const showResumeButton = Boolean(
+    status &&
+      !inAwaitingReview &&
+      (isFailed ||
+        isSuspended ||
+        (inRunPhase && explicitlyNotLive))
+  );
+
+  const failureErrorText =
+    (status?.error && String(status.error).trim()) || "Unknown error";
+  const failureHoverSummary = showCopyUI
+    ? `Copy failed due to error: ${failureErrorText}. Please retry or report this error to our community.`
+    : `discovery failed due to error: ${failureErrorText}. Please retry or report this error to our community.`;
+
+  const failureReportJson = useMemo(() => {
+    if (!migrationId || !status) return "{}";
+    return JSON.stringify(
+      {
+        migrationId,
+        status: status.status ?? "failed",
+        phase: getMigrationPhase(status) || undefined,
+        error: failureErrorText,
+        completedAt: status.completedAt ?? null,
+        startedAt: status.startedAt ?? null,
+        uiContext: showCopyUI ? "copy" : "discovery",
+      },
+      null,
+      2
+    );
+  }, [migrationId, status, failureErrorText, showCopyUI]);
+
+  const clearFailureLeaveTimer = () => {
+    if (failureLeaveTimerRef.current) {
+      clearTimeout(failureLeaveTimerRef.current);
+      failureLeaveTimerRef.current = null;
+    }
+  };
+
+  const openFailureTooltip = () => {
+    clearFailureLeaveTimer();
+    setFailureTooltipOpen(true);
+  };
+
+  const scheduleCloseFailureTooltip = () => {
+    clearFailureLeaveTimer();
+    failureLeaveTimerRef.current = setTimeout(() => {
+      setFailureTooltipOpen(false);
+    }, 220);
+  };
+
+  const copyFailureJson = async () => {
+    try {
+      await navigator.clipboard.writeText(failureReportJson);
+      setFailureCopied(true);
+      window.setTimeout(() => setFailureCopied(false), 2000);
+    } catch {
+      setFailureCopied(false);
+    }
+  };
+
   useEffect(() => {
-    if (!showResultsButton) return;
+    if (!isMigrationFailed(status)) {
+      setFailureTooltipOpen(false);
+    }
+  }, [status]);
+
+  useEffect(() => {
+    if (!failureTooltipOpen) return;
+    const onDocDown = (e: MouseEvent) => {
+      if (
+        failureWrapRef.current &&
+        !failureWrapRef.current.contains(e.target as Node)
+      ) {
+        setFailureTooltipOpen(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setFailureTooltipOpen(false);
+    };
+    document.addEventListener("mousedown", onDocDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDocDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [failureTooltipOpen]);
+
+  const restartPollingIfStopped = useCallback(() => {
+    if (!migrationId) return;
+    if (!statusIntervalRef.current) {
+      statusIntervalRef.current = setInterval(() => {
+        fetchStatus();
+      }, STATUS_POLL_INTERVAL);
+    }
+    if (!queueMetricsIntervalRef.current) {
+      queueMetricsIntervalRef.current = setInterval(() => {
+        fetchQueueMetrics();
+      }, STATUS_POLL_INTERVAL);
+    }
+  }, [migrationId, fetchStatus, fetchQueueMetrics]);
+
+  const handleConfirmStop = async () => {
+    if (!migrationId) return;
+    setConfirmKind(null);
+    setActionBusy(true);
+    setActionError(null);
+    try {
+      const next = await stopMigration(migrationId);
+      setStatus(next);
+
+      if (softSuspendRequestedPayload(next)) {
+        const deadline = Date.now() + SOFT_SUSPEND_POLL_TIMEOUT_MS;
+        while (Date.now() < deadline) {
+          const s = await getMigrationStatus(migrationId);
+          setStatus(s);
+          if (isMigrationSuspended(s) && !isMigrationLive(s)) {
+            break;
+          }
+          await new Promise((r) => setTimeout(r, STATUS_POLL_INTERVAL));
+        }
+      }
+    } catch (e) {
+      setActionError(
+        e instanceof Error ? e.message : "Failed to stop migration."
+      );
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const handleConfirmResume = async () => {
+    if (!migrationId) return;
+    setConfirmKind(null);
+    setActionBusy(true);
+    setActionError(null);
+    try {
+      const result = await triggerRetrySweep(migrationId);
+      if (!result.success) {
+        setActionError(result.error || "Failed to resume (retry sweep).");
+        return;
+      }
+      const next = new URLSearchParams(searchParams);
+      next.set("retry", "1");
+      if (!next.get("mode")) {
+        next.set("mode", showCopyUI ? "copy" : "discovery");
+      }
+      setSearchParams(next, { replace: true });
+      await fetchStatus();
+      await fetchQueueMetrics();
+      restartPollingIfStopped();
+    } catch (e) {
+      setActionError(
+        e instanceof Error ? e.message : "Failed to resume migration."
+      );
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  // Stop polling when ready for review, suspended, or failed (no live stats until user retries).
+  const pausePolling = showResultsButton || isSuspended || isFailed;
+  useEffect(() => {
+    if (!pausePolling) return;
     if (statusIntervalRef.current) {
       clearInterval(statusIntervalRef.current);
       statusIntervalRef.current = null;
@@ -253,7 +470,7 @@ export default function ProgressMonitor() {
       clearInterval(queueMetricsIntervalRef.current);
       queueMetricsIntervalRef.current = null;
     }
-  }, [showResultsButton]);
+  }, [pausePolling]);
 
   if (!migrationId) {
     return null;
@@ -318,6 +535,11 @@ export default function ProgressMonitor() {
 
         {error && (
           <div className="progress-monitor__error">{error}</div>
+        )}
+        {actionError && (
+          <div className="progress-monitor__error progress-monitor__error--action">
+            {actionError}
+          </div>
         )}
 
         {/* Metrics Section */}
@@ -576,26 +798,144 @@ export default function ProgressMonitor() {
             )}
           </div>
 
-        {/* Footer: View Results when API returns a review phase */}
+        {/* Footer: stop/resume + view results */}
         <div className="progress-monitor__footer">
-          <button
-            type="button"
-            className={`progress-monitor__see-results ${
-              showResultsButton ? "progress-monitor__see-results--enabled" : ""
-            }`}
-            onClick={() => {
-              if (showResultsButton && migrationId) {
-                navigate(`/path-review/${migrationId}`);
-              }
-            }}
-            disabled={!showResultsButton}
-          >
-            <Eye size={20} style={{ marginRight: "0.5rem" }} />
-            {showCopyUI
-              ? "View Copy Results"
-              : "View Discovery Results"}
-          </button>
+          <div className="progress-monitor__footer-spacer" />
+          <div className="progress-monitor__footer-actions">
+            {showStopButton && (
+              <button
+                type="button"
+                className="progress-monitor__control progress-monitor__control--stop"
+                disabled={actionBusy}
+                onClick={() => setConfirmKind("stop")}
+                title="Stop the running migration"
+              >
+                <Square size={18} style={{ marginRight: "0.5rem" }} fill="currentColor" />
+                Stop
+              </button>
+            )}
+            {showResumeButton && (
+              <div className="progress-monitor__resume-with-hint">
+                {isFailed && (
+                  <div
+                    ref={failureWrapRef}
+                    className="progress-monitor__failure-wrap"
+                    onMouseEnter={openFailureTooltip}
+                    onMouseLeave={scheduleCloseFailureTooltip}
+                  >
+                    <button
+                      type="button"
+                      className="progress-monitor__failure-alert"
+                      disabled={actionBusy}
+                      aria-label="Migration error details"
+                      aria-expanded={failureTooltipOpen}
+                      aria-controls="progress-monitor-failure-tooltip"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openFailureTooltip();
+                      }}
+                      onFocus={openFailureTooltip}
+                      onBlur={(e) => {
+                        if (!failureWrapRef.current?.contains(e.relatedTarget)) {
+                          scheduleCloseFailureTooltip();
+                        }
+                      }}
+                    >
+                      <AlertCircle size={22} />
+                    </button>
+                    {failureTooltipOpen && (
+                      <div
+                        id="progress-monitor-failure-tooltip"
+                        className="progress-monitor__failure-tooltip"
+                        role="tooltip"
+                        onMouseEnter={openFailureTooltip}
+                        onMouseLeave={scheduleCloseFailureTooltip}
+                      >
+                        <p className="progress-monitor__failure-tooltip-text">
+                          {failureHoverSummary}
+                        </p>
+                        <div className="progress-monitor__failure-tooltip-actions">
+                          <button
+                            type="button"
+                            className="progress-monitor__failure-tooltip-button progress-monitor__failure-tooltip-button--copy"
+                            onClick={() => void copyFailureJson()}
+                          >
+                            <ClipboardCopy size={16} />
+                            {failureCopied ? "Copied!" : "Copy JSON"}
+                          </button>
+                          <button
+                            type="button"
+                            className="progress-monitor__failure-tooltip-button progress-monitor__failure-tooltip-button--report"
+                            onClick={() => {}}
+                            title="Coming soon"
+                          >
+                            Report
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+                <button
+                  type="button"
+                  className="progress-monitor__control progress-monitor__control--resume"
+                  disabled={actionBusy}
+                  onClick={() => setConfirmKind("resume")}
+                  title={
+                    isFailed
+                      ? "Run a retry sweep to try again"
+                      : "Resume with a retry sweep for the current phase"
+                  }
+                >
+                  <Play size={18} style={{ marginRight: "0.5rem" }} />
+                  Resume
+                </button>
+              </div>
+            )}
+            <button
+              type="button"
+              className={`progress-monitor__see-results ${
+                showResultsButton ? "progress-monitor__see-results--enabled" : ""
+              }`}
+              onClick={() => {
+                if (showResultsButton && migrationId) {
+                  navigate(`/path-review/${migrationId}`);
+                }
+              }}
+              disabled={!showResultsButton}
+            >
+              <Eye size={20} style={{ marginRight: "0.5rem" }} />
+              {showCopyUI
+                ? "View Copy Results"
+                : "View Discovery Results"}
+            </button>
+          </div>
         </div>
+
+        {confirmKind === "stop" && (
+          <ConfirmDialog
+            title="Stop migration?"
+            message="This pauses the running migration. Work in progress will stop; you can resume later with a retry sweep (heavy operation). Are you sure?"
+            confirmLabel="Stop migration"
+            cancelLabel="Cancel"
+            onCancel={() => setConfirmKind(null)}
+            onConfirm={() => void handleConfirmStop()}
+          />
+        )}
+        {confirmKind === "resume" && (
+          <ConfirmDialog
+            title="Resume migration?"
+            message={
+              showCopyUI
+                ? "This starts a copy retry sweep to continue copying. It can use significant resources and run for a long time. Continue?"
+                : "This starts a discovery retry sweep to continue traversal. It can use significant resources and run for a long time. Continue?"
+            }
+            confirmLabel="Resume"
+            cancelLabel="Cancel"
+            onCancel={() => setConfirmKind(null)}
+            onConfirm={() => void handleConfirmResume()}
+          />
+        )}
       </div>
     </section>
   );

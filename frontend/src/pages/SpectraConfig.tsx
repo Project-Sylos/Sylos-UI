@@ -143,6 +143,8 @@ export default function SpectraConfigPage() {
         ...prev.seed,
         // Disable cache when ephemeral mode is enabled
         enable_cache: checked ? false : prev.seed.enable_cache,
+        // Disable diverging_tree_mode when NOT ephemeral
+        diverging_tree_mode: checked ? prev.seed.diverging_tree_mode : false,
       },
       secondary_tables: {
         ...prev.secondary_tables,
@@ -343,32 +345,56 @@ export default function SpectraConfigPage() {
       )}
 
       <form onSubmit={handleSubmit} className="spectra-config__form">
-        <div className="spectra-config__checkbox-field" style={{ marginBottom: '1rem' }}>
-          <input
-            id="ephemeral_mode"
-            type="checkbox"
-            checked={config.mode === "ephemeral"}
-            onChange={(e) => handleModeChange(e.target.checked)}
-            className="spectra-config__checkbox-input"
-          />
-          <label htmlFor="ephemeral_mode" className="form-field__label-with-tooltip" style={{ margin: 0 }}>
-            Ephemeral Mode
-            <HelpTooltip
-              tipId="spectra-ephemeral-mode"
-              category="spectra-config"
-              position="right"
-              content={
-                <>
-                  <p>
-                    When enabled, Spectra will run in ephemeral mode, skipping database operations in spectra's internals.
-                  </p>
-                  <p style={{ marginTop: '0.5rem' }}>
-                    This automatically disables caching and destination probability since ephemeral mode doesn't persist data between sessions.
-                  </p>
-                </>
-              }
+        {/* Ephemeral Mode and Diverging Tree Mode controls grouped */}
+        <div className="spectra-config__checkbox-row" style={{ display: "flex", gap: "2rem", marginBottom: '1rem' }}>
+          <div className="spectra-config__checkbox-field">
+            <input
+              id="ephemeral_mode"
+              type="checkbox"
+              checked={config.mode === "ephemeral"}
+              onChange={(e) => handleModeChange(e.target.checked)}
+              className="spectra-config__checkbox-input"
             />
-          </label>
+            <label htmlFor="ephemeral_mode" className="form-field__label-with-tooltip" style={{ margin: 0 }}>
+              Ephemeral Mode
+              <HelpTooltip
+                tipId="spectra-ephemeral-mode"
+                category="spectra-config"
+                position="right"
+                content={
+                  <>
+                    <p>
+                      When enabled, Spectra will run in ephemeral mode, skipping database operations in spectra's internals.
+                    </p>
+                    <p style={{ marginTop: '0.5rem' }}>
+                      This automatically disables caching and destination probability since ephemeral mode doesn't persist data between sessions.
+                    </p>
+                  </>
+                }
+              />
+            </label>
+          </div>
+          <div className="spectra-config__checkbox-field">
+            <input
+              id="diverging_tree_mode"
+              type="checkbox"
+              checked={config.seed.diverging_tree_mode ?? false}
+              onChange={(e) => handleBooleanInputChange("seed", "diverging_tree_mode", e.target.checked)}
+              disabled={config.mode !== "ephemeral"}
+              className="spectra-config__checkbox-input"
+            />
+            <label htmlFor="diverging_tree_mode" className="form-field__label-with-tooltip" style={{ margin: 0 }}>
+              Diverging Tree Mode
+              <HelpTooltip
+                tipId="spectra-diverging-tree-mode"
+                category="spectra-config"
+                position="right"
+                content={
+                  <p>When enabled, and if ephermal mode is selected, the tree structure may diverge. Without ephemeral, trees diverge by default.</p>
+                }
+              />
+            </label>
+          </div>
         </div>
 
         <FormSection title="Seed Configuration">
@@ -477,6 +503,8 @@ export default function SpectraConfigPage() {
             </label>
           </div>
         </FormSection>
+
+        {/* Remove original location of Diverging Tree Mode Section */}
 
         <FormSection title="API Configuration">
           <FormField

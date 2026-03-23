@@ -2,6 +2,7 @@ import "./App.css";
 import { HashRouter, Route, Routes } from "react-router-dom";
 
 import { PreferencesProvider } from "./contexts/PreferencesContext";
+import { HelpModalProvider } from "./contexts/HelpModalContext";
 import { SelectionProvider } from "./context/SelectionContext";
 import { ZoomProvider } from "./contexts/ZoomContext";
 import { ThemeProvider } from "./contexts/ThemeContext";
@@ -28,6 +29,7 @@ export default function App() {
         <SelectionProvider>
           <ZoomProvider>
             <HashRouter>
+              <HelpModalProvider>
               <PreSplash />
               <AnimatedBackground />
               <BackgroundCredit />
@@ -45,6 +47,7 @@ export default function App() {
                 <Route path="/browse" element={<BrowseFolder />} />
                 <Route path="/settings" element={<Settings />} />
               </Routes>
+              </HelpModalProvider>
             </HashRouter>
           </ZoomProvider>
         </SelectionProvider>

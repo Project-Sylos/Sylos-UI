@@ -2,18 +2,23 @@ import { useNavigate } from "react-router-dom";
 import "./Sidebar.css";
 import logo from "../assets/logos/main-app-logo-transparent.png";
 import { usePreferences } from "../contexts/PreferencesContext";
+import {
+  defaultHelpModalBody,
+  useHelpModal,
+} from "../contexts/HelpModalContext";
 
 export default function Sidebar() {
   const { preferences, updatePreferences } = usePreferences();
   const isCollapsed = preferences.sidebarCollapsed;
   const navigate = useNavigate();
+  const { openHelp } = useHelpModal();
 
   const handleMigrationsClick = () => {
     navigate("/choose");
   };
 
   const handleHelpClick = () => {
-    // No-op for now - will link to documentation later
+    openHelp({ title: "Help", body: defaultHelpModalBody() });
   };
 
   const handleContributeClick = () => {

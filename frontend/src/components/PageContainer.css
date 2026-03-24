@@ -1,4 +1,3 @@
-@import "../styles/components/glass-container.css";
 @import "../styles/components/back-button.css";
 @import "../styles/components/text-styles.css";
 
@@ -28,28 +27,6 @@
   flex-direction: column;
   gap: 2.5rem;
   padding: clamp(2rem, 5vw, 3rem) clamp(2rem, 5vw, 4rem);
-  /* Apply glass-container base styles */
-  backdrop-filter: blur(var(--glass-blur-primary));
-  background: rgba(
-    var(--glass-bg-base-r),
-    var(--glass-bg-base-g),
-    var(--glass-bg-base-b),
-    var(--glass-bg-opacity-primary)
-  );
-  border: 1px solid rgba(
-    var(--color-base-slate-r),
-    var(--color-base-slate-g),
-    var(--color-base-slate-b),
-    var(--glass-border-opacity-default)
-  );
-  border-radius: 32px;
-  box-shadow: 0 var(--glass-shadow-spread-lg) var(--glass-shadow-blur-lg) rgba(
-    var(--glass-bg-base-r),
-    var(--glass-bg-base-g),
-    var(--glass-bg-base-b),
-    var(--glass-shadow-opacity-lg)
-  );
-  transition: all 0.25s ease;
 }
 
 .page-container__back {

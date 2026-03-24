@@ -117,6 +117,7 @@ export default function ConnectSource() {
             name: service.displayName,
             description: visual.description,
             icon: visual.icon,
+            iconAccent: visual.iconAccent,
           };
         }),
     [services, preferences.developer]

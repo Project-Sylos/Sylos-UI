@@ -1,7 +1,10 @@
 /* Glass Container - Base reusable glass container component */
 
+/* Page shells + optional interactive .glass-container (hover state below) */
+.glass-surface--panel,
 .glass-container {
-  backdrop-filter: blur(var(--glass-blur-primary));
+  backdrop-filter: blur(var(--glass-blur-primary))
+    saturate(var(--glass-backdrop-saturate));
   background: rgba(
     var(--glass-bg-base-r),
     var(--glass-bg-base-g),
@@ -15,28 +18,14 @@
     var(--glass-border-opacity-default)
   );
   border-radius: 32px;
-  box-shadow: 0 var(--glass-shadow-spread-lg) var(--glass-shadow-blur-lg) rgba(
-    var(--glass-bg-base-r),
-    var(--glass-bg-base-g),
-    var(--glass-bg-base-b),
-    var(--glass-shadow-opacity-lg)
-  );
+  box-shadow: var(--elevation-contact-rest), var(--glass-panel-outer-shadow);
   transition: all 0.25s ease;
 }
 
 /* Variants */
-.glass-container--primary {
-  backdrop-filter: blur(var(--glass-blur-primary));
-  background: rgba(
-    var(--glass-bg-base-r),
-    var(--glass-bg-base-g),
-    var(--glass-bg-base-b),
-    var(--glass-bg-opacity-primary)
-  );
-}
-
 .glass-container--secondary {
-  backdrop-filter: blur(var(--glass-blur-secondary));
+  backdrop-filter: blur(var(--glass-blur-secondary))
+    saturate(var(--glass-backdrop-saturate));
   background: rgba(
     var(--glass-bg-base-r),
     var(--glass-bg-base-g),
@@ -49,16 +38,19 @@
     var(--color-base-slate-b),
     var(--glass-border-opacity-subtle)
   );
-  box-shadow: 0 var(--glass-shadow-spread-md) var(--glass-shadow-blur-md) rgba(
-    var(--glass-bg-base-r),
-    var(--glass-bg-base-g),
-    var(--glass-bg-base-b),
-    var(--glass-shadow-opacity-md)
-  );
+  box-shadow: var(--elevation-contact-rest),
+    inset 0 1px 0 var(--glass-inset-sheen),
+    0 var(--glass-shadow-spread-md) var(--glass-shadow-blur-md) rgba(
+      var(--glass-bg-base-r),
+      var(--glass-bg-base-g),
+      var(--glass-bg-base-b),
+      var(--glass-shadow-opacity-md)
+    );
 }
 
 .glass-container--tertiary {
-  backdrop-filter: blur(var(--glass-blur-tertiary));
+  backdrop-filter: blur(var(--glass-blur-tertiary))
+    saturate(var(--glass-backdrop-saturate));
   background: rgba(
     var(--glass-bg-base-r),
     var(--glass-bg-base-g),
@@ -71,12 +63,14 @@
     var(--color-base-slate-b),
     var(--glass-border-opacity-subtle)
   );
-  box-shadow: 0 var(--glass-shadow-spread-sm) var(--glass-shadow-blur-sm) rgba(
-    var(--glass-bg-base-r),
-    var(--glass-bg-base-g),
-    var(--glass-bg-base-b),
-    var(--glass-shadow-opacity-sm)
-  );
+  box-shadow: var(--elevation-contact-rest),
+    inset 0 1px 0 var(--glass-inset-sheen),
+    0 var(--glass-shadow-spread-sm) var(--glass-shadow-blur-sm) rgba(
+      var(--glass-bg-base-r),
+      var(--glass-bg-base-g),
+      var(--glass-bg-base-b),
+      var(--glass-shadow-opacity-sm)
+    );
 }
 
 /* Hover state */
@@ -93,4 +87,12 @@
     var(--color-base-slate-b),
     var(--glass-border-opacity-hover)
   );
+  box-shadow: var(--elevation-contact-hover), var(--glass-panel-outer-shadow),
+    var(--glass-panel-shadow-hover-extra);
+}
+
+.glass-container:focus-within {
+  border-color: var(--accent-cyan-opacity-20);
+  box-shadow: var(--elevation-contact-rest), var(--glass-panel-outer-shadow),
+    var(--glass-panel-shadow-focus-extra);
 }

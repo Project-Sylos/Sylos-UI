@@ -28,27 +28,6 @@
   flex-direction: column;
   gap: 2.5rem;
   padding: clamp(2rem, 5vw, 3rem) clamp(2rem, 5vw, 4rem);
-  /* Apply glass-container base styles */
-  backdrop-filter: blur(var(--glass-blur-primary));
-  background: rgba(
-    var(--glass-bg-base-r),
-    var(--glass-bg-base-g),
-    var(--glass-bg-base-b),
-    var(--glass-bg-opacity-primary)
-  );
-  border-radius: 32px;
-  border: 1px solid rgba(
-    var(--color-base-slate-r),
-    var(--color-base-slate-g),
-    var(--color-base-slate-b),
-    var(--glass-border-opacity-default)
-  );
-  box-shadow: 0 var(--glass-shadow-spread-lg) var(--glass-shadow-blur-lg) rgba(
-    var(--glass-bg-base-r),
-    var(--glass-bg-base-g),
-    var(--glass-bg-base-b),
-    var(--glass-shadow-opacity-lg)
-  );
 }
 
 .migration-summary__back {
@@ -98,15 +77,15 @@
 }
 
 .migration-summary__highlight {
-  color: #00ffff;
+  color: var(--accent-cyan);
 }
 
 .migration-summary__highlight--magenta {
-  color: #ff00ff;
+  color: var(--accent-magenta);
 }
 
 .migration-summary__highlight--cyan {
-  color: #00ffff;
+  color: var(--accent-cyan);
 }
 
 .migration-summary__details {
@@ -134,7 +113,7 @@
 
 .migration-summary__arrow {
   font-size: 2.5rem;
-  color: rgba(148, 163, 184, 0.6);
+  color: var(--text-muted);
   font-weight: 300;
   flex-shrink: 0;
 }
@@ -182,7 +161,7 @@
 
 .migration-summary__info-label {
   font-size: 0.85rem;
-  color: rgba(148, 163, 184, 0.8);
+  color: var(--text-tertiary);
   text-transform: uppercase;
   letter-spacing: 0.1em;
   font-weight: 500;
@@ -190,7 +169,7 @@
 
 .migration-summary__info-value {
   font-size: 1.05rem;
-  color: #f8fafc;
+  color: var(--text-primary);
   font-weight: 500;
   word-break: break-word;
 }

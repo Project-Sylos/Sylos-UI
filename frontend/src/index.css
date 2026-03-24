@@ -1,7 +1,9 @@
 /* Import design token system */
 @import "./styles/tokens.css";
-@import "./styles/themes/dark-theme.css";
-@import "./styles/themes/light-theme.css";
+@import "./styles/themes/obsidian-theme.css";
+@import "./styles/themes/quartz-theme.css";
+@import "./styles/themes/neon-dark-theme.css";
+@import "./styles/themes/neon-light-theme.css";
 
 :root {
   color-scheme: light dark;
@@ -25,6 +27,12 @@ body::before {
   background-position: center;
   background-repeat: no-repeat;
   z-index: -1;
+}
+
+/* Obsidian / Quartz use CSS gradient backdrop only (see AnimatedBackground) */
+html[data-theme="obsidian"] body::before,
+html[data-theme="quartz"] body::before {
+  display: none;
 }
 
 #root {

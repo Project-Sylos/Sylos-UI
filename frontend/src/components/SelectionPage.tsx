@@ -1,12 +1,17 @@
 import { ReactNode } from "react";
 
+import { GlassSurfacePanel } from "./GlassSurfacePanel";
 import "./SelectionPage.css";
+
+export type SelectionIconAccent = "a" | "b";
 
 export type SelectionOption = {
   id: string;
   name: string;
   description: string;
   icon: ReactNode;
+  /** Maps to theme accent tokens (a ≈ cyan, b ≈ magenta) */
+  iconAccent?: SelectionIconAccent;
 };
 
 export type SelectionPageProps = {
@@ -34,7 +39,7 @@ export default function SelectionPage({
 }: SelectionPageProps) {
   return (
     <section className="selection-page">
-      <div className="selection-page__content">
+      <GlassSurfacePanel className="selection-page__content">
         {onBack ? (
           <button
             type="button"
@@ -66,7 +71,17 @@ export default function SelectionPage({
                 onClick={() => onSelect(option.id)}
                 disabled={isBusy}
               >
-                <span className="selection-page__icon">{option.icon}</span>
+                <span
+                  className={[
+                    "selection-page__icon",
+                    option.iconAccent === "a" && "selection-page__icon--accent-a",
+                    option.iconAccent === "b" && "selection-page__icon--accent-b",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                >
+                  {option.icon}
+                </span>
                 <span className="selection-page__name">{option.name}</span>
                 <span className="selection-page__description">
                   {option.description}
@@ -79,7 +94,7 @@ export default function SelectionPage({
             </div>
           )}
         </div>
-      </div>
+      </GlassSurfacePanel>
     </section>
   );
 }

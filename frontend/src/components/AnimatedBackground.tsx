@@ -5,19 +5,27 @@ import lightBgVideo from "../assets/backgrounds/iStock-blue-magenta-rectangle-li
 
 export default function AnimatedBackground() {
   const { theme } = useTheme();
-  const bgVideo = theme === "light" ? lightBgVideo : darkBgVideo;
+  const isNeon = theme === "neon-dark" || theme === "neon-light";
+  const bgVideo = theme === "neon-light" ? lightBgVideo : darkBgVideo;
+
+  const containerClass = [
+    "sylos-bg-container",
+    `sylos-bg-container--${theme}`,
+  ].join(" ");
 
   return (
-    <div className={`sylos-bg-container sylos-bg-container--${theme}`}>
-      <video
-        className={`sylos-bg-video sylos-bg-video--${theme}`}
-        src={bgVideo}
-        autoPlay
-        loop
-        muted
-        playsInline
-        preload="auto"
-      />
+    <div className={containerClass}>
+      {isNeon && (
+        <video
+          className={`sylos-bg-video sylos-bg-video--${theme}`}
+          src={bgVideo}
+          autoPlay
+          loop
+          muted
+          playsInline
+          preload="auto"
+        />
+      )}
     </div>
   );
 }

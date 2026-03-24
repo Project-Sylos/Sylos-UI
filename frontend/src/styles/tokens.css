@@ -30,6 +30,9 @@
   --glass-shadow-spread-sm: 4px;
   --glass-shadow-spread-md: 8px;
   --glass-shadow-spread-lg: 40px;
+
+  /* Inset top highlight on glass panels (obsidian sets a soft sheen; neon stays transparent) */
+  --glass-inset-sheen: transparent;
   
   /* Text Color Tokens */
   --text-primary: #f8fafc;
@@ -83,4 +86,104 @@
   --glass-bg-base-r: 15;
   --glass-bg-base-g: 23;
   --glass-bg-base-b: 42;
+
+  /* Backdrop saturation (light themes use >1 for liquid-glass read) */
+  --glass-backdrop-saturate: 1;
+
+  /* Raised fields / modals (PathReview filters, etc.) — dark default */
+  --ui-overlay-20: rgba(15, 23, 42, 0.2);
+  --ui-overlay-30: rgba(15, 23, 42, 0.3);
+  --ui-overlay-40: rgba(15, 23, 42, 0.4);
+  --ui-overlay-50: rgba(15, 23, 42, 0.5);
+  --ui-overlay-60: rgba(15, 23, 42, 0.6);
+  --ui-overlay-70: rgba(15, 23, 42, 0.7);
+  --ui-overlay-95: rgba(15, 23, 42, 0.95);
+
+  /*
+   * Surface / elevation — theme packs override (see quartz-theme / obsidian-theme).
+   * Future: load extra stylesheets that only set these custom properties (plugin-style themes).
+   * Prepend to box-shadow stacks: var(--elevation-contact-rest), …
+   */
+  --elevation-contact-rest: 0 1px 2px rgba(0, 0, 0, 0.28);
+  --elevation-contact-hover: 0 1px 3px rgba(0, 0, 0, 0.35);
+
+  /*
+   * Icon-only circular chrome (back-button--icon, path-review back, etc.)
+   */
+  --chrome-icon-fill-r: var(--color-base-slate-r);
+  --chrome-icon-fill-g: var(--color-base-slate-g);
+  --chrome-icon-fill-b: var(--color-base-slate-b);
+  --chrome-icon-fill-alpha: 0.15;
+  --chrome-icon-fill-alpha-hover: 0.25;
+  --chrome-icon-border-r: var(--color-base-slate-r);
+  --chrome-icon-border-g: var(--color-base-slate-g);
+  --chrome-icon-border-b: var(--color-base-slate-b);
+  --chrome-icon-border-alpha: var(--button-border-opacity-default);
+  --chrome-icon-color: var(--text-primary);
+  --chrome-icon-color-hover: var(--text-hover);
+  --chrome-icon-shadow-rest: none;
+  --chrome-icon-shadow-hover: 0 0 0 1px var(--accent-cyan-opacity-10),
+    0 4px 12px var(--accent-cyan-opacity-10);
+
+  /*
+   * Main frosted shell (.glass-surface--panel / .glass-container default stack)
+   */
+  --glass-panel-outer-shadow: inset 0 1px 0 var(--glass-inset-sheen),
+    0 var(--glass-shadow-spread-lg) var(--glass-shadow-blur-lg) rgba(
+      var(--glass-bg-base-r),
+      var(--glass-bg-base-g),
+      var(--glass-bg-base-b),
+      var(--glass-shadow-opacity-lg)
+    );
+  --glass-panel-shadow-hover-extra: 0 0 0 1px var(--accent-cyan-opacity-10),
+    0 10px 30px var(--accent-cyan-opacity-10);
+  --glass-panel-shadow-focus-extra: 0 0 0 2px var(--accent-cyan-opacity-20);
+
+  /*
+   * Footer bands under lists / scroll regions
+   */
+  --surface-footer-border-top: 1px solid var(--accent-cyan-opacity-10);
+  --surface-footer-background: transparent;
+  --surface-footer-padding: 0.5rem 0 0;
+  --surface-footer-margin-top: 1rem;
+  --surface-footer-border-radius: 0;
+  --surface-footer-inner-shadow: none;
+
+  /*
+   * Selection grid cards (migration type, service pickers, etc.)
+   */
+  --selection-card-background: linear-gradient(
+    160deg,
+    rgba(15, 23, 42, 0.65) 0%,
+    rgba(30, 41, 59, 0.35) 100%
+  );
+  --selection-card-border-color: rgba(148, 163, 184, 0.22);
+  --selection-card-shadow: var(--elevation-contact-rest),
+    0 24px 60px rgba(15, 23, 42, 0.35);
+  --selection-card-border-color-hover: rgba(255, 255, 255, 0.45);
+  --selection-card-hover-background: rgba(15, 23, 42, 0.6);
+  --selection-card-hover-shadow: var(--elevation-contact-hover),
+    0 32px 70px rgba(8, 47, 73, 0.45);
+  --selection-card-disabled-shadow: var(--elevation-contact-rest),
+    0 18px 40px rgba(15, 23, 42, 0.2);
+
+  /*
+   * Fixed .sidebar (legacy shell) — move hardcoded slate here so themes can retint
+   */
+  --sidebar-surface-bg: rgba(15, 23, 42, 0.15);
+  --sidebar-surface-border: 1px solid rgba(148, 163, 184, 0.2);
+  --sidebar-edge-shadow: 4px 0 16px rgba(15, 23, 42, 0.1);
+  --sidebar-button-bg: rgba(15, 23, 42, 0.15);
+  --sidebar-button-bg-hover: rgba(15, 23, 42, 0.25);
+  --sidebar-button-bg-active: rgba(15, 23, 42, 0.15);
+  --sidebar-button-border-color: rgba(148, 163, 184, 0.2);
+  --sidebar-button-border-color-hover: rgba(148, 163, 184, 0.3);
+  --sidebar-button-shadow-rest: var(--elevation-contact-rest),
+    0 2px 8px rgba(15, 23, 42, 0.1);
+  --sidebar-button-shadow-hover: var(--elevation-contact-hover),
+    0 4px 12px rgba(15, 23, 42, 0.15);
+  --sidebar-button-primary-bg: rgba(15, 23, 42, 0.2);
+  --sidebar-button-primary-bg-hover: rgba(15, 23, 42, 0.3);
+  --sidebar-button-primary-border: rgba(148, 163, 184, 0.25);
+  --sidebar-button-primary-border-hover: rgba(148, 163, 184, 0.35);
 }

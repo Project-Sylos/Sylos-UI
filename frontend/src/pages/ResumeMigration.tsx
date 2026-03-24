@@ -358,7 +358,6 @@ export default function ResumeMigration() {
                     {selectedMigrationId === migration.id && (
                       <CheckCircle2
                         size={16}
-                        color="#00ffff"
                         className="resume-migration__check-icon"
                         style={{ flexShrink: 0 }}
                       />

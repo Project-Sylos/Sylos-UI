@@ -36,6 +36,7 @@ import {
   getMigrationPhase,
 } from "../types/migrations";
 import ItemHoverCard from "../components/ItemHoverCard";
+import { GlassSurfacePanel } from "../components/GlassSurfacePanel";
 import Toast from "../components/Toast";
 import ConfirmDialog from "../components/ConfirmDialog";
 import ZoomControl from "../components/ZoomControl";
@@ -1323,7 +1324,7 @@ export default function PathReview() {
 
   return (
     <section className="path-review">
-      <div className="path-review__content path-review__content--with-button">
+      <GlassSurfacePanel className="path-review__content path-review__content--with-button">
         <button
           type="button"
           className="path-review__back"
@@ -1558,9 +1559,9 @@ export default function PathReview() {
 
                       <div className="path-review__item-icon">
                         {isFolder ? (
-                          <Folder size={24 * zoomLevel} color="#ffffff" />
+                          <Folder size={24 * zoomLevel} />
                         ) : (
-                          <File size={24 * zoomLevel} color="#ffffff" />
+                          <File size={24 * zoomLevel} />
                         )}
                       </div>
 
@@ -1700,7 +1701,7 @@ export default function PathReview() {
               (stats?.pendingRetriesCount ?? 0) > 0 ? (
                 <button
                   type="button"
-                  className="glass-button"
+                  className="glass-button glass-button--progress-cta"
                   onClick={handleStartCopying}
                   disabled={isTriggeringSweep || hasRunningTasks}
                   title="Retry copying failed and pending items"
@@ -1714,7 +1715,7 @@ export default function PathReview() {
               (stats?.pendingRetriesCount ?? 0) > 0 ? (
                 <button
                   type="button"
-                  className="glass-button"
+                  className="glass-button glass-button--progress-cta"
                   onClick={handleStartRetryDiscovery}
                   disabled={isTriggeringSweep || hasRunningTasks}
                   title="Retry failed items and re-traverse them"
@@ -1725,7 +1726,7 @@ export default function PathReview() {
               ) : (
                 <button
                   type="button"
-                  className="glass-button"
+                  className="glass-button glass-button--progress-cta"
                   onClick={handleStartCopying}
                   disabled={!checkCanStartCopy() || hasRunningTasks}
                   title={
@@ -1750,7 +1751,7 @@ export default function PathReview() {
             )}
           </div>
         </div>
-      </div>
+      </GlassSurfacePanel>
 
       {/* Confirmation Dialog */}
       {showConfirmDialog && (

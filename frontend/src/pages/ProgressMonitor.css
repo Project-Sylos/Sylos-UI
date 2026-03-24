@@ -31,27 +31,6 @@
   padding: clamp(0.75rem, 1.5vw, 1.25rem);
   overflow: hidden;
   align-items: stretch;
-  /* Apply glass-container base styles */
-  backdrop-filter: blur(var(--glass-blur-primary));
-  background: rgba(
-    var(--glass-bg-base-r),
-    var(--glass-bg-base-g),
-    var(--glass-bg-base-b),
-    var(--glass-bg-opacity-primary)
-  );
-  border-radius: 32px;
-  border: 1px solid rgba(
-    var(--color-base-slate-r),
-    var(--color-base-slate-g),
-    var(--color-base-slate-b),
-    var(--glass-border-opacity-default)
-  );
-  box-shadow: 0 var(--glass-shadow-spread-lg) var(--glass-shadow-blur-lg) rgba(
-    var(--glass-bg-base-r),
-    var(--glass-bg-base-g),
-    var(--glass-bg-base-b),
-    var(--glass-shadow-opacity-lg)
-  );
 }
 
 .progress-monitor__back {
@@ -218,11 +197,11 @@
 }
 
 .progress-monitor__metric-title--source {
-  color: #ff00ff;
+  color: var(--accent-magenta);
 }
 
 .progress-monitor__metric-title--destination {
-  color: #00ffff;
+  color: var(--accent-cyan);
 }
 
 /* Split header for copy phase - inside the metric card */

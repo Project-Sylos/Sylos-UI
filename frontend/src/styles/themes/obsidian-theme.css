@@ -1,0 +1,89 @@
+/* Obsidian - dark blue-tinted glass shell, accents between muted utility and full neon */
+
+:root[data-theme="obsidian"] {
+  /* Slightly cleaner glass: less smoke, still clearly blue */
+  --glass-bg-opacity-primary: 0.25;
+  --glass-bg-opacity-secondary: 0.17;
+  --glass-bg-opacity-tertiary: 0.11;
+  --glass-bg-opacity-hover: 0.3;
+  --glass-bg-opacity-active: 0.35;
+
+  --glass-blur-primary: 16px;
+  --glass-blur-secondary: 12px;
+  --glass-blur-tertiary: 8px;
+
+  --glass-border-opacity-default: 0.32;
+  --glass-border-opacity-subtle: 0.18;
+  --glass-border-opacity-strong: 0.4;
+  --glass-border-opacity-hover: 0.42;
+
+  --glass-shadow-opacity-sm: 0.12;
+  --glass-shadow-opacity-md: 0.22;
+  --glass-shadow-opacity-lg: 0.32;
+  --glass-shadow-blur-sm: 16px;
+  --glass-shadow-blur-md: 24px;
+  --glass-shadow-blur-lg: 90px;
+  --glass-shadow-spread-sm: 4px;
+  --glass-shadow-spread-md: 8px;
+  --glass-shadow-spread-lg: 40px;
+
+  --text-primary: #ffffff;
+  --text-secondary: rgba(255, 255, 255, 0.88);
+  --text-tertiary: rgba(255, 255, 255, 0.76);
+  --text-muted: rgba(255, 255, 255, 0.58);
+  --text-disabled: rgba(255, 255, 255, 0.48);
+  --text-hover: #ffffff;
+
+  --button-bg-opacity-default: 0.1;
+  --button-bg-opacity-hover: 0.16;
+  --button-bg-opacity-active: 0.2;
+  --button-bg-opacity-secondary: 0.07;
+  --button-bg-opacity-secondary-hover: 0.14;
+  --button-border-opacity-default: 0.22;
+  --button-border-opacity-hover: 0.32;
+  --button-border-opacity-secondary: 0.16;
+  --button-border-opacity-secondary-hover: 0.26;
+  --button-shadow-opacity: 0.1;
+  --button-shadow-opacity-hover: 0.2;
+
+  /* Tiny saturation lift so the shell reads blue instead of gray smoke */
+  --glass-bg-base-r: 20;
+  --glass-bg-base-g: 40;
+  --glass-bg-base-b: 76;
+
+  --color-base-dark-r: 12;
+  --color-base-dark-g: 16;
+  --color-base-dark-b: 23;
+  --color-base-light-r: 248;
+  --color-base-light-g: 250;
+  --color-base-light-b: 252;
+  /* Cooler slate for glass borders / chrome */
+  --color-base-slate-r: 132;
+  --color-base-slate-g: 158;
+  --color-base-slate-b: 196;
+  --color-base-e2-r: 226;
+  --color-base-e2-g: 232;
+  --color-base-e2-b: 240;
+
+  --bg-base-dark: #080b12;
+  --bg-base-light: #f8fafc;
+  --bg-base-container: #05070c;
+
+  /* Soft cool sheen on glass (reads slightly blue vs flat white) */
+  --glass-inset-sheen: rgba(190, 220, 255, 0.11);
+
+  /*
+   * Accents ~ halfway between previous obsidian utility (#5eb0d4 / #b9a3dc)
+   * and full neon (#00ffff / #ff00ff).
+   */
+  --accent-cyan: #2fd7e9;
+  --accent-magenta: #dc51ee;
+  --accent-magenta-opacity-10: rgba(220, 81, 238, 0.16);
+  --accent-magenta-opacity-20: rgba(220, 81, 238, 0.28);
+  --accent-cyan-opacity-10: rgba(47, 215, 233, 0.16);
+  --accent-cyan-opacity-20: rgba(47, 215, 233, 0.28);
+
+  /* Slightly softer row/card contact than base dark default */
+  --elevation-contact-rest: 0 1px 2px rgba(0, 0, 0, 0.18);
+  --elevation-contact-hover: 0 1px 3px rgba(0, 0, 0, 0.24);
+}

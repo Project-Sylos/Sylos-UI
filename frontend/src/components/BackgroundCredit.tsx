@@ -3,14 +3,17 @@ import { useTheme } from "../contexts/ThemeContext";
 
 export default function BackgroundCredit() {
   const { theme } = useTheme();
-  
-  // Dark mode: Sharaed from Pixabay
-  // Light mode: Black_Kira from iStock
-  const creditLink = theme === "light" 
-    ? "https://www.istockphoto.com/portfolio/Black_Kira"
-    : "https://pixabay.com/users/sharaed-10850801/";
-  
-  const creditHandle = theme === "light" ? "@Black_Kira" : "@Sharaed";
+
+  if (theme !== "neon-dark" && theme !== "neon-light") {
+    return null;
+  }
+
+  const creditLink =
+    theme === "neon-light"
+      ? "https://www.istockphoto.com/portfolio/Black_Kira"
+      : "https://pixabay.com/users/sharaed-10850801/";
+
+  const creditHandle = theme === "neon-light" ? "@Black_Kira" : "@Sharaed";
 
   return (
     <div className="background-credit">
@@ -27,4 +30,3 @@ export default function BackgroundCredit() {
     </div>
   );
 }
-

@@ -2,9 +2,9 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Palette, X, HelpCircle, Code } from "lucide-react";
 import "./Settings.css";
+import { GlassSurfacePanel } from "../components/GlassSurfacePanel";
 import { useTheme } from "../contexts/ThemeContext";
 import { usePreferences } from "../contexts/PreferencesContext";
-
 type SettingsSection = "appearance" | "tips" | "developer";
 
 // Known tip categories - can be expanded as needed
@@ -69,7 +69,7 @@ export default function Settings() {
 
   return (
     <section className="settings">
-      <div className="settings__container">
+      <GlassSurfacePanel className="settings__container">
         <button
           className="settings__close"
           onClick={handleClose}
@@ -126,23 +126,20 @@ export default function Settings() {
                     </p>
                   </div>
                 </div>
-                
+
                 <div className="settings__theme-options">
                   <button
-                    className={`settings__theme-option ${theme === "dark" ? "settings__theme-option--active" : ""}`}
-                    onClick={() => setTheme("dark")}
-                    aria-label="Dark theme"
+                    type="button"
+                    className={`settings__theme-option ${theme === "obsidian" ? "settings__theme-option--active" : ""}`}
+                    onClick={() => setTheme("obsidian")}
+                    aria-label="Obsidian theme"
                   >
-                    <div className="settings__theme-preview settings__theme-preview--dark">
-                      <div className="settings__theme-preview-header"></div>
-                      <div className="settings__theme-preview-content">
-                        <div className="settings__theme-preview-line"></div>
-                        <div className="settings__theme-preview-line"></div>
-                        <div className="settings__theme-preview-line"></div>
-                      </div>
-                    </div>
-                    <span className="settings__theme-label">Dark</span>
-                    {theme === "dark" && (
+                    <div
+                      className="settings__theme-preview settings__theme-preview--obsidian"
+                      aria-hidden
+                    />
+                    <span className="settings__theme-label">Obsidian</span>
+                    {theme === "obsidian" && (
                       <div className="settings__theme-check">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
                           <polyline points="20 6 9 17 4 12"></polyline>
@@ -152,20 +149,61 @@ export default function Settings() {
                   </button>
 
                   <button
-                    className={`settings__theme-option ${theme === "light" ? "settings__theme-option--active" : ""}`}
-                    onClick={() => setTheme("light")}
-                    aria-label="Light theme"
+                    type="button"
+                    className={`settings__theme-option ${theme === "quartz" ? "settings__theme-option--active" : ""}`}
+                    onClick={() => setTheme("quartz")}
+                    aria-label="Quartz theme"
                   >
-                    <div className="settings__theme-preview settings__theme-preview--light">
-                      <div className="settings__theme-preview-header"></div>
-                      <div className="settings__theme-preview-content">
-                        <div className="settings__theme-preview-line"></div>
-                        <div className="settings__theme-preview-line"></div>
-                        <div className="settings__theme-preview-line"></div>
+                    <div
+                      className="settings__theme-preview settings__theme-preview--quartz"
+                      aria-hidden
+                    />
+                    <span className="settings__theme-label">Quartz</span>
+                    {theme === "quartz" && (
+                      <div className="settings__theme-check">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="20 6 9 17 4 12"></polyline>
+                        </svg>
                       </div>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    className={`settings__theme-option ${theme === "neon-dark" ? "settings__theme-option--active" : ""}`}
+                    onClick={() => setTheme("neon-dark")}
+                    aria-label="Neon dark theme"
+                  >
+                    <div
+                      className="settings__theme-preview settings__theme-preview--neon-dark"
+                      aria-hidden
+                    >
+                      <div className="settings__theme-preview-bg-stripes" />
                     </div>
-                    <span className="settings__theme-label">Light</span>
-                    {theme === "light" && (
+                    <span className="settings__theme-label">Neon Dark</span>
+                    {theme === "neon-dark" && (
+                      <div className="settings__theme-check">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="20 6 9 17 4 12"></polyline>
+                        </svg>
+                      </div>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    className={`settings__theme-option ${theme === "neon-light" ? "settings__theme-option--active" : ""}`}
+                    onClick={() => setTheme("neon-light")}
+                    aria-label="Neon light theme"
+                  >
+                    <div
+                      className="settings__theme-preview settings__theme-preview--neon-light"
+                      aria-hidden
+                    >
+                      <div className="settings__theme-preview-bg-stripes settings__theme-preview-bg-stripes--light" />
+                    </div>
+                    <span className="settings__theme-label">Neon Light</span>
+                    {theme === "neon-light" && (
                       <div className="settings__theme-check">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
                           <polyline points="20 6 9 17 4 12"></polyline>
@@ -181,7 +219,7 @@ export default function Settings() {
                   <div>
                     <h2 className="settings__subsection-title">Pre-splash Screen</h2>
                     <p className="settings__subsection-description">
-                      Show an animated loading screen when the app starts
+                      Animated loading screen on startup. Obsidian and Quartz turn this off when selected; Neon themes turn it on. You can override here
                     </p>
                   </div>
                   <label className="settings__toggle">
@@ -354,7 +392,7 @@ export default function Settings() {
             </div>
           )}
         </div>
-      </div>
+      </GlassSurfacePanel>
     </section>
   );
 }

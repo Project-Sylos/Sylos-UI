@@ -27,27 +27,6 @@
   display: flex;
   gap: 1rem;
   overflow: hidden;
-  /* Apply glass-container base styles */
-  backdrop-filter: blur(var(--glass-blur-primary));
-  background: rgba(
-    var(--glass-bg-base-r),
-    var(--glass-bg-base-g),
-    var(--glass-bg-base-b),
-    var(--glass-bg-opacity-primary)
-  );
-  border-radius: 32px;
-  border: 1px solid rgba(
-    var(--color-base-slate-r),
-    var(--color-base-slate-g),
-    var(--color-base-slate-b),
-    var(--glass-border-opacity-default)
-  );
-  box-shadow: 0 var(--glass-shadow-spread-lg) var(--glass-shadow-blur-lg) rgba(
-    var(--glass-bg-base-r),
-    var(--glass-bg-base-g),
-    var(--glass-bg-base-b),
-    var(--glass-shadow-opacity-lg)
-  );
 }
 
 .settings__close {
@@ -321,77 +300,74 @@
   );
 }
 
-.settings__theme-preview--dark {
-  background: #0f172a; /* Fixed dark theme background color */
+.settings__theme-preview--obsidian {
+  background:
+    radial-gradient(
+      ellipse 52% 44% at 50% 32%,
+      rgba(130, 170, 220, 0.12) 0%,
+      transparent 58%
+    ),
+    radial-gradient(
+      ellipse 88% 72% at 50% 48%,
+      #0f141f 0%,
+      #080b12 44%,
+      #05070c 100%
+    );
 }
 
-.settings__theme-preview--dark .settings__theme-preview-header {
-  background: rgba(15, 23, 42, 0.6); /* Fixed dark theme header */
-  height: 20px;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+.settings__theme-preview--quartz {
+  background:
+    radial-gradient(
+      ellipse 55% 46% at 22% 18%,
+      rgba(255, 255, 255, 0.95) 0%,
+      transparent 52%
+    ),
+    radial-gradient(
+      ellipse 65% 55% at 78% 82%,
+      rgba(186, 230, 253, 0.45) 0%,
+      transparent 48%
+    ),
+    linear-gradient(165deg, #f8fafc 0%, #e2e8f0 55%, #cbd5e1 100%);
 }
 
-.settings__theme-preview--dark .settings__theme-preview-content {
-  flex: 1;
-  padding: 0.5rem;
+.settings__theme-preview--neon-dark {
+  background: #12121c;
   display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
 }
 
-.settings__theme-preview--dark .settings__theme-preview-line {
-  height: 4px;
-  background: rgba(148, 163, 184, 0.3); /* Fixed dark theme line color */
-  border-radius: 2px;
-}
-
-.settings__theme-preview--dark .settings__theme-preview-line:nth-child(1) {
-  width: 100%;
-}
-
-.settings__theme-preview--dark .settings__theme-preview-line:nth-child(2) {
-  width: 75%;
-}
-
-.settings__theme-preview--dark .settings__theme-preview-line:nth-child(3) {
-  width: 50%;
-}
-
-.settings__theme-preview--light {
-  background: #f8fafc; /* Fixed light theme background color */
-}
-
-.settings__theme-preview--light .settings__theme-preview-header {
-  background: rgba(248, 250, 252, 0.8); /* Fixed light theme header */
-  height: 20px;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.3);
-}
-
-.settings__theme-preview--light .settings__theme-preview-content {
-  flex: 1;
-  padding: 0.5rem;
+.settings__theme-preview--neon-light {
+  background: #e8eef5;
   display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  background: #ffffff;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
 }
 
-.settings__theme-preview--light .settings__theme-preview-line {
-  height: 4px;
-  background: rgba(30, 41, 59, 0.4); /* Fixed light theme line color (darker for contrast) */
-  border-radius: 2px;
-}
-
-.settings__theme-preview--light .settings__theme-preview-line:nth-child(1) {
+.settings__theme-preview-bg-stripes {
   width: 100%;
+  height: 100%;
+  background: repeating-linear-gradient(
+    115deg,
+    rgba(0, 255, 255, 0.35) 0px,
+    rgba(0, 255, 255, 0.35) 6px,
+    rgba(180, 0, 220, 0.25) 6px,
+    rgba(180, 0, 220, 0.25) 12px
+  );
+  opacity: 0.9;
 }
 
-.settings__theme-preview--light .settings__theme-preview-line:nth-child(2) {
-  width: 75%;
-}
-
-.settings__theme-preview--light .settings__theme-preview-line:nth-child(3) {
-  width: 50%;
+.settings__theme-preview-bg-stripes--light {
+  background: repeating-linear-gradient(
+    115deg,
+    rgba(14, 165, 233, 0.4) 0px,
+    rgba(14, 165, 233, 0.4) 6px,
+    rgba(147, 51, 234, 0.28) 6px,
+    rgba(147, 51, 234, 0.28) 12px
+  );
+  opacity: 0.85;
 }
 
 .settings__theme-label {
@@ -406,13 +382,13 @@
   right: 0.5rem;
   width: 24px;
   height: 24px;
-  background: rgba(0, 255, 255, 0.9);
+  background: color-mix(in srgb, var(--accent-cyan) 88%, #0f172a);
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   color: #0f172a;
-  box-shadow: 0 2px 8px rgba(0, 255, 255, 0.3);
+  box-shadow: 0 2px 8px var(--accent-cyan-opacity-20);
 }
 
 .settings__theme-check svg {

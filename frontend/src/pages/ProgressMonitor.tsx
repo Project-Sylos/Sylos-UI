@@ -29,6 +29,7 @@ import {
 import { useSelection } from "../context/SelectionContext";
 import HelpTooltip from "../components/HelpTooltip";
 import ConfirmDialog from "../components/ConfirmDialog";
+import { GlassSurfacePanel } from "../components/GlassSurfacePanel";
 import "./ProgressMonitor.css";
 
 const STATUS_POLL_INTERVAL = 1000;
@@ -514,7 +515,7 @@ export default function ProgressMonitor() {
 
   return (
     <section className="progress-monitor">
-      <div className="progress-monitor__content">
+      <GlassSurfacePanel className="progress-monitor__content">
         <button
           type="button"
           className="progress-monitor__back"
@@ -936,7 +937,7 @@ export default function ProgressMonitor() {
             onConfirm={() => void handleConfirmResume()}
           />
         )}
-      </div>
+      </GlassSurfacePanel>
     </section>
   );
 }

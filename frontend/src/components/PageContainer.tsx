@@ -1,5 +1,6 @@
 import { ReactNode } from "react";
 import { ArrowLeft } from "lucide-react";
+import { GlassSurfacePanel } from "./GlassSurfacePanel";
 import "./PageContainer.css";
 
 export type PageContainerProps = {
@@ -21,8 +22,8 @@ export default function PageContainer({
 }: PageContainerProps) {
   return (
     <section className={`page-container ${className}`}>
-      <div
-        className={`page-container__content ${contentClassName}`}
+      <GlassSurfacePanel
+        className={`page-container__content ${contentClassName}`.trim()}
         style={{ maxWidth }}
       >
         {onBack && (
@@ -42,7 +43,7 @@ export default function PageContainer({
           </button>
         )}
         {children}
-      </div>
+      </GlassSurfacePanel>
     </section>
   );
 }

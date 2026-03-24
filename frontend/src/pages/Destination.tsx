@@ -215,6 +215,7 @@ export default function Destination() {
             name: service.displayName,
             description: visual.description,
             icon: visual.icon,
+            iconAccent: visual.iconAccent,
           };
         }),
     [services]

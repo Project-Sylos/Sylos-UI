@@ -48,14 +48,14 @@
 
 .form-field__input:focus {
   outline: none;
-  border-color: #ff00ff;
+  border-color: var(--accent-magenta);
   background: rgba(
     var(--glass-bg-base-r),
     var(--glass-bg-base-g),
     var(--glass-bg-base-b),
     0.4
   );
-  box-shadow: 0 0 0 3px rgba(255, 0, 255, 0.1);
+  box-shadow: 0 0 0 3px var(--accent-magenta-opacity-10);
 }
 
 .form-field__input:disabled {

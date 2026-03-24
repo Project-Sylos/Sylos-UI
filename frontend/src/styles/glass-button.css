@@ -10,7 +10,8 @@
     var(--glass-bg-base-b),
     var(--button-bg-opacity-default)
   );
-  backdrop-filter: blur(var(--glass-blur-secondary));
+  backdrop-filter: blur(var(--glass-blur-secondary))
+    saturate(var(--glass-backdrop-saturate));
   border: 1px solid rgba(
     var(--color-base-slate-r),
     var(--color-base-slate-g),
@@ -23,12 +24,13 @@
   font-weight: 600;
   cursor: pointer;
   transition: all 0.25s ease;
-  box-shadow: 0 var(--glass-shadow-spread-sm) var(--glass-shadow-blur-sm) rgba(
-    var(--glass-bg-base-r),
-    var(--glass-bg-base-g),
-    var(--glass-bg-base-b),
-    var(--button-shadow-opacity)
-  );
+  box-shadow: var(--elevation-contact-rest),
+    0 var(--glass-shadow-spread-sm) var(--glass-shadow-blur-sm) rgba(
+      var(--glass-bg-base-r),
+      var(--glass-bg-base-g),
+      var(--glass-bg-base-b),
+      var(--button-shadow-opacity)
+    );
 }
 
 .glass-button:hover:not(:disabled) {
@@ -38,29 +40,44 @@
     var(--glass-bg-base-b),
     var(--button-bg-opacity-hover)
   );
-  border-color: rgba(
-    var(--color-base-slate-r),
-    var(--color-base-slate-g),
-    var(--color-base-slate-b),
-    var(--button-border-opacity-hover)
-  );
+  border-color: var(--accent-cyan-opacity-10);
   transform: translateY(-2px);
-  box-shadow: 0 var(--glass-shadow-spread-md) var(--glass-shadow-blur-md) rgba(
-    var(--glass-bg-base-r),
-    var(--glass-bg-base-g),
-    var(--glass-bg-base-b),
-    var(--button-shadow-opacity-hover)
-  );
+  box-shadow: var(--elevation-contact-hover),
+    0 var(--glass-shadow-spread-md) var(--glass-shadow-blur-md) rgba(
+      var(--glass-bg-base-r),
+      var(--glass-bg-base-g),
+      var(--glass-bg-base-b),
+      var(--button-shadow-opacity-hover)
+    ),
+    0 0 0 1px var(--accent-cyan-opacity-10),
+    0 6px 18px var(--accent-cyan-opacity-10);
 }
 
 .glass-button:active:not(:disabled) {
   transform: translateY(0);
-  box-shadow: 0 var(--glass-shadow-spread-sm) var(--glass-shadow-blur-sm) rgba(
-    var(--glass-bg-base-r),
-    var(--glass-bg-base-g),
-    var(--glass-bg-base-b),
-    var(--button-shadow-opacity)
-  );
+  border-color: var(--accent-cyan-opacity-20);
+  background: color-mix(in srgb, var(--accent-cyan) 8%, transparent);
+  box-shadow: var(--elevation-contact-rest),
+    0 var(--glass-shadow-spread-sm) var(--glass-shadow-blur-sm) rgba(
+      var(--glass-bg-base-r),
+      var(--glass-bg-base-g),
+      var(--glass-bg-base-b),
+      var(--button-shadow-opacity)
+    ),
+    0 0 0 1px var(--accent-cyan-opacity-20);
+}
+
+.glass-button:focus-visible {
+  outline: none;
+  border-color: var(--accent-cyan-opacity-20);
+  box-shadow: var(--elevation-contact-rest),
+    0 var(--glass-shadow-spread-sm) var(--glass-shadow-blur-sm) rgba(
+      var(--glass-bg-base-r),
+      var(--glass-bg-base-g),
+      var(--glass-bg-base-b),
+      var(--button-shadow-opacity)
+    ),
+    0 0 0 2px var(--accent-cyan-opacity-20);
 }
 
 .glass-button:disabled {
@@ -110,12 +127,53 @@
     var(--glass-bg-base-b),
     var(--button-bg-opacity-secondary-hover)
   );
-  border-color: rgba(
-    var(--color-base-slate-r),
-    var(--color-base-slate-g),
-    var(--color-base-slate-b),
-    var(--button-border-opacity-secondary-hover)
-  );
+  border-color: var(--accent-cyan-opacity-10);
   color: var(--text-primary);
+}
+
+/* High-intent progression CTA (used for next-step actions). */
+:root[data-theme="obsidian"] .glass-button--progress-cta,
+:root[data-theme="quartz"] .glass-button--progress-cta {
+  background: color-mix(in srgb, var(--accent-cyan) 78%, #0b1a2b);
+  border-color: color-mix(in srgb, var(--accent-cyan) 82%, #062238);
+  color: #041823;
+  box-shadow: var(--elevation-contact-rest),
+    0 var(--glass-shadow-spread-sm) var(--glass-shadow-blur-sm) rgba(
+      var(--glass-bg-base-r),
+      var(--glass-bg-base-g),
+      var(--glass-bg-base-b),
+      var(--button-shadow-opacity)
+    ),
+    0 6px 16px color-mix(in srgb, var(--accent-cyan) 18%, transparent);
+}
+
+:root[data-theme="obsidian"] .glass-button--progress-cta:hover:not(:disabled),
+:root[data-theme="quartz"] .glass-button--progress-cta:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent-cyan) 86%, #0b1a2b);
+  border-color: var(--accent-cyan);
+  box-shadow: var(--elevation-contact-hover),
+    0 var(--glass-shadow-spread-md) var(--glass-shadow-blur-md) rgba(
+      var(--glass-bg-base-r),
+      var(--glass-bg-base-g),
+      var(--glass-bg-base-b),
+      var(--button-shadow-opacity-hover)
+    ),
+    0 0 0 1px color-mix(in srgb, var(--accent-cyan) 26%, transparent),
+    0 10px 22px color-mix(in srgb, var(--accent-cyan) 24%, transparent);
+}
+
+:root[data-theme="obsidian"] .glass-button--progress-cta:active:not(:disabled),
+:root[data-theme="quartz"] .glass-button--progress-cta:active:not(:disabled) {
+  background: color-mix(in srgb, var(--accent-cyan) 72%, #0b1a2b);
+  border-color: color-mix(in srgb, var(--accent-cyan) 82%, #062238);
+}
+
+:root[data-theme="obsidian"] .glass-button--progress-cta:focus-visible,
+:root[data-theme="quartz"] .glass-button--progress-cta:focus-visible {
+  outline: none;
+  border-color: var(--accent-cyan);
+  box-shadow: var(--elevation-contact-rest),
+    0 0 0 2px color-mix(in srgb, var(--accent-cyan) 32%, transparent),
+    0 8px 18px color-mix(in srgb, var(--accent-cyan) 18%, transparent);
 }
 

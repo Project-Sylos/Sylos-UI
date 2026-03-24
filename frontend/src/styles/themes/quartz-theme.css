@@ -1,0 +1,196 @@
+/* Quartz - light liquid-glass pair to Obsidian (static backdrop, no video) */
+
+:root[data-theme="quartz"] {
+  color-scheme: light;
+
+  /* Versa-like: more opaque frosted shell + stronger blur */
+  --glass-bg-opacity-primary: 0.55;
+  --glass-bg-opacity-secondary: 0.42;
+  --glass-bg-opacity-tertiary: 0.28;
+  --glass-bg-opacity-hover: 0.62;
+  --glass-bg-opacity-active: 0.68;
+
+  --glass-blur-primary: 28px;
+  --glass-blur-secondary: 22px;
+  --glass-blur-tertiary: 14px;
+
+  --glass-backdrop-saturate: 1.14;
+
+  --glass-border-opacity-default: 0.2;
+  --glass-border-opacity-subtle: 0.11;
+  --glass-border-opacity-strong: 0.28;
+  --glass-border-opacity-hover: 0.32;
+
+  /* Slate-tinted shadows (avoid muddy black on light) */
+  --glass-shadow-opacity-sm: 0.07;
+  --glass-shadow-opacity-md: 0.11;
+  --glass-shadow-opacity-lg: 0.15;
+  --glass-shadow-blur-sm: 18px;
+  --glass-shadow-blur-md: 28px;
+  --glass-shadow-blur-lg: 96px;
+  --glass-shadow-spread-sm: 4px;
+  --glass-shadow-spread-md: 8px;
+  --glass-shadow-spread-lg: 36px;
+
+  /* Charcoal stack (softer than pure black on white glass) */
+  --text-primary: #1a1a2e;
+  --text-secondary: rgba(26, 26, 46, 0.74);
+  --text-tertiary: rgba(26, 26, 46, 0.52);
+  --text-muted: rgba(26, 26, 46, 0.4);
+  --text-disabled: rgba(26, 26, 46, 0.3);
+  --text-hover: #12122a;
+
+  /* Folder/file & chrome icons on light frosted rows */
+  --icon-on-glass: #454863;
+
+  --button-bg-opacity-default: 0.14;
+  --button-bg-opacity-hover: 0.22;
+  --button-bg-opacity-active: 0.28;
+  --button-bg-opacity-secondary: 0.1;
+  --button-bg-opacity-secondary-hover: 0.18;
+  --button-border-opacity-default: 0.2;
+  --button-border-opacity-hover: 0.3;
+  --button-border-opacity-secondary: 0.14;
+  --button-border-opacity-secondary-hover: 0.24;
+  --button-shadow-opacity: 0.06;
+  --button-shadow-opacity-hover: 0.1;
+
+  /* Warm near-white glass tint */
+  --glass-bg-base-r: 255;
+  --glass-bg-base-g: 252;
+  --glass-bg-base-b: 248;
+
+  /* “Dark” channel used for subtle panel tints in components */
+  --color-base-dark-r: 248;
+  --color-base-dark-g: 250;
+  --color-base-dark-b: 252;
+  --color-base-light-r: 255;
+  --color-base-light-g: 255;
+  --color-base-light-b: 255;
+  /* Medium slate borders / chrome on light glass */
+  --color-base-slate-r: 100;
+  --color-base-slate-g: 116;
+  --color-base-slate-b: 139;
+  --color-base-e2-r: 241;
+  --color-base-e2-g: 245;
+  --color-base-e2-b: 249;
+
+  --bg-base-dark: #e2e8f0;
+  --bg-base-light: #ffffff;
+  --bg-base-container: #f1f5f9;
+
+  --glass-inset-sheen: rgba(255, 255, 255, 0.65);
+
+  /*
+   * Same accent hues as obsidian; softer opacity overlays for light surfaces.
+   */
+  --accent-cyan: #2fd7e9;
+  --accent-magenta: #dc51ee;
+  --accent-magenta-opacity-10: rgba(220, 81, 238, 0.1);
+  --accent-magenta-opacity-20: rgba(220, 81, 238, 0.18);
+  --accent-cyan-opacity-10: rgba(47, 215, 233, 0.1);
+  --accent-cyan-opacity-20: rgba(47, 215, 233, 0.18);
+
+  /* Light surfaces for inputs / inset panels (replaces dark slate overlays) */
+  --ui-overlay-20: rgba(255, 255, 255, 0.55);
+  --ui-overlay-30: rgba(248, 250, 252, 0.72);
+  --ui-overlay-40: rgba(255, 255, 255, 0.82);
+  --ui-overlay-50: rgba(255, 255, 255, 0.88);
+  --ui-overlay-60: rgba(255, 255, 255, 0.93);
+  --ui-overlay-70: rgba(255, 255, 255, 0.97);
+  --ui-overlay-95: rgba(255, 255, 255, 0.99);
+
+  /* Surface tokens (shared components read these; avoids per-page quartz blocks) */
+  --elevation-contact-rest: 0 1px 3px rgba(0, 0, 0, 0.06);
+  --elevation-contact-hover: 0 1px 3px rgba(0, 0, 0, 0.07);
+
+  --chrome-icon-fill-r: 255;
+  --chrome-icon-fill-g: 255;
+  --chrome-icon-fill-b: 255;
+  --chrome-icon-fill-alpha: 0.48;
+  --chrome-icon-fill-alpha-hover: 0.88;
+  --chrome-icon-border-r: 100;
+  --chrome-icon-border-g: 116;
+  --chrome-icon-border-b: 139;
+  --chrome-icon-border-alpha: 0.1;
+  --chrome-icon-color: var(--text-tertiary);
+  --chrome-icon-color-hover: var(--text-primary);
+  --chrome-icon-shadow-rest: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --chrome-icon-shadow-hover: 0 1px 3px rgba(0, 0, 0, 0.05),
+    0 0 0 1px var(--accent-cyan-opacity-10);
+
+  --glass-panel-outer-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.94),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.35),
+    inset 0 -32px 56px -28px rgba(26, 26, 46, 0.04),
+    0 1px 3px rgba(26, 26, 46, 0.045),
+    0 10px 28px rgba(26, 26, 46, 0.06),
+    0 28px 72px rgba(15, 23, 42, 0.07);
+
+  --surface-footer-border-top: 1px solid rgba(26, 26, 46, 0.1);
+  --surface-footer-background: linear-gradient(
+    180deg,
+    rgba(234, 238, 246, 0.72) 0%,
+    rgba(252, 253, 255, 0.5) 100%
+  );
+  --surface-footer-padding: 0.7rem 0.5rem 0.35rem;
+  --surface-footer-margin-top: 0.9rem;
+  --surface-footer-border-radius: 14px;
+  --surface-footer-inner-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+
+  --selection-card-background: linear-gradient(
+    165deg,
+    rgba(255, 254, 252, 0.97) 0%,
+    rgba(248, 250, 253, 0.88) 100%
+  );
+  --selection-card-border-color: rgba(100, 116, 139, 0.14);
+  --selection-card-shadow: var(--elevation-contact-rest),
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    0 12px 36px rgba(26, 26, 46, 0.07);
+  --selection-card-border-color-hover: var(--accent-cyan-opacity-10);
+  --selection-card-hover-background: linear-gradient(
+    165deg,
+    rgba(255, 255, 255, 1) 0%,
+    rgba(252, 253, 255, 0.96) 100%
+  );
+  --selection-card-hover-shadow: var(--elevation-contact-hover),
+    0 0 0 1px var(--accent-cyan-opacity-10),
+    0 18px 44px rgba(26, 26, 46, 0.09),
+    0 8px 24px var(--accent-cyan-opacity-10);
+  --selection-card-disabled-shadow: var(--elevation-contact-rest),
+    0 12px 28px rgba(26, 26, 46, 0.05);
+
+  --sidebar-surface-bg: rgba(255, 255, 255, 0.28);
+  --sidebar-surface-border: 1px solid rgba(100, 116, 139, 0.16);
+  --sidebar-edge-shadow: 4px 0 24px rgba(26, 26, 46, 0.06);
+  --sidebar-button-bg: rgba(255, 255, 255, 0.38);
+  --sidebar-button-bg-hover: rgba(255, 255, 255, 0.62);
+  --sidebar-button-bg-active: rgba(255, 255, 255, 0.42);
+  --sidebar-button-border-color: rgba(100, 116, 139, 0.14);
+  --sidebar-button-border-color-hover: rgba(100, 116, 139, 0.22);
+  --sidebar-button-shadow-rest: var(--elevation-contact-rest),
+    0 2px 10px rgba(26, 26, 46, 0.05);
+  --sidebar-button-shadow-hover: var(--elevation-contact-hover),
+    0 4px 14px rgba(26, 26, 46, 0.07),
+    0 0 0 1px var(--accent-cyan-opacity-10);
+  --sidebar-button-primary-bg: rgba(255, 255, 255, 0.48);
+  --sidebar-button-primary-bg-hover: rgba(255, 255, 255, 0.72);
+  --sidebar-button-primary-border: rgba(100, 116, 139, 0.18);
+  --sidebar-button-primary-border-hover: rgba(100, 116, 139, 0.26);
+}
+
+/* Selection / summary cards: contact lift + frosted depth */
+:root[data-theme="quartz"] .glass-card {
+  box-shadow: var(--elevation-contact-rest),
+    inset 0 1px 0 var(--glass-inset-sheen),
+    0 1px 3px rgba(26, 26, 46, 0.05),
+    0 16px 40px rgba(26, 26, 46, 0.07);
+}
+
+:root[data-theme="quartz"] .glass-card:hover {
+  box-shadow: var(--elevation-contact-hover),
+    inset 0 1px 0 var(--glass-inset-sheen),
+    0 1px 3px rgba(26, 26, 46, 0.06),
+    0 22px 52px rgba(26, 26, 46, 0.09),
+    0 0 0 1px var(--accent-cyan-opacity-10),
+    0 10px 28px var(--accent-cyan-opacity-10);
+}

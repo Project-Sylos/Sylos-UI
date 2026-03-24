@@ -3,10 +3,21 @@
   align-items: center;
   gap: 0.25rem;
   padding: 0.5rem 0.75rem;
-  background: rgba(15, 23, 42, 0.3);
-  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: rgba(
+    var(--glass-bg-base-r),
+    var(--glass-bg-base-g),
+    var(--glass-bg-base-b),
+    var(--glass-bg-opacity-secondary)
+  );
+  border: 1px solid rgba(
+    var(--color-base-slate-r),
+    var(--color-base-slate-g),
+    var(--color-base-slate-b),
+    var(--glass-border-opacity-default)
+  );
   border-radius: 12px;
-  backdrop-filter: blur(8px);
+  backdrop-filter: blur(var(--glass-blur-tertiary))
+    saturate(var(--glass-backdrop-saturate));
   position: relative;
 }
 

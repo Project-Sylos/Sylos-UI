@@ -1,5 +1,8 @@
+/** App visual theme: obsidian/quartz (static glass) or neon video backdrops */
+export type AppTheme = "obsidian" | "quartz" | "neon-dark" | "neon-light";
+
 export interface UserPreferences {
-  theme: "dark" | "light";
+  theme: AppTheme;
   sidebarCollapsed: boolean;
   preSplashEnabled: boolean;
   tips?: {
@@ -15,9 +18,9 @@ export interface UserPreferences {
 }
 
 export const DEFAULT_PREFERENCES: UserPreferences = {
-  theme: "dark",
+  theme: "obsidian",
   sidebarCollapsed: true,
-  preSplashEnabled: true,
+  preSplashEnabled: false,
   tips: {
     enabled: true,
     categories: {},

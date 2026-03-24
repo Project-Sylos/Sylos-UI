@@ -1,7 +1,8 @@
 /* Glass Sidebar - Base sidebar component */
 
 .glass-sidebar {
-  backdrop-filter: blur(var(--glass-blur-secondary));
+  backdrop-filter: blur(var(--glass-blur-secondary))
+    saturate(var(--glass-backdrop-saturate));
   background: rgba(
     var(--glass-bg-base-r),
     var(--glass-bg-base-g),
@@ -14,30 +15,21 @@
     var(--color-base-slate-b),
     var(--glass-border-opacity-default)
   );
-  box-shadow: 4px 0 var(--glass-shadow-spread-sm) rgba(
-    var(--glass-bg-base-r),
-    var(--glass-bg-base-g),
-    var(--glass-bg-base-b),
-    var(--glass-shadow-opacity-sm)
-  );
+  box-shadow: var(--elevation-contact-rest),
+    4px 0 var(--glass-shadow-spread-sm) rgba(
+      var(--glass-bg-base-r),
+      var(--glass-bg-base-g),
+      var(--glass-bg-base-b),
+      var(--glass-shadow-opacity-sm)
+    );
 }
 
 .glass-sidebar__header {
-  border-bottom: 1px solid rgba(
-    var(--color-base-slate-r),
-    var(--color-base-slate-g),
-    var(--color-base-slate-b),
-    var(--glass-border-opacity-subtle)
-  );
+  border-bottom: 1px solid var(--accent-cyan-opacity-10);
 }
 
 .glass-sidebar__section {
-  border-top: 1px solid rgba(
-    var(--color-base-slate-r),
-    var(--color-base-slate-g),
-    var(--color-base-slate-b),
-    var(--glass-border-opacity-subtle)
-  );
+  border-top: 1px solid var(--accent-cyan-opacity-10);
 }
 
 .glass-sidebar__button {
@@ -47,7 +39,8 @@
     var(--glass-bg-base-b),
     var(--button-bg-opacity-default)
   );
-  backdrop-filter: blur(var(--glass-blur-secondary));
+  backdrop-filter: blur(var(--glass-blur-secondary))
+    saturate(var(--glass-backdrop-saturate));
   border: 1px solid rgba(
     var(--color-base-slate-r),
     var(--color-base-slate-g),
@@ -55,12 +48,13 @@
     var(--button-border-opacity-default)
   );
   color: var(--text-primary);
-  box-shadow: 0 2px 8px rgba(
-    var(--glass-bg-base-r),
-    var(--glass-bg-base-g),
-    var(--glass-bg-base-b),
-    var(--button-shadow-opacity)
-  );
+  box-shadow: var(--elevation-contact-rest),
+    0 2px 8px rgba(
+      var(--glass-bg-base-r),
+      var(--glass-bg-base-g),
+      var(--glass-bg-base-b),
+      var(--button-shadow-opacity)
+    );
 }
 
 .glass-sidebar__button:hover:not(:disabled) {
@@ -70,18 +64,16 @@
     var(--glass-bg-base-b),
     var(--button-bg-opacity-hover)
   );
-  border-color: rgba(
-    var(--color-base-slate-r),
-    var(--color-base-slate-g),
-    var(--color-base-slate-b),
-    var(--button-border-opacity-hover)
-  );
-  box-shadow: 0 4px 12px rgba(
-    var(--glass-bg-base-r),
-    var(--glass-bg-base-g),
-    var(--glass-bg-base-b),
-    var(--button-shadow-opacity-hover)
-  );
+  border-color: var(--accent-cyan-opacity-10);
+  box-shadow: var(--elevation-contact-hover),
+    0 4px 12px rgba(
+      var(--glass-bg-base-r),
+      var(--glass-bg-base-g),
+      var(--glass-bg-base-b),
+      var(--button-shadow-opacity-hover)
+    ),
+    0 0 0 1px var(--accent-cyan-opacity-10),
+    0 6px 18px var(--accent-cyan-opacity-10);
 }
 
 .glass-sidebar__button--primary {
@@ -106,12 +98,22 @@
     var(--glass-bg-base-b),
     var(--button-bg-opacity-secondary-hover)
   );
-  border-color: rgba(
-    var(--color-base-slate-r),
-    var(--color-base-slate-g),
-    var(--color-base-slate-b),
-    var(--button-border-opacity-secondary-hover)
-  );
+  border-color: var(--accent-cyan-opacity-20);
+}
+
+.glass-sidebar__button:active:not(:disabled),
+.glass-sidebar__button--primary:active:not(:disabled) {
+  border-color: var(--accent-cyan-opacity-20);
+  box-shadow: 0 0 0 1px var(--accent-cyan-opacity-20);
+}
+
+.glass-sidebar__button:focus-visible,
+.glass-sidebar__button--primary:focus-visible {
+  outline: none;
+  border-color: var(--accent-cyan-opacity-20);
+  box-shadow:
+    0 0 0 2px var(--accent-cyan-opacity-20),
+    0 6px 18px var(--accent-cyan-opacity-10);
 }
 
 .glass-sidebar__toggle {
@@ -126,6 +128,7 @@
     var(--glass-bg-base-b),
     var(--button-bg-opacity-hover)
   );
+  box-shadow: 0 0 0 1px var(--accent-cyan-opacity-10);
 }
 
 .glass-sidebar__toggle:active {
@@ -135,4 +138,10 @@
     var(--glass-bg-base-b),
     var(--button-bg-opacity-active)
   );
+  box-shadow: 0 0 0 1px var(--accent-cyan-opacity-20);
+}
+
+.glass-sidebar__toggle:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--accent-cyan-opacity-20);
 }

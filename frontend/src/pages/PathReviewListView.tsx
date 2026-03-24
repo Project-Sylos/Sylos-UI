@@ -1661,9 +1661,9 @@ export default function PathReviewListView({
                   {/* File/Folder Icon */}
                   <div className="path-review-list__item-icon">
                     {isFolder ? (
-                      <Folder size={16 * zoomLevel} color="#ffffff" />
+                      <Folder size={16 * zoomLevel} />
                     ) : (
-                      <File size={16 * zoomLevel} color="#ffffff" />
+                      <File size={16 * zoomLevel} />
                     )}
                   </div>
 

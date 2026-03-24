@@ -39,7 +39,7 @@
 }
 
 .spectra-config__link {
-  color: #00ffff;
+  color: var(--accent-cyan);
   text-decoration: underline;
   transition: color 0.2s ease;
 }
@@ -49,7 +49,7 @@
 }
 
 .spectra-config__highlight {
-  color: #ff00ff;
+  color: var(--accent-magenta);
 }
 
 .spectra-config__error {

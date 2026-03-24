@@ -126,7 +126,7 @@ export default function MigrationSummary() {
         <div className="migration-summary__footer">
           <button
             type="button"
-            className="glass-button"
+            className="glass-button glass-button--progress-cta"
             onClick={handleStartDiscovery}
             disabled={isStarting}
           >

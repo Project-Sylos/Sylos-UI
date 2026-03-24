@@ -13,13 +13,15 @@ export default function ChooseMigrationType() {
         id: "new",
         name: "Start New Migration",
         description: "Create a new migration by selecting source and destination services.",
-        icon: <PlayCircle size={40} color="#00ffff" />,
+        icon: <PlayCircle size={40} />,
+        iconAccent: "a",
       },
       {
         id: "resume",
         name: "Resume Existing Migration",
         description: "Continue a migration from an uploaded database file.",
-        icon: <RotateCcw size={40} color="#ff00ff" />,
+        icon: <RotateCcw size={40} />,
+        iconAccent: "b",
       },
     ],
     []

@@ -5,6 +5,7 @@ import { FolderOpen, ChevronRight, ArrowLeft, HardDrive, Loader2 } from "lucide-
 import "../App.css";
 import { listDrives, listChildren } from "../api/services";
 import { Drive, Folder, PaginationInfo } from "../types/services";
+import { GlassSurfacePanel } from "../components/GlassSurfacePanel";
 import ZoomControl from "../components/ZoomControl";
 import { useZoom } from "../contexts/ZoomContext";
 import "./BrowseFolder.css";
@@ -242,7 +243,7 @@ export default function BrowseFolder() {
         <ZoomControl />
       </div>
 
-      <div className="browse-folder__content">
+      <GlassSurfacePanel className="browse-folder__content">
         {error && (
           <div className="browse-folder__error">{error}</div>
         )}
@@ -366,7 +367,7 @@ export default function BrowseFolder() {
             </button>
           </div>
         )}
-      </div>
+      </GlassSurfacePanel>
     </section>
   );
 }

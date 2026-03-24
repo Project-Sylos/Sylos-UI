@@ -1754,9 +1754,24 @@ export async function getPreferences(): Promise<UserPreferences> {
     }
 
     const data = await response.json();
+
+    const normalizeTheme = (raw: unknown): UserPreferences["theme"] => {
+      if (
+        raw === "obsidian" ||
+        raw === "quartz" ||
+        raw === "neon-dark" ||
+        raw === "neon-light"
+      ) {
+        return raw;
+      }
+      if (raw === "dark") return "neon-dark";
+      if (raw === "light") return "neon-light";
+      return DEFAULT_PREFERENCES.theme;
+    };
+
     // Validate and merge with defaults to ensure all fields are present
     return {
-      theme: data.theme === "light" || data.theme === "dark" ? data.theme : DEFAULT_PREFERENCES.theme,
+      theme: normalizeTheme(data.theme),
       sidebarCollapsed: typeof data.sidebarCollapsed === "boolean" ? data.sidebarCollapsed : DEFAULT_PREFERENCES.sidebarCollapsed,
       preSplashEnabled: typeof data.preSplashEnabled === "boolean" ? data.preSplashEnabled : DEFAULT_PREFERENCES.preSplashEnabled,
       tips: data.tips && typeof data.tips === "object" ? {

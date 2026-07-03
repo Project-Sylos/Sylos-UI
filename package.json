@@ -1,16 +1,24 @@
 {
-  "name": "sylos-ui",
+  "name": "sylos-ui-frontend",
   "version": "0.1.0",
-  "description": "Sylos UI Web Application",
-  "author": {
-    "name": "Logan Maupin",
-    "email": "logan@sylos.io"
-  },
+  "private": true,
   "scripts": {
-    "dev": "cd frontend && npm run dev",
-    "build": "cd frontend && npm run build",
-    "preview": "cd frontend && npm run preview",
-    "postinstall": "cd frontend && npm install"
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "lucide-react": "^0.453.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.28.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "baseline-browser-mapping": "^2.9.12",
+    "typescript": "^5.4.0",
+    "vite": "^5.0.0"
   }
 }
-

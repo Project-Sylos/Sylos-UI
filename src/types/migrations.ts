@@ -1,4 +1,4 @@
-import { Folder } from "../types/services";
+import { Folder } from "./services";
 
 // Root object format for API requests (camelCase, id = ServiceID)
 export interface MigrationRootRequestRoot {

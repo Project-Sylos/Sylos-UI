@@ -7,6 +7,11 @@ export interface ServiceDescriptor {
   metadata?: Record<string, unknown>;
 }
 
+export interface BrowseTrailItem {
+  path: string;
+  name: string;
+}
+
 export interface Folder {
   ServiceID: string;
   Id: string;
@@ -17,12 +22,24 @@ export interface Folder {
   lastUpdated?: string;
   depthLevel?: number;
   type: string;
+  /** Captured from the folder browser so edits can reopen the same location. */
+  browseTrail?: BrowseTrailItem[];
 }
 
 export interface Drive {
   path: string;
+  /** Primary label; mapped from API `displayName` when present. */
   name: string;
+  displayName?: string;
   type: string;
+  mountPoint?: string;
+  device?: string;
+  fileSystem?: string;
+  mounted?: boolean;
+  label?: string;
+  totalBytes?: number;
+  freeBytes?: number;
+  usedBytes?: number;
 }
 
 export interface PaginationInfo {

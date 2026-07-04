@@ -13,6 +13,7 @@ import { usePreferences } from "../contexts/PreferencesContext";
 import { getPresetRootForServiceType } from "../data/presetRoots";
 import { setMigrationRoot } from "../api/services";
 import { SpectraConfig, DEFAULT_SPECTRA_CONFIG, ServiceDescriptor } from "../types/services";
+import { folderToApiRoot } from "../utils/migrationRoots";
 import "./SpectraConfig.css";
 
 export default function SpectraConfigPage() {
@@ -34,22 +35,27 @@ export default function SpectraConfigPage() {
   const [error, setError] = useState<string | null>(null);
   const [spectraService, setSpectraService] = useState<ServiceDescriptor | null>(null);
 
+  const locationState = location.state as {
+    serviceId?: string;
+    returnTo?: string;
+  } | null;
+  const returnTo = locationState?.returnTo || "/summary";
+
   // Get service from location state or find it in services
   useEffect(() => {
     // Check if developer mode and Spectra service are enabled
     if (preferences.developer?.enabled !== true || 
         preferences.developer?.showSpectraService !== true) {
-      navigate("/connect");
+      navigate("/summary");
       return;
     }
 
-    const state = location.state as { serviceId?: string } | null;
-    if (state?.serviceId) {
-      const service = services.find((s) => s.id === state.serviceId);
+    if (locationState?.serviceId) {
+      const service = services.find((s) => s.id === locationState.serviceId);
       if (service && service.type === "spectra") {
         setSpectraService(service);
       } else {
-        navigate("/connect");
+        navigate("/summary");
       }
     } else {
       // Try to find a Spectra service if no state provided
@@ -57,10 +63,10 @@ export default function SpectraConfigPage() {
       if (spectra) {
         setSpectraService(spectra);
       } else {
-        navigate("/connect");
+        navigate("/summary");
       }
     }
-  }, [location.state, services, navigate, preferences.developer]);
+  }, [location.state, services, navigate, preferences.developer, locationState?.serviceId]);
 
   const getInputValue = (section: string, field: string): string => {
     const key = `${section}.${field}`;
@@ -250,16 +256,7 @@ export default function SpectraConfigPage() {
       setError(null);
 
       // Transform Folder to API request format
-      const rootForApi = {
-        id: root.ServiceID,
-        parentId: root.parentId,
-        parentPath: root.parentPath,
-        displayName: root.name,
-        locationPath: root.locationPath,
-        lastUpdated: root.lastUpdated,
-        depthLevel: root.depthLevel,
-        type: root.type || "folder",
-      };
+      const rootForApi = folderToApiRoot(root);
 
       // First API call: Set source root with config
       const sourceResponse = await setMigrationRoot({
@@ -288,16 +285,24 @@ export default function SpectraConfigPage() {
         connectionId: sourceResponse.destinationConnectionId,
       });
 
+      const spectraPrimaryRole =
+        returnTo === "/destination"
+          ? "destination"
+          : returnTo === "/connect"
+            ? "source"
+            : migration.spectraPrimaryRole ?? "source";
+
       updateMigration({
         migrationId: destResponse.migrationId,
         sourceConnectionId: destResponse.sourceConnectionId,
         destinationConnectionId: destResponse.destinationConnectionId,
         ready: destResponse.ready,
+        spectraLocked: true,
+        spectraPrimaryRole,
       });
 
       selectDestination(spectraService, root);
 
-      // Navigate to summary page
       navigate("/summary");
     } catch (err) {
       const message =
@@ -316,26 +321,13 @@ export default function SpectraConfigPage() {
     <PageContainer
       className="spectra-config"
       contentClassName="spectra-config__content"
-      onBack={() => navigate("/connect")}
-      backLabel="← Back to sources"
+      onBack={() => navigate(returnTo)}
+      backTitle="Back to migration setup"
     >
       <header className="spectra-config__header">
-        <p className="spectra-config__eyebrow">Step 1</p>
         <h1>
           Configure <span className="spectra-config__highlight">Spectra</span>
         </h1>
-        <p className="spectra-config__summary">
-          Set up your Spectra simulator parameters before proceeding. For more information on Spectra, click{" "}
-          <a
-            href="https://github.com/Project-Sylos/Spectra"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="spectra-config__link"
-          >
-            here
-          </a>
-          .
-        </p>
       </header>
 
       {error && (

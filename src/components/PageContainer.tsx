@@ -1,12 +1,13 @@
 import { ReactNode } from "react";
-import { ArrowLeft } from "lucide-react";
+
+import PageBackButton from "./PageBackButton";
 import { GlassSurfacePanel } from "./GlassSurfacePanel";
 import "./PageContainer.css";
 
 export type PageContainerProps = {
   children: ReactNode;
   onBack?: () => void;
-  backLabel?: string | ReactNode;
+  backTitle?: string;
   className?: string;
   contentClassName?: string;
   maxWidth?: string;
@@ -15,7 +16,7 @@ export type PageContainerProps = {
 export default function PageContainer({
   children,
   onBack,
-  backLabel = "← Back",
+  backTitle = "Go back",
   className = "",
   contentClassName = "",
   maxWidth = "min(960px, 100%)",
@@ -27,20 +28,11 @@ export default function PageContainer({
         style={{ maxWidth }}
       >
         {onBack && (
-          <button
-            type="button"
-            className="page-container__back"
+          <PageBackButton
             onClick={onBack}
-          >
-            {typeof backLabel === "string" && backLabel.includes("←") ? (
-              backLabel
-            ) : (
-              <>
-                <ArrowLeft size={16} style={{ marginRight: "0.5rem" }} />
-                {backLabel}
-              </>
-            )}
-          </button>
+            title={backTitle}
+            className="page-container__back"
+          />
         )}
         {children}
       </GlassSurfacePanel>

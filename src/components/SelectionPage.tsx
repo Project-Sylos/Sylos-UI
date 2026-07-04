@@ -1,5 +1,6 @@
 import { ReactNode } from "react";
 
+import PageBackButton from "./PageBackButton";
 import { GlassSurfacePanel } from "./GlassSurfacePanel";
 import "./SelectionPage.css";
 
@@ -8,32 +9,30 @@ export type SelectionIconAccent = "a" | "b";
 export type SelectionOption = {
   id: string;
   name: string;
-  description: string;
+  description?: string;
   icon: ReactNode;
   /** Maps to theme accent tokens (a ≈ cyan, b ≈ magenta) */
   iconAccent?: SelectionIconAccent;
 };
 
 export type SelectionPageProps = {
-  eyebrow?: string;
   title: ReactNode;
-  summary?: ReactNode;
   options: SelectionOption[];
   onSelect: (id: string) => void;
   onBack?: () => void;
-  backLabel?: string;
+  backTitle?: string;
+  error?: ReactNode;
   emptyMessage?: ReactNode;
   isBusy?: boolean;
 };
 
 export default function SelectionPage({
-  eyebrow,
   title,
-  summary,
   options,
   onSelect,
   onBack,
-  backLabel = "← Back",
+  backTitle = "Go back",
+  error,
   emptyMessage,
   isBusy = false,
 }: SelectionPageProps) {
@@ -41,21 +40,16 @@ export default function SelectionPage({
     <section className="selection-page">
       <GlassSurfacePanel className="selection-page__content">
         {onBack ? (
-          <button
-            type="button"
-            className="selection-page__back"
+          <PageBackButton
             onClick={onBack}
-          >
-            {backLabel}
-          </button>
+            title={backTitle}
+            className="selection-page__back"
+          />
         ) : null}
         <header className="selection-page__header">
-          {eyebrow ? (
-            <p className="selection-page__eyebrow">{eyebrow}</p>
-          ) : null}
           <h1>{title}</h1>
-          {summary ? (
-            <p className="selection-page__summary">{summary}</p>
+          {error ? (
+            <div className="selection-page__error">{error}</div>
           ) : null}
         </header>
 
@@ -83,9 +77,11 @@ export default function SelectionPage({
                   {option.icon}
                 </span>
                 <span className="selection-page__name">{option.name}</span>
-                <span className="selection-page__description">
-                  {option.description}
-                </span>
+                {option.description ? (
+                  <span className="selection-page__description">
+                    {option.description}
+                  </span>
+                ) : null}
               </button>
             ))
           ) : (
@@ -98,4 +94,3 @@ export default function SelectionPage({
     </section>
   );
 }
-

@@ -1,46 +1,114 @@
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Search, ArrowLeft } from "lucide-react";
+import { Search, CheckCircle2, Circle, ChevronRight, Pencil } from "lucide-react";
 
 import PageContainer from "../components/PageContainer";
+import CloudConnectionIssues from "../components/CloudConnectionIssues";
 import { useSelection } from "../context/SelectionContext";
 import { startMigration } from "../api/services";
+import { ServiceDescriptor, Folder } from "../types/services";
+import {
+  CloudConnectionCheckResult,
+  connectionIdForRole,
+  formatCloudConnectionIssues,
+  invalidCloudResults,
+  resolveCloudNavigation,
+  verifyConfiguredMigrationCloudConnections,
+} from "../utils/cloudConnections";
+import {
+  formatMigrationPath,
+  getEndpointEditNavigation,
+} from "../utils/migrationRoots";
 import "./MigrationSummary.css";
 
 export default function MigrationSummary() {
   const navigate = useNavigate();
   const { source, destination, migration } = useSelection();
   const [isStarting, setIsStarting] = useState(false);
+  const [checkingConnections, setCheckingConnections] = useState(false);
+  const [connectionIssues, setConnectionIssues] = useState<CloudConnectionCheckResult[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  // Redirect if source or destination is missing
-  useEffect(() => {
-    if (!source) {
-      navigate("/connect");
-      return;
-    }
-    if (!destination) {
-      navigate("/destination");
-      return;
-    }
-  }, [source, destination, navigate]);
+  const sourceConfigured = Boolean(source?.root);
+  const destinationConfigured = Boolean(destination?.root);
+  const spectraLocked = migration.spectraLocked === true;
+  const spectraPrimaryRole = migration.spectraPrimaryRole ?? "source";
+  const spectraLockTitle =
+    "Locked — Spectra sets the same root on both source and destination";
+  const hasCloudConnectionIssues = invalidCloudResults(connectionIssues).length > 0;
+  const canStart =
+    migration.ready &&
+    sourceConfigured &&
+    destinationConfigured &&
+    !hasCloudConnectionIssues;
 
-  if (!source || !destination) {
-    return null; // Will redirect
-  }
+  const startDiscoveryTitle = isStarting
+    ? "Starting discovery..."
+    : hasCloudConnectionIssues
+      ? "Reconnect cloud accounts before starting discovery."
+      : canStart
+        ? "Start discovery to map differences and build a migration plan."
+        : "Configure source and destination to continue.";
+
+  useEffect(() => {
+    if (!sourceConfigured && !destinationConfigured) {
+      setConnectionIssues([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function checkConnections() {
+      setCheckingConnections(true);
+      try {
+        const results = await verifyConfiguredMigrationCloudConnections(
+          source,
+          destination,
+          migration
+        );
+        if (!cancelled) {
+          setConnectionIssues(results);
+        }
+      } catch {
+        if (!cancelled) {
+          setConnectionIssues([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setCheckingConnections(false);
+        }
+      }
+    }
+
+    void checkConnections();
+    return () => {
+      cancelled = true;
+    };
+  }, [source, destination, migration, sourceConfigured, destinationConfigured]);
 
   const handleStartDiscovery = async () => {
     if (!migration.migrationId) {
-      setError("Migration ID is missing. Please go back and reselect your services.");
+      setError("Migration ID is missing. Please configure source and destination.");
       return;
     }
 
     try {
       setIsStarting(true);
       setError(null);
+
+      const results = await verifyConfiguredMigrationCloudConnections(
+        source,
+        destination,
+        migration
+      );
+      setConnectionIssues(results);
+      const invalid = invalidCloudResults(results);
+      if (invalid.length > 0) {
+        setError(formatCloudConnectionIssues(invalid));
+        return;
+      }
+
       const run = await startMigration({ migrationId: migration.migrationId });
-      
-      // Navigate to the discovery progress page
       navigate(`/progress-monitor/${run.id}`);
     } catch (err) {
       const message =
@@ -51,90 +119,178 @@ export default function MigrationSummary() {
     }
   };
 
-  const formatPath = (root?: { name?: string; locationPath?: string }) => {
-    if (!root) return "Not specified";
-    return root.locationPath || root.name || "Not specified";
+  const navigateToEndpoint = async (
+    role: "source" | "destination",
+    selected?: { service: ServiceDescriptor; root?: Folder }
+  ) => {
+    if (selected?.service.type === "cloud") {
+      const connectionId = connectionIdForRole(role, migration);
+      const navigation = await resolveCloudNavigation({
+        role,
+        serviceId: selected.service.id,
+        connectionId,
+      });
+      navigate(
+        navigation.path,
+        selected.root ? { state: { resumeFolder: selected.root } } : undefined
+      );
+      return;
+    }
+
+    const target = getEndpointEditNavigation(role, selected, migration);
+    navigate(target.path, target.state ? { state: target.state } : undefined);
   };
 
   return (
     <PageContainer
       className="migration-summary"
       contentClassName="migration-summary__content"
-      onBack={() => navigate("/destination")}
-      backLabel="Back to destination"
+      onBack={() => navigate("/choose")}
+      backTitle="Back to migration type"
     >
       <header className="migration-summary__header">
-          <p className="migration-summary__eyebrow">Step 3</p>
-          <h1>
-            Review your <span className="migration-summary__highlight">migration</span>
-          </h1>
-          <p className="migration-summary__summary">
-            Sylos will map out the differences between the source and destination services and prepare a plan for the migration.
-          </p>
-        </header>
+        <h1>
+          Set up your <span className="migration-summary__highlight">migration</span>
+        </h1>
+        <p className="migration-summary__summary">
+          Choose your source and destination. Once both are configured,
+          start discovery to map differences and build a migration plan.
+        </p>
+      </header>
 
-        <div className="migration-summary__details">
-          <div className="migration-summary__section">
-            <h2 className="migration-summary__section-title">
-              <span className="migration-summary__highlight--magenta">Source</span>
-            </h2>
-            <div className="migration-summary__info-card">
-              <div className="migration-summary__info-row">
-                <span className="migration-summary__info-label">Service:</span>
-                <span className="migration-summary__info-value">
-                  {source.service.displayName}
-                </span>
-              </div>
-              <div className="migration-summary__info-row">
-                <span className="migration-summary__info-label">Root Path:</span>
-                <span className="migration-summary__info-value">
-                  {formatPath(source.root)}
-                </span>
-              </div>
-            </div>
-          </div>
+      <div className="migration-summary__checklist">
+        <SetupEndpointCard
+          label="Source"
+          accentClass="migration-summary__highlight--magenta"
+          configured={sourceConfigured}
+          locked={spectraLocked && spectraPrimaryRole !== "source"}
+          lockTitle={spectraLocked && spectraPrimaryRole !== "source" ? spectraLockTitle : undefined}
+          serviceName={source?.service.displayName}
+          rootPath={formatMigrationPath(source?.root)}
+          onSelect={() => void navigateToEndpoint("source", source)}
+        />
 
-          <div className="migration-summary__arrow">→</div>
-
-          <div className="migration-summary__section">
-            <h2 className="migration-summary__section-title">
-              <span className="migration-summary__highlight--cyan">Destination</span>
-            </h2>
-            <div className="migration-summary__info-card">
-              <div className="migration-summary__info-row">
-                <span className="migration-summary__info-label">Service:</span>
-                <span className="migration-summary__info-value">
-                  {destination.service.displayName}
-                </span>
-              </div>
-              <div className="migration-summary__info-row">
-                <span className="migration-summary__info-label">Root Path:</span>
-                <span className="migration-summary__info-value">
-                  {formatPath(destination.root)}
-                </span>
-              </div>
-            </div>
-          </div>
+        <div className="migration-summary__checklist-arrow" aria-hidden="true">
+          →
         </div>
 
-        {error && (
-          <div className="migration-summary__error">
-            {error}
-          </div>
-        )}
+        <SetupEndpointCard
+          label="Destination"
+          accentClass="migration-summary__highlight--cyan"
+          configured={destinationConfigured}
+          locked={spectraLocked && spectraPrimaryRole !== "destination"}
+          lockTitle={
+            spectraLocked && spectraPrimaryRole !== "destination"
+              ? spectraLockTitle
+              : undefined
+          }
+          serviceName={destination?.service.displayName}
+          rootPath={formatMigrationPath(destination?.root)}
+          onSelect={() => void navigateToEndpoint("destination", destination)}
+        />
+      </div>
 
-        <div className="migration-summary__footer">
-          <button
-            type="button"
-            className="glass-button glass-button--progress-cta"
-            onClick={handleStartDiscovery}
-            disabled={isStarting}
-          >
-            <Search size={20} style={{ marginRight: "0.5rem" }} />
-            {isStarting ? "Starting discovery..." : "Start Discovery"}
-          </button>
-        </div>
-      </PageContainer>
+      <CloudConnectionIssues issues={connectionIssues} />
+
+      {error && <div className="migration-summary__error">{error}</div>}
+
+      <div className="migration-summary__footer">
+        <button
+          type="button"
+          className="glass-button glass-button--progress-cta"
+          onClick={() => void handleStartDiscovery()}
+          disabled={isStarting || checkingConnections || !canStart}
+          title={startDiscoveryTitle}
+        >
+          <Search size={20} style={{ marginRight: "0.5rem" }} />
+          {isStarting ? "Starting discovery..." : "Start Discovery"}
+        </button>
+      </div>
+    </PageContainer>
   );
 }
 
+type SetupEndpointCardProps = {
+  label: string;
+  accentClass: string;
+  configured: boolean;
+  locked: boolean;
+  lockTitle?: string;
+  serviceName?: string;
+  rootPath: string;
+  onSelect: () => void;
+};
+
+function SetupEndpointCard({
+  label,
+  accentClass,
+  configured,
+  locked,
+  lockTitle,
+  serviceName,
+  rootPath,
+  onSelect,
+}: SetupEndpointCardProps) {
+  const StatusIcon = configured ? CheckCircle2 : Circle;
+  const editTitle = configured
+    ? `Change ${label.toLowerCase()}`
+    : `Select ${label.toLowerCase()}`;
+
+  return (
+    <div
+      className={`migration-summary__endpoint${
+        configured ? " migration-summary__endpoint--configured" : ""
+      }${locked ? " migration-summary__endpoint--locked" : ""}`}
+      title={locked ? lockTitle : undefined}
+    >
+      <div className="migration-summary__endpoint-header">
+        <StatusIcon
+          size={22}
+          className={`migration-summary__endpoint-status${
+            configured
+              ? " migration-summary__endpoint-status--done"
+              : " migration-summary__endpoint-status--pending"
+          }`}
+        />
+        <h2 className={`migration-summary__endpoint-title ${accentClass}`}>
+          {label}
+        </h2>
+        {!locked && configured && (
+          <button
+            type="button"
+            className="migration-summary__endpoint-edit"
+            onClick={onSelect}
+            title={editTitle}
+            aria-label={editTitle}
+          >
+            <Pencil size={16} />
+          </button>
+        )}
+      </div>
+
+      {configured && (
+        <div className="migration-summary__info-card">
+          <div className="migration-summary__info-row">
+            <span className="migration-summary__info-label">Service</span>
+            <span className="migration-summary__info-value">{serviceName}</span>
+          </div>
+          <div className="migration-summary__info-row">
+            <span className="migration-summary__info-label">Root Path</span>
+            <span className="migration-summary__info-value">{rootPath}</span>
+          </div>
+        </div>
+      )}
+
+      {!locked && !configured && (
+        <button
+          type="button"
+          className="migration-summary__endpoint-action"
+          onClick={onSelect}
+        >
+          {`Select ${label.toLowerCase()}`}
+          <ChevronRight size={18} />
+        </button>
+      )}
+    </div>
+  );
+}

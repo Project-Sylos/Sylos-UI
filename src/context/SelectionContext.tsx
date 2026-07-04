@@ -22,6 +22,10 @@ type MigrationState = {
   sourceConnectionId?: string;
   destinationConnectionId?: string;
   ready: boolean;
+  /** Spectra sets both roots at once; locks the auto-set endpoint. */
+  spectraLocked?: boolean;
+  /** Which endpoint the user configured when Spectra was chosen. */
+  spectraPrimaryRole?: "source" | "destination";
 };
 
 type SelectionContextValue = {
@@ -72,22 +76,31 @@ export function SelectionProvider({ children }: { children: ReactNode }) {
 
   const selectSource = useCallback(
     (service: ServiceDescriptor, root?: Folder) => {
-      const preset = root ?? getPresetRootForServiceType(service.type);
+      if (root) {
+        setSource({ service, root });
+        return;
+      }
+      if (service.type === "cloud") {
+        setSource({ service });
+        return;
+      }
+      const preset = getPresetRootForServiceType(service.type);
       setSource({ service, root: preset });
-      setDestination(undefined);
-      setMigration((prev) => ({
-        migrationId: prev.migrationId,
-        ready: false,
-        sourceConnectionId: prev.sourceConnectionId,
-        destinationConnectionId: undefined,
-      }));
     },
     []
   );
 
   const selectDestination = useCallback(
     (service: ServiceDescriptor, root?: Folder) => {
-      const preset = root ?? getPresetRootForServiceType(service.type);
+      if (root) {
+        setDestination({ service, root });
+        return;
+      }
+      if (service.type === "cloud") {
+        setDestination({ service });
+        return;
+      }
+      const preset = getPresetRootForServiceType(service.type);
       setDestination({ service, root: preset });
     },
     []

@@ -36,6 +36,7 @@ import {
 import { useZoom } from "../contexts/ZoomContext";
 import PathReviewStatusIcon from "../components/PathReviewStatusIcon";
 import PathReviewLegend from "../components/PathReviewLegend";
+import { getDiffItemFailureMessage } from "../utils/diffFailureMessage";
 import "./PathReview.css";
 
 export interface PathReviewListViewProps {
@@ -1617,6 +1618,7 @@ export default function PathReviewListView({
               const isSelected = isExplicit || isInherited;
               const isFolder = item.type === "folder";
               const isLocked = isFolder && (status.existsOnBoth || status.existsOnlyOnDst);
+              const failureMessage = getDiffItemFailureMessage(item);
 
               return (
                 <div
@@ -1670,6 +1672,14 @@ export default function PathReviewListView({
                   {/* Name Column */}
                   <div className="path-review-list__item-name-col">
                     <div className="path-review-list__item-name">{item.name}</div>
+                    {failureMessage && (
+                      <div
+                        className="path-review-list__item-failure-message"
+                        title={failureMessage}
+                      >
+                        {failureMessage}
+                      </div>
+                    )}
                   </div>
 
                   {/* Path Column */}

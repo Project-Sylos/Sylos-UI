@@ -35,48 +35,20 @@
   overflow-x: hidden;
 }
 
-.resume-migration__back {
-  position: absolute;
-  top: clamp(1.5rem, 4vw, 2.5rem);
-  left: clamp(1.5rem, 4vw, 3rem);
-  z-index: 2;
-  /* Apply back-button base styles */
-  background: transparent;
-  border: none;
-  color: var(--text-secondary);
-  font-size: 0.95rem;
-  font-weight: 500;
-  letter-spacing: 0.02em;
-  cursor: pointer;
-  transition: color 0.2s ease;
-}
-
-.resume-migration__back:hover {
-  color: var(--text-hover);
-}
-
 .resume-migration__header {
   text-align: center;
 }
 
 .resume-migration__header h1 {
   font-size: clamp(2rem, 4vw, 2.75rem);
-  margin: 0.5rem 0 0;
-}
-
-.resume-migration__eyebrow {
-  text-transform: uppercase;
-  font-size: 0.8rem;
-  letter-spacing: 0.3em;
-  color: var(--text-tertiary);
   margin: 0;
 }
 
 .resume-migration__summary {
-  margin: 0.75rem auto 0;
+  margin: 0.65rem auto 0;
   max-width: 520px;
   color: var(--text-secondary);
-  line-height: 1.6;
+  line-height: 1.55;
 }
 
 .resume-migration__error {

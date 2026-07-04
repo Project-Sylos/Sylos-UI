@@ -285,7 +285,7 @@ export default function Settings() {
                   <div>
                     <h2 className="settings__subsection-title">Tip Categories</h2>
                     <p className="settings__subsection-description">
-                      Control which categories of tips are shown. Dismissing a tip in the UI will also disable its category here.
+                      Control which categories of tips are shown. Dismissing a tip will also disable its category here.
                     </p>
                   </div>
                 </div>

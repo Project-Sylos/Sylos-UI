@@ -11,6 +11,13 @@ import { usePreferences } from "../contexts/PreferencesContext";
 import { getPresetRootForServiceType } from "../data/presetRoots";
 import { setMigrationRoot } from "../api/services";
 import { Folder } from "../types/services";
+import { folderToApiRoot, isSpectraEligible } from "../utils/migrationRoots";
+import { isCloudServiceType, serviceIdToProviderId } from "../utils/cloudProviders";
+import {
+  buildCloudConnectPath,
+  checkCloudConnection,
+  resolveCloudNavigation,
+} from "../utils/cloudConnections";
 
 export default function ConnectSource() {
   const navigate = useNavigate();
@@ -19,8 +26,9 @@ export default function ConnectSource() {
     services,
     loading,
     error,
+    source,
+    destination,
     selectSource,
-    clearSelections,
     migration,
     updateMigration,
   } = useSelection();
@@ -28,32 +36,77 @@ export default function ConnectSource() {
   const [isPicking, setIsPicking] = useState(false);
   const processedStateRef = useRef<string | null>(null);
 
-  const handleFolderSelected = async (serviceId: string, root: Folder) => {
+  const spectraEligible = isSpectraEligible(
+    source?.root,
+    destination?.root,
+    migration.spectraLocked
+  );
+
+  const handleFolderSelected = async (
+    serviceId: string,
+    root: Folder,
+    connectionId?: string
+  ) => {
     const selected = services.find((service) => service.id === serviceId);
     if (!selected) {
       alert("Service not found.");
       return;
     }
 
+    const effectiveConnectionId =
+      connectionId ?? migration.sourceConnectionId;
+
+    if (isCloudServiceType(selected.type)) {
+      if (!effectiveConnectionId) {
+        alert("Cloud connection is missing. Please sign in again.");
+        navigate(
+          buildCloudConnectPath({
+            role: "source",
+            serviceId: selected.id,
+          })
+        );
+        return;
+      }
+
+      try {
+        const status = await checkCloudConnection(
+          serviceIdToProviderId(selected.id),
+          effectiveConnectionId
+        );
+        if (!status.valid) {
+          alert("Your cloud connection expired. Please reconnect.");
+          navigate(
+            buildCloudConnectPath({
+              role: "source",
+              serviceId: selected.id,
+              connectionId: effectiveConnectionId,
+              reconnect: true,
+            })
+          );
+          return;
+        }
+      } catch {
+        alert("Could not verify the cloud connection. Please reconnect.");
+        navigate(
+          buildCloudConnectPath({
+            role: "source",
+            serviceId: selected.id,
+            connectionId: effectiveConnectionId,
+            reconnect: true,
+          })
+        );
+        return;
+      }
+    }
+
     try {
       setIsPicking(true);
-      // Transform Folder to API request format
-      const rootForApi = {
-        id: root.ServiceID,  // Service's native identifier
-        parentId: root.parentId,
-        parentPath: root.parentPath,
-        displayName: root.name,
-        locationPath: root.locationPath,
-        lastUpdated: root.lastUpdated,
-        depthLevel: root.depthLevel,
-        type: root.type || "folder",
-      };
-
       const response = await setMigrationRoot({
         migrationId: migration.migrationId,
         role: "source",
         serviceId: selected.id,
-        root: rootForApi,
+        root: folderToApiRoot(root),
+        connectionId: effectiveConnectionId,
       });
 
       updateMigration({
@@ -64,7 +117,7 @@ export default function ConnectSource() {
       });
 
       selectSource(selected, root);
-      navigate("/destination");
+      navigate("/summary");
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Failed to set source root.";
@@ -74,25 +127,28 @@ export default function ConnectSource() {
     }
   };
 
-  // Handle return from folder browser
   useEffect(() => {
-    const state = location.state as { selectedFolder?: Folder; serviceId?: string } | null;
-    
+    const state = location.state as {
+      selectedFolder?: Folder;
+      serviceId?: string;
+      connectionId?: string;
+    } | null;
+
     if (state?.selectedFolder && state?.serviceId) {
-      // Create a unique key for this state to prevent double processing
-      const stateKey = `${state.serviceId}-${state.selectedFolder.ServiceID}`;
-      
-      // Skip if we've already processed this state (prevents double processing from StrictMode)
+      const stateKey = `${state.serviceId}-${state.selectedFolder.ServiceID}-${state.connectionId ?? ""}`;
+
       if (processedStateRef.current === stateKey) {
         return;
       }
-      
+
       processedStateRef.current = stateKey;
-      handleFolderSelected(state.serviceId, state.selectedFolder);
-      // Clear the state to prevent re-triggering
+      handleFolderSelected(
+        state.serviceId,
+        state.selectedFolder,
+        state.connectionId
+      );
       window.history.replaceState({}, document.title);
     } else {
-      // Reset the ref when state is cleared
       processedStateRef.current = null;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -102,16 +158,20 @@ export default function ConnectSource() {
     () =>
       services
         .filter((service) => {
-          // Hide Spectra if developer mode is not enabled or showSpectraService is false
           if (service.type === "spectra") {
-            return preferences.developer?.enabled === true && 
-                   preferences.developer?.showSpectraService === true;
+            if (!spectraEligible) return false;
+            return (
+              preferences.developer?.enabled === true &&
+              preferences.developer?.showSpectraService === true
+            );
           }
           return true;
         })
         .map((service) => {
           const visual =
-            serviceSelectionOptions[service.type] ?? defaultServiceSelectionOption;
+            serviceSelectionOptions[service.id] ??
+            serviceSelectionOptions[service.type] ??
+            defaultServiceSelectionOption;
           return {
             id: service.id,
             name: service.displayName,
@@ -120,11 +180,11 @@ export default function ConnectSource() {
             iconAccent: visual.iconAccent,
           };
         }),
-    [services, preferences.developer]
+    [services, preferences.developer, spectraEligible]
   );
 
   const handleSelect = async (id: string) => {
-    if (isPicking) {
+    if (isPicking || migration.spectraLocked) {
       return;
     }
 
@@ -135,22 +195,33 @@ export default function ConnectSource() {
     }
 
     if (selected.type === "spectra") {
-      // Navigate to Spectra config page
-      navigate("/spectra-config", { state: { serviceId: selected.id } });
+      navigate("/spectra-config", {
+        state: { serviceId: selected.id, returnTo: "/connect" },
+      });
       return;
     }
 
-    let root =
-      selected.type === "local"
-        ? undefined
-        : getPresetRootForServiceType(selected.type);
-
     if (selected.type === "local") {
-      // Navigate to folder browser
       navigate(`/browse?serviceId=${selected.id}&role=source`);
       return;
     }
 
+    if (isCloudServiceType(selected.type)) {
+      setIsPicking(true);
+      try {
+        const navigation = await resolveCloudNavigation({
+          role: "source",
+          serviceId: selected.id,
+          connectionId: migration.sourceConnectionId,
+        });
+        navigate(navigation.path);
+      } finally {
+        setIsPicking(false);
+      }
+      return;
+    }
+
+    const root = getPresetRootForServiceType(selected.type);
     if (!root) {
       alert(
         `No preset root configured for service type "${selected.type}". Please configure a root selection flow.`
@@ -160,23 +231,12 @@ export default function ConnectSource() {
 
     try {
       setIsPicking(true);
-      // Transform Folder to API request format
-      const rootForApi = {
-        id: root.ServiceID,  // Service's native identifier
-        parentId: root.parentId,
-        parentPath: root.parentPath,
-        displayName: root.name,
-        locationPath: root.locationPath,
-        lastUpdated: root.lastUpdated,
-        depthLevel: root.depthLevel,
-        type: root.type || "folder",
-      };
-
       const response = await setMigrationRoot({
         migrationId: migration.migrationId,
         role: "source",
         serviceId: selected.id,
-        root: rootForApi,
+        root: folderToApiRoot(root),
+        connectionId: migration.sourceConnectionId,
       });
 
       updateMigration({
@@ -187,7 +247,7 @@ export default function ConnectSource() {
       });
 
       selectSource(selected, root);
-      navigate("/destination");
+      navigate("/summary");
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Failed to set source root.";
@@ -199,7 +259,6 @@ export default function ConnectSource() {
 
   return (
     <SelectionPage
-      eyebrow="Step 1"
       title={
         <>
           Select your{" "}
@@ -207,17 +266,11 @@ export default function ConnectSource() {
           service
         </>
       }
-      summary={
-        error
-          ? error
-          : "Where's the data coming from?"
-      }
+      error={error}
       options={options}
       onSelect={handleSelect}
-      onBack={() => {
-        clearSelections();
-        navigate("/");
-      }}
+      onBack={() => navigate("/summary")}
+      backTitle="Back to migration setup"
       emptyMessage={
         loading
           ? "Loading services..."
@@ -227,4 +280,3 @@ export default function ConnectSource() {
     />
   );
 }
-

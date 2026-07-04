@@ -1,19 +1,30 @@
 import { ReactNode } from "react";
-import { Database, FolderOpen, Server } from "lucide-react";
+import { Cloud, Database, FolderOpen, Server } from "lucide-react";
+
+import googleDriveLogo from "../assets/external/Google_Drive_Logo.svg";
 
 /** Theme-driven icon tones on selection cards (see SelectionPage.css) */
 export type ServiceIconAccent = "a" | "b";
 
 export type ServiceSelectionVisual = {
   icon: ReactNode;
-  description: string;
+  description?: string;
   iconAccent?: ServiceIconAccent;
 };
 
 export const defaultServiceSelectionOption: ServiceSelectionVisual = {
   icon: <Server size={40} />,
-  description: "Connect to this service.",
 };
+
+const googleDriveSelectionIcon = (
+  <img
+    src={googleDriveLogo}
+    alt=""
+    className="service-external-logo"
+    width={44}
+    height={44}
+  />
+);
 
 export const serviceSelectionOptions: Record<string, ServiceSelectionVisual> = {
   local: {
@@ -24,8 +35,18 @@ export const serviceSelectionOptions: Record<string, ServiceSelectionVisual> = {
   },
   spectra: {
     icon: <Database size={40} />,
-    description: "Connect to a Spectra environment.",
     iconAccent: "b",
+  },
+  cloud: {
+    icon: <Cloud size={40} />,
+    description:
+      "Connect a cloud account and browse folders to choose a migration root.",
+    iconAccent: "b",
+  },
+  "google-drive": {
+    icon: googleDriveSelectionIcon,
+    description:
+      "Sign in with Google to browse My Drive, Shared with me, and Shared drives.",
   },
 };
 

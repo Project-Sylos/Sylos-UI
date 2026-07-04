@@ -38,21 +38,6 @@
   top: clamp(0.75rem, 2vw, 1.25rem);
   left: clamp(0.75rem, 2vw, 1.5rem);
   z-index: 2;
-  /* Apply back-button base styles */
-  background: transparent;
-  border: none;
-  color: var(--text-secondary);
-  font-size: 0.95rem;
-  font-weight: 500;
-  letter-spacing: 0.02em;
-  cursor: pointer;
-  transition: color 0.2s ease;
-  display: flex;
-  align-items: center;
-}
-
-.progress-monitor__back:hover {
-  color: var(--text-hover);
 }
 
 .progress-monitor__header {
@@ -521,6 +506,19 @@
   color: #fff;
 }
 
+:root[data-theme="quartz"] .progress-monitor__control--stop {
+  background: rgba(220, 38, 38, 0.1);
+  border-color: rgba(185, 28, 28, 0.38);
+  color: #b91c1c;
+  box-shadow: none;
+}
+
+:root[data-theme="quartz"] .progress-monitor__control--stop:hover:not(:disabled) {
+  background: rgba(220, 38, 38, 0.16);
+  border-color: rgba(185, 28, 28, 0.52);
+  color: #991b1b;
+}
+
 .progress-monitor__control--resume {
   background: rgba(59, 130, 246, 0.12);
   border-color: rgba(59, 130, 246, 0.35);
@@ -533,60 +531,5 @@
 }
 
 .progress-monitor__see-results {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 1rem 2.5rem;
-  background: rgba(
-    var(--glass-bg-base-r),
-    var(--glass-bg-base-g),
-    var(--glass-bg-base-b),
-    var(--button-bg-opacity-secondary)
-  );
-  backdrop-filter: blur(var(--glass-blur-secondary));
-  border: 1px solid rgba(
-    var(--color-base-slate-r),
-    var(--color-base-slate-g),
-    var(--color-base-slate-b),
-    var(--button-border-opacity-default)
-  );
-  border-radius: 16px;
-  color: var(--text-muted);
-  font-size: 1.1rem;
-  font-weight: 600;
-  cursor: not-allowed;
-  transition: all 0.3s ease;
-  box-shadow: 0 var(--glass-shadow-spread-sm) var(--glass-shadow-blur-sm) rgba(
-    var(--glass-bg-base-r),
-    var(--glass-bg-base-g),
-    var(--glass-bg-base-b),
-    var(--glass-shadow-opacity-sm)
-  );
+  flex-shrink: 0;
 }
-
-.progress-monitor__see-results--enabled {
-  background: rgba(34, 211, 153, 0.15);
-  border-color: rgba(34, 211, 153, 0.3);
-  color: #34d399;
-  cursor: pointer;
-  animation: breathe 2s ease-in-out infinite;
-}
-
-.progress-monitor__see-results--enabled:hover {
-  background: rgba(34, 211, 153, 0.25);
-  border-color: rgba(34, 211, 153, 0.5);
-  transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(34, 211, 153, 0.2);
-}
-
-@keyframes breathe {
-  0%, 100% {
-    background: rgba(34, 211, 153, 0.15);
-    border-color: rgba(34, 211, 153, 0.3);
-  }
-  50% {
-    background: rgba(34, 211, 153, 0.25);
-    border-color: rgba(34, 211, 153, 0.5);
-  }
-}
-

@@ -34,19 +34,4 @@
   top: clamp(1.5rem, 4vw, 2.5rem);
   left: clamp(1.5rem, 4vw, 3rem);
   z-index: 2;
-  /* Apply back-button base styles */
-  background: transparent;
-  border: none;
-  color: var(--text-secondary);
-  font-size: 0.95rem;
-  font-weight: 500;
-  letter-spacing: 0.02em;
-  cursor: pointer;
-  transition: color 0.2s ease;
-  display: flex;
-  align-items: center;
-}
-
-.page-container__back:hover {
-  color: var(--text-hover);
 }

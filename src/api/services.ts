@@ -334,6 +334,23 @@ export async function stopMigration(
   return (await response.json()) as MigrationStatusResponse;
 }
 
+function mapDriveFromAPI(drive: Record<string, unknown>): Drive {
+  return {
+    path: String(drive.path ?? ""),
+    name: String(drive.displayName ?? drive.name ?? drive.path ?? ""),
+    displayName: drive.displayName != null ? String(drive.displayName) : undefined,
+    type: String(drive.type ?? ""),
+    mountPoint: drive.mountPoint != null ? String(drive.mountPoint) : undefined,
+    device: drive.device != null ? String(drive.device) : undefined,
+    fileSystem: drive.fileSystem != null ? String(drive.fileSystem) : undefined,
+    mounted: typeof drive.mounted === "boolean" ? drive.mounted : undefined,
+    label: drive.label != null ? String(drive.label) : undefined,
+    totalBytes: typeof drive.totalBytes === "number" ? drive.totalBytes : undefined,
+    freeBytes: typeof drive.freeBytes === "number" ? drive.freeBytes : undefined,
+    usedBytes: typeof drive.usedBytes === "number" ? drive.usedBytes : undefined,
+  };
+}
+
 export async function listDrives(
   serviceId: string
 ): Promise<Drive[]> {
@@ -357,14 +374,39 @@ export async function listDrives(
   }
 
   const data = await response.json();
-  // Normalize API response: API returns displayName (lowercase) but we need name
-  return Array.isArray(data) 
-    ? data.map((drive: any) => ({
-        path: drive.path,
-        name: drive.displayName || drive.name || drive.path, // Map displayName to name
-        type: drive.type,
-      }))
+  return Array.isArray(data)
+    ? data.map((drive: Record<string, unknown>) => mapDriveFromAPI(drive))
     : [];
+}
+
+export async function mountDrive(
+  serviceId: string,
+  device: string
+): Promise<Drive> {
+  const token = getAuthToken() ?? undefined;
+
+  const response = await fetch(
+    `${API_BASE}/api/services/${serviceId}/drives/mount`,
+    {
+      method: "POST",
+      headers: buildHeaders(token, { "Content-Type": "application/json" }),
+      body: JSON.stringify({ device }),
+    }
+  );
+
+  if (!response.ok) {
+    let message = await response.text();
+    try {
+      const parsed = JSON.parse(message) as { message?: string; error?: string };
+      message = parsed.message || parsed.error || message;
+    } catch {
+      // use raw text
+    }
+    throw new Error(message || "Failed to mount drive");
+  }
+
+  const data = (await response.json()) as Record<string, unknown>;
+  return mapDriveFromAPI(data);
 }
 
 export async function listChildren(
@@ -414,20 +456,44 @@ export async function listChildren(
   
   // Normalize API response: API returns capitalized field names inside objects
   // and lowercase collection names (folders, files)
-  const normalizeFolder = (folder: any): Folder => ({
-    ServiceID: folder.ServiceID,
-    Id: folder.Id || folder.ServiceID, // Fallback to ServiceID if Id not provided
-    name: folder.DisplayName || folder.displayName || folder.name, // Map DisplayName to name
-    locationPath: folder.LocationPath,
-    parentId: folder.ParentId,
-    parentPath: folder.ParentPath,
-    lastUpdated: folder.LastUpdated,
-    depthLevel: folder.DepthLevel,
-    type: folder.Type,
+  const normalizeBrowseItem = (item: Record<string, unknown>): Folder => ({
+    ServiceID: String(item.ServiceID ?? item.serviceId ?? ""),
+    Id: String(item.Id ?? item.id ?? item.ServiceID ?? item.serviceId ?? ""),
+    name: String(item.DisplayName ?? item.displayName ?? item.name ?? "Untitled"),
+    locationPath: String(item.LocationPath ?? item.locationPath ?? ""),
+    parentId:
+      item.ParentId != null
+        ? String(item.ParentId)
+        : item.parentId != null
+          ? String(item.parentId)
+          : undefined,
+    parentPath:
+      item.ParentPath != null
+        ? String(item.ParentPath)
+        : item.parentPath != null
+          ? String(item.parentPath)
+          : undefined,
+    lastUpdated:
+      item.LastUpdated != null
+        ? String(item.LastUpdated)
+        : item.lastUpdated != null
+          ? String(item.lastUpdated)
+          : undefined,
+    depthLevel:
+      typeof item.DepthLevel === "number"
+        ? item.DepthLevel
+        : typeof item.depthLevel === "number"
+          ? item.depthLevel
+          : undefined,
+    type: String(item.Type ?? item.type ?? "folder"),
   });
 
-  const folders = (data.folders || []).map(normalizeFolder);
-  const files = data.files || [];
+  const folders = (data.folders || []).map((item: Record<string, unknown>) =>
+    normalizeBrowseItem(item)
+  );
+  const files = (data.files || []).map((item: Record<string, unknown>) =>
+    normalizeBrowseItem(item)
+  );
 
   // Normalize pagination info
   const pagination = data.Pagination || data.pagination;
@@ -517,6 +583,8 @@ export interface PathNodeItem {
   size?: number;              // File size in bytes (only present for files)
   traversalStatus: "pending" | "successful" | "failed" | "excluded" | "not_on_src";
   copyStatus?: string;        // "pending", "successful", or "failed" (for future copy phase)
+  failureLogId?: string;
+  failureMessage?: string;
 }
 
 export interface PathNodes {

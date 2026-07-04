@@ -1,13 +1,16 @@
-import { useEffect, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
-import { FolderOpen, ChevronRight, ArrowLeft, HardDrive, Loader2 } from "lucide-react";
+import { useEffect, useMemo, useState, useRef } from "react";
+import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
+import { FolderOpen, File, ChevronRight, ArrowLeft, HardDrive, Loader2, CircleAlert } from "lucide-react";
 
 import "../App.css";
-import { listDrives, listChildren } from "../api/services";
+import { listDrives, listChildren, mountDrive as mountDriveApi } from "../api/services";
 import { Drive, Folder, PaginationInfo } from "../types/services";
 import { GlassSurfacePanel } from "../components/GlassSurfacePanel";
+import PageBackButton from "../components/PageBackButton";
 import ZoomControl from "../components/ZoomControl";
 import { useZoom } from "../contexts/ZoomContext";
+import { formatBytes } from "../utils/formatBytes";
+import { getBrowseTrailFromFolder } from "../utils/migrationRoots";
 import "./BrowseFolder.css";
 
 interface BreadcrumbItem {
@@ -15,8 +18,70 @@ interface BreadcrumbItem {
   name: string;
 }
 
+function isDriveMounted(drive: Drive): boolean {
+  return drive.mounted !== false;
+}
+
+function getDriveDisplayName(drive: Drive): string {
+  const raw = drive.displayName ?? drive.name;
+  return raw.replace(/\s*\(unmounted\)\s*/i, "").trim() || drive.path;
+}
+
+function getDriveSubtitle(drive: Drive): string {
+  const displayName = getDriveDisplayName(drive);
+  const parts: string[] = [];
+  if (drive.label && drive.label !== displayName) parts.push(drive.label);
+  if (drive.fileSystem) parts.push(drive.fileSystem);
+  if (drive.mountPoint && drive.mountPoint !== drive.path) {
+    parts.push(drive.mountPoint);
+  }
+  if (drive.device) parts.push(drive.device);
+  return parts.join(" · ") || drive.path;
+}
+
+function DriveStorageInfo({ drive }: { drive: Drive }) {
+  if (!isDriveMounted(drive)) {
+    if (drive.totalBytes == null || drive.totalBytes <= 0) {
+      return null;
+    }
+    return (
+      <div className="browse-folder__drive-storage">
+        <div className="browse-folder__drive-stats">
+          {formatBytes(drive.totalBytes)} total capacity
+        </div>
+      </div>
+    );
+  }
+
+  const total = drive.totalBytes ?? 0;
+  if (total <= 0) return null;
+
+  const free = drive.freeBytes ?? 0;
+  const used = drive.usedBytes ?? Math.max(0, total - free);
+  const usedPct = Math.min(100, Math.max(0, (used / total) * 100));
+
+  return (
+    <div className="browse-folder__drive-storage">
+      <div className="browse-folder__drive-meter" role="presentation" aria-hidden="true">
+        <div
+          className="browse-folder__drive-meter-fill"
+          style={{ width: `${usedPct}%` }}
+        />
+      </div>
+      <div className="browse-folder__drive-stats">
+        <span>{formatBytes(free)} free</span>
+        <span className="browse-folder__drive-stats-sep" aria-hidden="true">·</span>
+        <span>{formatBytes(used)} used</span>
+        <span className="browse-folder__drive-stats-sep" aria-hidden="true">·</span>
+        <span>{formatBytes(total)} total</span>
+      </div>
+    </div>
+  );
+}
+
 export default function BrowseFolder() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams] = useSearchParams();
   const serviceIdentifier = searchParams.get("serviceId") || "";
   const role = (searchParams.get("role") as "source" | "destination") || "source";
@@ -24,13 +89,35 @@ export default function BrowseFolder() {
 
   const [drives, setDrives] = useState<Drive[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
+  const [files, setFiles] = useState<Folder[]>([]);
+  const [hideFiles, setHideFiles] = useState(false);
   const [currentPath, setCurrentPath] = useState<string | null>(null);
   const [breadcrumbs, setBreadcrumbs] = useState<BreadcrumbItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isDriveView, setIsDriveView] = useState(true);
+  const [showUnmountedDrives, setShowUnmountedDrives] = useState(false);
+  const [mountingDrive, setMountingDrive] = useState<string | null>(null);
   const [pagination, setPagination] = useState<PaginationInfo | null>(null);
+  const resumeHandledRef = useRef(false);
+  const hideFilesToggleInitializedRef = useRef(false);
+
+  const resumeFolder = (location.state as { resumeFolder?: Folder } | null)
+    ?.resumeFolder;
+
+  const unmountedDriveCount = useMemo(
+    () => drives.filter((drive) => drive.mounted === false).length,
+    [drives]
+  );
+
+  const visibleDrives = useMemo(
+    () =>
+      showUnmountedDrives
+        ? drives
+        : drives.filter((drive) => isDriveMounted(drive)),
+    [drives, showUnmountedDrives]
+  );
 
   useEffect(() => {
     if (!serviceIdentifier) {
@@ -39,11 +126,66 @@ export default function BrowseFolder() {
       return;
     }
 
-    loadDrives();
-  }, [serviceIdentifier]);
+    if (resumeFolder && !resumeHandledRef.current) {
+      resumeHandledRef.current = true;
+      void openAtFolder(resumeFolder);
+      window.history.replaceState({}, document.title);
+      return;
+    }
 
-  const loadDrives = async () => {
+    if (!resumeFolder) {
+      resumeHandledRef.current = false;
+      loadDrives();
+    }
+  }, [serviceIdentifier, resumeFolder]);
+
+  useEffect(() => {
+    if (!hideFilesToggleInitializedRef.current) {
+      hideFilesToggleInitializedRef.current = true;
+      return;
+    }
+    if (isDriveView || !currentPath || breadcrumbs.length === 0) {
+      return;
+    }
+    const currentCrumb = breadcrumbs[breadcrumbs.length - 1];
+    void loadChildren(currentCrumb.path, currentCrumb.name, false, { hideFiles });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hideFiles]);
+
+  const openAtFolder = async (folder: Folder) => {
     setLoading(true);
+    setError(null);
+
+    try {
+      const breadcrumbsTrail = getBrowseTrailFromFolder(folder);
+      const response = await listChildren(serviceIdentifier, folder.ServiceID, role, {
+        offset: 0,
+        limit: 100,
+        ...(hideFiles ? { foldersOnly: true } : {}),
+      });
+
+      setFolders(response.folders || []);
+      setFiles(hideFiles ? [] : response.files || []);
+      setCurrentPath(folder.ServiceID);
+      setIsDriveView(false);
+      setBreadcrumbs(breadcrumbsTrail);
+      setPagination(response.pagination ?? null);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to resume folder location."
+      );
+      await loadDrives();
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadDrives = async (options?: { silent?: boolean }) => {
+    if (!options?.silent) {
+      setLoading(true);
+    }
     setError(null);
     try {
       const drivesList = await listDrives(serviceIdentifier);
@@ -52,6 +194,7 @@ export default function BrowseFolder() {
       setCurrentPath(null);
       setBreadcrumbs([]);
       setFolders([]);
+      setFiles([]);
       setPagination(null);
     } catch (err) {
       setError(
@@ -60,11 +203,20 @@ export default function BrowseFolder() {
           : "Failed to load drives."
       );
     } finally {
-      setLoading(false);
+      if (!options?.silent) {
+        setLoading(false);
+      }
     }
   };
 
-  const loadChildren = async (path: string, name: string, append = false) => {
+  const loadChildren = async (
+    path: string,
+    name: string,
+    append = false,
+    options?: { hideFiles?: boolean }
+  ) => {
+    const omitFiles = options?.hideFiles ?? hideFiles;
+
     if (!append) {
       setLoading(true);
       setError(null);
@@ -77,33 +229,30 @@ export default function BrowseFolder() {
       const response = await listChildren(serviceIdentifier, path, role, {
         offset,
         limit: 100,
-        foldersOnly: true, // Only show folders in the browser
+        ...(omitFiles ? { foldersOnly: true } : {}),
       });
       
       if (append) {
-        // Append to existing folders
         setFolders((prev) => [...prev, ...(response.folders || [])]);
+        if (!omitFiles) {
+          setFiles((prev) => [...prev, ...(response.files || [])]);
+        }
       } else {
-        // Replace folders
         setFolders(response.folders || []);
+        setFiles(omitFiles ? [] : response.files || []);
         setCurrentPath(path);
         setIsDriveView(false);
         
-        // Update breadcrumbs
         const newBreadcrumb: BreadcrumbItem = { path, name: name };
         setBreadcrumbs((prev) => {
-          // Find if this path is already in breadcrumbs (for back navigation)
           const index = prev.findIndex((b) => b.path === path);
           if (index >= 0) {
-            // If found, truncate to this point
             return prev.slice(0, index + 1);
           }
-          // Otherwise, add to the end
           return [...prev, newBreadcrumb];
         });
       }
       
-      // Update pagination info
       if (response.pagination) {
         setPagination(response.pagination);
       }
@@ -129,7 +278,22 @@ export default function BrowseFolder() {
   };
 
   const handleDriveSelect = (drive: Drive) => {
+    if (!isDriveMounted(drive)) return;
     loadChildren(drive.path, drive.name);
+  };
+
+  const handleMountDrive = async (drive: Drive) => {
+    const device = drive.device || drive.path;
+    setMountingDrive(device);
+    setError(null);
+    try {
+      await mountDriveApi(serviceIdentifier, device);
+      await loadDrives({ silent: true });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to mount drive.");
+    } finally {
+      setMountingDrive(null);
+    }
   };
 
   const handleFolderClick = (folder: Folder) => {
@@ -144,10 +308,11 @@ export default function BrowseFolder() {
     } else if (breadcrumbs.length === 1) {
       // Go back to drives view
       loadDrives();
-    } else {
-      // Already at drives view, go back to previous page
-      navigate(-1 as any);
     }
+  };
+
+  const handlePageBack = () => {
+    navigate(role === "destination" ? "/destination" : "/connect");
   };
 
   const handleSelectRoot = async () => {
@@ -215,35 +380,57 @@ export default function BrowseFolder() {
       lastUpdated: new Date().toISOString(),
       depthLevel: breadcrumbs.length - 1, // Depth from drive (drive is 0)
       type: "folder",
+      browseTrail: breadcrumbs,
     };
 
-    // Navigate to the appropriate route based on role
-    // Pass role in state so the destination component knows how to handle it
+    // Return to the matching service picker; it saves the root and returns to setup.
     if (role === "source") {
-      // After selecting source root, go to destination selection
-      navigate("/destination", { state: { selectedFolder, serviceId: serviceIdentifier, role: "source" } });
+      navigate("/connect", {
+        state: { selectedFolder, serviceId: serviceIdentifier, role: "source" },
+      });
     } else if (role === "destination") {
-      // After selecting destination root, stay on destination page (it will handle the migration start)
-      navigate("/destination", { state: { selectedFolder, serviceId: serviceIdentifier, role: "destination" } });
+      navigate("/destination", {
+        state: { selectedFolder, serviceId: serviceIdentifier, role: "destination" },
+      });
     } else {
-      // Fallback to going back
       console.warn("Unknown role, navigating back:", role);
       navigate(-1 as any, { state: { selectedFolder, serviceId: serviceIdentifier, role } });
     }
   };
 
-  const canGoBack = breadcrumbs.length > 0 || !isDriveView;
+  const canGoBack = breadcrumbs.length > 0;
 
   return (
     <section className="browse-folder">
-      <div className="browse-folder__header">
-        <h1 className="browse-folder__title">
-          {role === "source" ? "Select Source Folder" : "Select Destination Folder"}
-        </h1>
-        <ZoomControl />
-      </div>
-
       <GlassSurfacePanel className="browse-folder__content">
+        <PageBackButton
+          onClick={handlePageBack}
+          title={
+            role === "destination"
+              ? "Back to destination service selection"
+              : "Back to source service selection"
+          }
+          className="browse-folder__page-back"
+        />
+
+        <header className="browse-folder__header">
+          <h1 className="browse-folder__title">
+            {role === "source" ? (
+              <>
+                Select your{" "}
+                <span className="browse-folder__highlight--magenta">source</span>{" "}
+                folder
+              </>
+            ) : (
+              <>
+                Select your{" "}
+                <span className="browse-folder__highlight--cyan">destination</span>{" "}
+                folder
+              </>
+            )}
+          </h1>
+        </header>
+
         {error && (
           <div className="browse-folder__error">{error}</div>
         )}
@@ -253,9 +440,10 @@ export default function BrowseFolder() {
           {canGoBack && (
             <button
               type="button"
-              className="browse-folder__back-button"
+              className="page-back-button browse-folder__back-button"
               onClick={handleBack}
               title="Go back"
+              aria-label="Go back"
             >
               <ArrowLeft size={20} />
             </button>
@@ -287,32 +475,117 @@ export default function BrowseFolder() {
 
         {/* Content area */}
         <div className="browse-folder__list-container" style={{ fontSize: `${zoomLevel}rem` }}>
+          {isDriveView && !loading && unmountedDriveCount > 0 && (
+            <div className="browse-folder__drive-toolbar">
+              <button
+                type="button"
+                className="browse-folder__drive-toggle"
+                onClick={() => setShowUnmountedDrives((current) => !current)}
+              >
+                {showUnmountedDrives
+                  ? `Hide unmounted drives (${unmountedDriveCount})`
+                  : `Show unmounted drives (${unmountedDriveCount})`}
+              </button>
+            </div>
+          )}
+
+          {!isDriveView && !loading && (
+            <div className="browse-folder__drive-toolbar">
+              <button
+                type="button"
+                className={`browse-folder__drive-toggle${
+                  hideFiles ? " browse-folder__drive-toggle--active" : ""
+                }`}
+                onClick={() => setHideFiles((current) => !current)}
+                title={
+                  hideFiles
+                    ? "Show files in this folder (files cannot be selected as a root)"
+                    : "Hide files and show folders only"
+                }
+              >
+                {hideFiles ? "Show files" : "Hide files"}
+              </button>
+            </div>
+          )}
+
           <div className="browse-folder__list">
           {loading ? (
             <div className="browse-folder__empty">Loading...</div>
           ) : isDriveView ? (
             drives.length === 0 ? (
               <div className="browse-folder__empty">No drives available.</div>
+            ) : visibleDrives.length === 0 ? (
+              <div className="browse-folder__empty">
+                No mounted drives available.
+                {unmountedDriveCount > 0
+                  ? ` Show unmounted drives (${unmountedDriveCount}) to mount one.`
+                  : null}
+              </div>
             ) : (
-              drives.map((drive) => (
-                <button
-                  key={drive.path}
-                  type="button"
-                  className="browse-folder__item"
-                  onClick={() => handleDriveSelect(drive)}
-                >
-                  <div className="browse-folder__item-icon">
-                    <HardDrive size={32} color="#ffffff" />
+              visibleDrives.map((drive) => {
+                const mounted = isDriveMounted(drive);
+                const device = drive.device || drive.path;
+                const isMounting = mountingDrive === device;
+
+                if (mounted) {
+                  return (
+                    <button
+                      key={drive.path}
+                      type="button"
+                      className="browse-folder__item browse-folder__item--drive"
+                      onClick={() => handleDriveSelect(drive)}
+                    >
+                      <div className="browse-folder__item-icon">
+                        <HardDrive size={32} />
+                      </div>
+                      <div className="browse-folder__item-info">
+                        <div className="browse-folder__item-name">{getDriveDisplayName(drive)}</div>
+                        <div className="browse-folder__item-meta">{getDriveSubtitle(drive)}</div>
+                        <DriveStorageInfo drive={drive} />
+                      </div>
+                      <ChevronRight size={20} className="browse-folder__item-arrow" />
+                    </button>
+                  );
+                }
+
+                return (
+                  <div
+                    key={drive.path}
+                    className="browse-folder__item browse-folder__item--drive browse-folder__item--unmounted"
+                  >
+                    <span
+                      className="browse-folder__drive-unmounted-indicator"
+                      title="This drive is not mounted"
+                      aria-label="This drive is not mounted"
+                    >
+                      <CircleAlert size={18} strokeWidth={2.25} />
+                    </span>
+                    <div className="browse-folder__item-icon">
+                      <HardDrive size={32} />
+                    </div>
+                    <div className="browse-folder__item-info">
+                      <div className="browse-folder__item-name">{getDriveDisplayName(drive)}</div>
+                      <div className="browse-folder__item-meta">{getDriveSubtitle(drive)}</div>
+                      <DriveStorageInfo drive={drive} />
+                    </div>
+                    <button
+                      type="button"
+                      className="browse-folder__drive-mount"
+                      onClick={() => void handleMountDrive(drive)}
+                      disabled={isMounting}
+                      title="Mount this drive"
+                    >
+                      {isMounting ? (
+                        <Loader2 size={18} className="browse-folder__spin" />
+                      ) : (
+                        "Mount"
+                      )}
+                    </button>
                   </div>
-                  <div className="browse-folder__item-info">
-                    <div className="browse-folder__item-name">{drive.name}</div>
-                    <div className="browse-folder__item-meta">{drive.path}</div>
-                  </div>
-                  <ChevronRight size={20} className="browse-folder__item-arrow" />
-                </button>
-              ))
+                );
+              })
             )
-          ) : folders.length === 0 ? (
+          ) : folders.length === 0 && (hideFiles || files.length === 0) ? (
             <div className="browse-folder__empty">This folder is empty.</div>
           ) : (
             <>
@@ -324,7 +597,7 @@ export default function BrowseFolder() {
                   onClick={() => handleFolderClick(folder)}
                 >
                   <div className="browse-folder__item-icon">
-                    <FolderOpen size={32} color="#ffffff" />
+                    <FolderOpen size={32} />
                   </div>
                   <div className="browse-folder__item-info">
                     <div className="browse-folder__item-name">{folder.name}</div>
@@ -333,6 +606,23 @@ export default function BrowseFolder() {
                   <ChevronRight size={20} className="browse-folder__item-arrow" />
                 </button>
               ))}
+              {!hideFiles &&
+                files.map((file) => (
+                  <div
+                    key={file.ServiceID}
+                    className="browse-folder__item browse-folder__item--file"
+                    title="Files cannot be selected as a migration root"
+                    aria-disabled="true"
+                  >
+                    <div className="browse-folder__item-icon">
+                      <File size={32} />
+                    </div>
+                    <div className="browse-folder__item-info">
+                      <div className="browse-folder__item-name">{file.name}</div>
+                      <div className="browse-folder__item-meta">{file.ServiceID}</div>
+                    </div>
+                  </div>
+                ))}
               {pagination?.hasMore && (
                 <button
                   type="button"
@@ -346,7 +636,10 @@ export default function BrowseFolder() {
                       Loading...
                     </>
                   ) : (
-                    `Load More (${pagination.totalFolders - folders.length} remaining)`
+                    `Load More (${Math.max(
+                      0,
+                      pagination.total - folders.length - (hideFiles ? 0 : files.length)
+                    )} remaining)`
                   )}
                 </button>
               )}
@@ -355,18 +648,20 @@ export default function BrowseFolder() {
           </div>
         </div>
 
-        {/* Select button */}
-        {!isDriveView && currentPath && (
-          <div className="browse-folder__footer">
-            <button
-              type="button"
-              className="glass-button"
-              onClick={handleSelectRoot}
-            >
-              Select
-            </button>
+        <div className="browse-folder__footer">
+          <ZoomControl />
+          <div className="browse-folder__footer-actions">
+            {!isDriveView && currentPath && (
+              <button
+                type="button"
+                className="glass-button"
+                onClick={handleSelectRoot}
+              >
+                Select
+              </button>
+            )}
           </div>
-        )}
+        </div>
       </GlassSurfacePanel>
     </section>
   );

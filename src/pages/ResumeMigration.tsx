@@ -179,7 +179,7 @@ export default function ResumeMigration() {
     if (hasRoots) {
       return `/summary`;
     }
-    return "/connect";
+    return "/summary";
   };
 
   const handleResume = async (migrationId: string) => {
@@ -282,13 +282,12 @@ export default function ResumeMigration() {
         className="resume-migration"
         contentClassName="resume-migration__content"
         onBack={() => navigate("/choose")}
-        backLabel="← Back"
+        backTitle="Back to migration type"
       >
       <header className="resume-migration__header">
-          <p className="resume-migration__eyebrow">Resume Migration</p>
           <h1>Select Migration to Resume</h1>
           <p className="resume-migration__summary">
-            Choose an existing migration to resume from, or upload a new database file.
+            Choose a migration below, or upload a database file to add one.
           </p>
         </header>
 

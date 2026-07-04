@@ -1,4 +1,5 @@
 import "./App.css";
+import "./oauthBootstrap";
 import { HashRouter, Route, Routes } from "react-router-dom";
 
 import { PreferencesProvider } from "./contexts/PreferencesContext";
@@ -16,6 +17,9 @@ import Splash from "./pages/Splash";
 import ChooseMigrationType from "./pages/ChooseMigrationType";
 import ResumeMigration from "./pages/ResumeMigration";
 import BrowseFolder from "./pages/BrowseFolder";
+import BrowseCloudFolder from "./pages/BrowseCloudFolder";
+import ConnectCloudAccount from "./pages/ConnectCloudAccount";
+import OAuthCallback from "./pages/OAuthCallback";
 import MigrationSummary from "./pages/MigrationSummary";
 import ProgressMonitor from "./pages/ProgressMonitor";
 import PathReview from "./pages/PathReview";
@@ -45,6 +49,9 @@ export default function App() {
                 <Route path="/path-review/:migrationId" element={<PathReview />} />
                 <Route path="/resume" element={<ResumeMigration />} />
                 <Route path="/browse" element={<BrowseFolder />} />
+                <Route path="/browse-cloud" element={<BrowseCloudFolder />} />
+                <Route path="/cloud/connect" element={<ConnectCloudAccount />} />
+                <Route path="/oauth/callback" element={<OAuthCallback />} />
                 <Route path="/settings" element={<Settings />} />
               </Routes>
               </HelpModalProvider>

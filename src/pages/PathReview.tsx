@@ -37,6 +37,7 @@ import {
 } from "../types/migrations";
 import ItemHoverCard from "../components/ItemHoverCard";
 import { GlassSurfacePanel } from "../components/GlassSurfacePanel";
+import PageBackButton from "../components/PageBackButton";
 import Toast from "../components/Toast";
 import ConfirmDialog from "../components/ConfirmDialog";
 import ZoomControl from "../components/ZoomControl";
@@ -45,6 +46,7 @@ import PathReviewListView from "./PathReviewListView";
 import PathReviewStatusIcon from "../components/PathReviewStatusIcon";
 import PathReviewLegend from "../components/PathReviewLegend";
 import PathReviewFooterInfo from "../components/PathReviewFooterInfo";
+import { getDiffItemFailureMessage } from "../utils/diffFailureMessage";
 import "../App.css";
 import "./PathReview.css";
 
@@ -1325,14 +1327,11 @@ export default function PathReview() {
   return (
     <section className="path-review">
       <GlassSurfacePanel className="path-review__content path-review__content--with-button">
-        <button
-          type="button"
-          className="path-review__back"
+        <PageBackButton
           onClick={() => navigate(-1)}
-        >
-          <ArrowLeft size={16} style={{ marginRight: "0.5rem" }} />
-          Back
-        </button>
+          title="Go back to previous page"
+          className="path-review__back"
+        />
         <header className="path-review__header">
           <h1>
             {isCopyPhase(migrationStatus) ? (
@@ -1537,6 +1536,7 @@ export default function PathReview() {
                   const isHighlighted = highlightedItemId === item.id;
                   // isChecked is based on copyStatus: not excluded and not successful
                   const isChecked = !status.isExcluded && !status.isSuccessful;
+                  const failureMessage = getDiffItemFailureMessage(item);
 
                   return (
                     <div
@@ -1580,7 +1580,19 @@ export default function PathReview() {
                             : "default" 
                         }}
                       >
-                        <div className={`path-review__item-name ${isFolder ? "path-review__item-name--folder" : ""}`}>{item.name}</div>
+                        <div className="path-review__item-info-row">
+                          <div className={`path-review__item-name ${isFolder ? "path-review__item-name--folder" : ""}`}>
+                            {item.name}
+                          </div>
+                          {failureMessage && (
+                            <div
+                              className="path-review__item-failure-message"
+                              title={failureMessage}
+                            >
+                              {failureMessage}
+                            </div>
+                          )}
+                        </div>
                         {!isFolder && item.size !== undefined && (
                           <div className="path-review__item-meta">
                             {(item.size / 1024 / 1024).toFixed(2)} MB

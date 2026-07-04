@@ -1,4 +1,13 @@
-# node modules
+# dependencies & build
 node_modules/
 dist/
 build/
+
+# local env (preferred for secrets)
+.env
+.env.local
+.env.*.local
+
+# Google OAuth JSON — keep creds/README.txt, ignore secrets
+creds/*.json
+creds.json

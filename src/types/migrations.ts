@@ -289,6 +289,7 @@ export interface QueueMetrics {
   total?: number;
   items_per_second?: number;
   total_pending?: number;
+  bytes?: number;
   bytes_copied_total?: number;
   total_bytes_copied?: number;
   bytes_total?: number;

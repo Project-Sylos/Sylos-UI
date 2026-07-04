@@ -19,33 +19,7 @@
 
 .spectra-config__header h1 {
   font-size: clamp(1.25rem, 2.5vw, 1.75rem);
-  margin: 0.25rem 0 0;
-}
-
-.spectra-config__eyebrow {
-  text-transform: uppercase;
-  font-size: 0.65rem;
-  letter-spacing: 0.3em;
-  color: var(--text-tertiary);
   margin: 0;
-}
-
-.spectra-config__summary {
-  margin: 0.35rem auto 0;
-  max-width: 520px;
-  color: var(--text-secondary);
-  line-height: 1.4;
-  font-size: 0.85rem;
-}
-
-.spectra-config__link {
-  color: var(--accent-cyan);
-  text-decoration: underline;
-  transition: color 0.2s ease;
-}
-
-.spectra-config__link:hover {
-  color: #00cccc;
 }
 
 .spectra-config__highlight {

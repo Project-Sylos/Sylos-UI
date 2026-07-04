@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
-  ArrowLeft,
   FolderOpen,
   Cloud,
   Eye,
@@ -30,6 +29,7 @@ import { useSelection } from "../context/SelectionContext";
 import HelpTooltip from "../components/HelpTooltip";
 import ConfirmDialog from "../components/ConfirmDialog";
 import { GlassSurfacePanel } from "../components/GlassSurfacePanel";
+import PageBackButton from "../components/PageBackButton";
 import "./ProgressMonitor.css";
 
 const STATUS_POLL_INTERVAL = 1000;
@@ -211,8 +211,12 @@ export default function ProgressMonitor() {
         return;
       }
       
-      // Only update if we have valid data
-      if (response.srcTraversal !== undefined || response.dstTraversal !== undefined) {
+      // Only update if we have valid data (copy phase may only return `copy`)
+      if (
+        response.srcTraversal !== undefined ||
+        response.dstTraversal !== undefined ||
+        response.copy !== undefined
+      ) {
         setQueueMetrics({
           srcTraversal: response.srcTraversal ?? null,
           dstTraversal: response.dstTraversal ?? null,
@@ -516,14 +520,11 @@ export default function ProgressMonitor() {
   return (
     <section className="progress-monitor">
       <GlassSurfacePanel className="progress-monitor__content">
-        <button
-          type="button"
-          className="progress-monitor__back"
+        <PageBackButton
           onClick={() => navigate("/")}
-        >
-          <ArrowLeft size={16} style={{ marginRight: "0.5rem" }} />
-          Back to home
-        </button>
+          title="Back to home"
+          className="progress-monitor__back"
+        />
         <header className="progress-monitor__header">
           <h1>
             {showCopyUI ? (
@@ -647,10 +648,11 @@ export default function ProgressMonitor() {
                     <div className="progress-monitor__metric-row">
                       <span>Bytes:</span>
                       <span>{formatBytes(
-                        queueMetrics.copy.bytes_copied_total || 
-                        queueMetrics.copy.total_bytes_copied || 
-                        queueMetrics.copy.bytes_total || 
-                        0
+                        queueMetrics.copy.bytes ??
+                          queueMetrics.copy.bytes_copied_total ??
+                          queueMetrics.copy.total_bytes_copied ??
+                          queueMetrics.copy.bytes_total ??
+                          0
                       )}</span>
                     </div>
                     {/* Rates */}
@@ -895,9 +897,7 @@ export default function ProgressMonitor() {
             )}
             <button
               type="button"
-              className={`progress-monitor__see-results ${
-                showResultsButton ? "progress-monitor__see-results--enabled" : ""
-              }`}
+              className="glass-button glass-button--progress-cta progress-monitor__see-results"
               onClick={() => {
                 if (showResultsButton && migrationId) {
                   navigate(`/path-review/${migrationId}`);

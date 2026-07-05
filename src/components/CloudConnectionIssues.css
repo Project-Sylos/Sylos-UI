@@ -87,3 +87,24 @@
   font-size: 0.88rem;
   line-height: 1.45;
 }
+
+:root[data-theme="quartz"] .cloud-connection-issues {
+  border-color: rgba(220, 38, 38, 0.22);
+  background: rgba(254, 242, 242, 0.92);
+}
+
+:root[data-theme="quartz"] .cloud-connection-issues__message {
+  color: #b91c1c;
+}
+
+:root[data-theme="quartz"] .cloud-connection-status__badge--valid {
+  color: #15803d;
+  background: rgba(220, 252, 231, 0.95);
+  border-color: rgba(34, 197, 94, 0.28);
+}
+
+:root[data-theme="quartz"] .cloud-connection-status__badge--invalid {
+  color: #b91c1c;
+  background: rgba(254, 242, 242, 0.95);
+  border-color: rgba(239, 68, 68, 0.28);
+}

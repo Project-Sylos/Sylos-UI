@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { CheckCircle2, Loader2, LogIn, LogOut, Unplug } from "lucide-react";
+import { CheckCircle2, Cloud, Loader2, LogIn, LogOut, Unplug, User, Users } from "lucide-react";
 
 import "../App.css";
 import googleDriveLogo from "../assets/external/Google_Drive_Logo.svg";
+import dropboxLogo from "../assets/external/dropbox-1-logo-png-transparent.png";
 import { createConnection, fetchProviders } from "../api/providers";
 import { GlassSurfacePanel } from "../components/GlassSurfacePanel";
 import PageBackButton from "../components/PageBackButton";
@@ -14,29 +15,64 @@ import {
   buildCloudBrowsePath,
   disconnectCloudConnection,
 } from "../utils/cloudConnections";
+import {
+  createOAuthState,
+  getOAuthRedirectUri,
+  saveOAuthPendingSession,
+} from "../utils/cloudOAuth";
+import {
+  buildCloudProviderAuthUrl,
+  getCloudProviderDisplayName,
+  getCloudProviderOAuthEnvHint,
+  getCloudProviderOAuthCredentials,
+  getCloudProviderSignInBrand,
+  isCloudProviderOAuthConfigured,
+  resolveCloudProviderScopes,
+} from "../utils/cloudProviderOAuth";
 import { serviceIdToProviderId } from "../utils/cloudProviders";
 import {
-  buildGoogleAuthUrl,
-  createOAuthState,
-  getGoogleClientId,
-  getOAuthRedirectUri,
-  isGoogleOAuthConfigured,
-  saveOAuthPendingSession,
-} from "../utils/googleOAuth";
+  DropboxAccountType,
+  getDropboxAccountTypeLabel,
+  getDropboxAccountTypeSummary,
+  parseDropboxAccountType,
+} from "../utils/dropboxOAuth";
 import "./BrowseFolder.css";
 import "../components/CloudConnectionIssues.css";
 
-const DEFAULT_GOOGLE_SCOPES = ["https://www.googleapis.com/auth/drive"];
+function ProviderConnectIcon({ providerId }: { providerId: string }) {
+  if (providerId === "google_drive") {
+    return (
+      <img
+        src={googleDriveLogo}
+        alt=""
+        className="service-external-logo service-external-logo--connect"
+      />
+    );
+  }
+
+  if (providerId === "dropbox") {
+    return (
+      <img
+        src={dropboxLogo}
+        alt=""
+        className="service-external-logo service-external-logo--connect"
+      />
+    );
+  }
+
+  return <Cloud size={48} className="browse-cloud-connect__generic-cloud-icon" />;
+}
 
 export default function ConnectCloudAccount() {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const { migration, updateMigration } = useSelection();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { migration, updateMigration, persistSelections } = useSelection();
 
   const serviceId = searchParams.get("serviceId") ?? "";
   const providerId =
     searchParams.get("providerId") ?? serviceIdToProviderId(serviceId);
   const role = (searchParams.get("role") as "source" | "destination") || "source";
+  const dropboxAccountType = parseDropboxAccountType(searchParams.get("accountType"));
   const shouldReconnect = searchParams.get("reconnect") === "1";
   const queryConnectionId = searchParams.get("connectionId") ?? undefined;
   const migrationConnectionId =
@@ -53,7 +89,8 @@ export default function ConnectCloudAccount() {
   const reconnectHandledRef = useRef(false);
 
   const returnPath = role === "destination" ? "/destination" : "/connect";
-  const oauthConfigured = isGoogleOAuthConfigured();
+  const oauthConfigured = isCloudProviderOAuthConfigured(providerId);
+  const signInBrand = getCloudProviderSignInBrand(providerId);
 
   const {
     checking: checkingConnection,
@@ -114,7 +151,7 @@ export default function ConnectCloudAccount() {
       setDisconnecting(true);
       setError(null);
       try {
-        await disconnectCloudConnection(providerId, existingConnectionId);
+        await disconnectCloudConnection(providerId, existingConnectionId ?? "");
         updateMigration(
           role === "source"
             ? { sourceConnectionId: undefined }
@@ -142,8 +179,7 @@ export default function ConnectCloudAccount() {
 
   const providerLabel = useMemo(() => {
     if (provider?.displayName) return provider.displayName;
-    if (providerId === "google_drive") return "Google Drive";
-    return providerId.replace(/_/g, " ");
+    return getCloudProviderDisplayName(providerId);
   }, [provider, providerId]);
 
   const clearConnectionState = () => {
@@ -184,14 +220,17 @@ export default function ConnectCloudAccount() {
 
   const handleSignIn = async () => {
     if (!oauthConfigured) {
-      setError(
-        "Set VITE_GOOGLE_CLIENT_ID and VITE_GOOGLE_CLIENT_SECRET in the app environment to enable Google sign-in."
-      );
+      setError(getCloudProviderOAuthEnvHint(providerId));
       return;
     }
 
     if (!providerId || !serviceId) {
       setError("Missing cloud service information.");
+      return;
+    }
+
+    if (providerId === "dropbox" && !dropboxAccountType) {
+      setError("Choose a Dropbox account type before signing in.");
       return;
     }
 
@@ -210,8 +249,9 @@ export default function ConnectCloudAccount() {
       );
 
       const state = createOAuthState();
-      const scopes =
-        provider?.scopes?.length ? provider.scopes : DEFAULT_GOOGLE_SCOPES;
+      const scopes = resolveCloudProviderScopes(providerId, provider?.scopes, {
+        dropboxAccountType: dropboxAccountType ?? undefined,
+      });
 
       saveOAuthPendingSession({
         providerId,
@@ -222,15 +262,28 @@ export default function ConnectCloudAccount() {
         state,
         scopes,
         returnPath,
+        dropboxAccountType: dropboxAccountType ?? undefined,
       });
 
-      const authUrl = buildGoogleAuthUrl({
-        clientId: getGoogleClientId(),
+      const creds = getCloudProviderOAuthCredentials(providerId);
+      if (!creds) {
+        setError(getCloudProviderOAuthEnvHint(providerId));
+        setConnecting(false);
+        return;
+      }
+
+      const authUrl = buildCloudProviderAuthUrl(providerId, {
+        clientId: creds.clientId,
         redirectUri: getOAuthRedirectUri(),
         scopes,
         state,
       });
 
+      persistSelections(
+        role === "source"
+          ? { sourceConnectionId: connection.connectionId }
+          : { destinationConnectionId: connection.connectionId }
+      );
       window.location.href = authUrl;
     } catch (err) {
       const message =
@@ -251,6 +304,26 @@ export default function ConnectCloudAccount() {
     !shouldReconnect &&
     !checkingConnection &&
     connectionValid === false;
+
+  const needsDropboxAccountPicker =
+    providerId === "dropbox" &&
+    !showConnectedPanel &&
+    !dropboxAccountType &&
+    !loading &&
+    !checkingConnection &&
+    !disconnecting;
+
+  const selectDropboxAccountType = (accountType: DropboxAccountType) => {
+    const next = new URLSearchParams(searchParams);
+    next.set("accountType", accountType);
+    setSearchParams(next);
+  };
+
+  const clearDropboxAccountType = () => {
+    const next = new URLSearchParams(searchParams);
+    next.delete("accountType");
+    setSearchParams(next);
+  };
 
   return (
     <section className="browse-folder">
@@ -297,11 +370,7 @@ export default function ConnectCloudAccount() {
         ) : showConnectedPanel ? (
           <div className="browse-cloud-connect">
             <div className="browse-cloud-connect__icon" aria-hidden="true">
-              <img
-                src={googleDriveLogo}
-                alt=""
-                className="service-external-logo service-external-logo--connect"
-              />
+              <ProviderConnectIcon providerId={providerId} />
             </div>
             <h2 className="browse-cloud-connect__provider">{providerLabel}</h2>
             <div className="cloud-connection-status">
@@ -334,21 +403,75 @@ export default function ConnectCloudAccount() {
               </div>
             </div>
           </div>
-        ) : (
+        ) : needsDropboxAccountPicker ? (
           <div className="browse-cloud-connect">
             <div className="browse-cloud-connect__icon" aria-hidden="true">
-              <img
-                src={googleDriveLogo}
-                alt=""
-                className="service-external-logo service-external-logo--connect"
-              />
+              <ProviderConnectIcon providerId={providerId} />
             </div>
             <h2 className="browse-cloud-connect__provider">{providerLabel}</h2>
             <p className="browse-cloud-connect__summary">
+              Which type of Dropbox account are you connecting?
+            </p>
+
+            <div className="browse-cloud-connect__account-types">
+              <button
+                type="button"
+                className="browse-cloud-connect__account-type"
+                onClick={() => selectDropboxAccountType("personal")}
+              >
+                <User size={28} aria-hidden="true" />
+                <span className="browse-cloud-connect__account-type-title">
+                  Personal
+                </span>
+                <span className="browse-cloud-connect__account-type-desc">
+                  Individual My Dropbox account
+                </span>
+              </button>
+              <button
+                type="button"
+                className="browse-cloud-connect__account-type"
+                onClick={() => selectDropboxAccountType("work")}
+              >
+                <Users size={28} aria-hidden="true" />
+                <span className="browse-cloud-connect__account-type-title">
+                  Work / Team
+                </span>
+                <span className="browse-cloud-connect__account-type-desc">
+                  Dropbox Business - team space, team folders, shared folders
+                </span>
+              </button>
+            </div>
+
+            {error && <p className="browse-folder__error">{error}</p>}
+          </div>
+        ) : (
+          <div className="browse-cloud-connect">
+            <div className="browse-cloud-connect__icon" aria-hidden="true">
+              <ProviderConnectIcon providerId={providerId} />
+            </div>
+            <h2 className="browse-cloud-connect__provider">{providerLabel}</h2>
+            {providerId === "dropbox" && dropboxAccountType && (
+              <p className="browse-cloud-connect__account-badge">
+                {getDropboxAccountTypeLabel(dropboxAccountType)} account
+              </p>
+            )}
+            <p className="browse-cloud-connect__summary">
               {showInvalidPanel
                 ? "This cloud connection is no longer valid. Sign in again to browse folders and choose a migration root."
-                : "Sign in to browse folders and choose a root folder for your migration."}
+                : providerId === "dropbox" && dropboxAccountType
+                  ? getDropboxAccountTypeSummary(dropboxAccountType)
+                  : "Sign in to browse folders and choose a root folder for your migration."}
             </p>
+
+            {providerId === "dropbox" && dropboxAccountType && (
+              <button
+                type="button"
+                className="browse-cloud-connect__change-account-type"
+                onClick={clearDropboxAccountType}
+              >
+                Change account type
+              </button>
+            )}
 
             {showInvalidPanel && (
               <span className="cloud-connection-status__badge cloud-connection-status__badge--invalid">
@@ -359,7 +482,7 @@ export default function ConnectCloudAccount() {
 
             {!oauthConfigured && (
               <p className="browse-folder__error browse-cloud-connect__notice">
-                Google OAuth credentials are not configured for this build.
+                {signInBrand} OAuth credentials are not configured for this build.
               </p>
             )}
 
@@ -369,7 +492,12 @@ export default function ConnectCloudAccount() {
               type="button"
               className="glass-button glass-button--progress-cta browse-cloud-connect__button"
               onClick={() => void handleSignIn()}
-              disabled={connecting || !provider || !oauthConfigured}
+              disabled={
+                connecting ||
+                !provider ||
+                !oauthConfigured ||
+                (providerId === "dropbox" && !dropboxAccountType)
+              }
             >
               {connecting ? (
                 <>
@@ -379,7 +507,11 @@ export default function ConnectCloudAccount() {
               ) : (
                 <>
                   <LogIn size={18} aria-hidden="true" />
-                  {showInvalidPanel ? "Reconnect with Google" : "Sign in with Google"}
+                  {showInvalidPanel
+                    ? `Reconnect with ${signInBrand}`
+                    : providerId === "dropbox" && dropboxAccountType
+                      ? `Sign in to ${getDropboxAccountTypeLabel(dropboxAccountType).toLowerCase()} ${signInBrand}`
+                      : `Sign in with ${signInBrand}`}
                 </>
               )}
             </button>

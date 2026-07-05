@@ -47,6 +47,11 @@ import PathReviewStatusIcon from "../components/PathReviewStatusIcon";
 import PathReviewLegend from "../components/PathReviewLegend";
 import PathReviewFooterInfo from "../components/PathReviewFooterInfo";
 import { getDiffItemFailureMessage } from "../utils/diffFailureMessage";
+import {
+  getTraversalRetryNodeId,
+  hasTraversalFailure,
+  isTraversalRetryPending,
+} from "../utils/pathReviewTraversalStatus";
 import "../App.css";
 import "./PathReview.css";
 
@@ -572,13 +577,8 @@ export default function PathReview() {
       const currentPhase = getCurrentPhase();
       const initialRetry = new Set<string>();
       if (currentPhase === "traversal") {
-        // Traversal phase: API uses traversalStatus "pending" for items marked for retry
         filteredItems.forEach((item) => {
-          const srcPending = item.src?.traversalStatus === "pending";
-          const dstPending = item.dst?.traversalStatus === "pending";
-          const srcFailed = item.src?.traversalStatus === "failed";
-          const dstFailed = item.dst?.traversalStatus === "failed";
-          if ((srcPending || dstPending) && !srcFailed && !dstFailed) {
+          if (isTraversalRetryPending(item)) {
             initialRetry.add(item.id);
           }
         });
@@ -782,28 +782,13 @@ export default function PathReview() {
         isMarkedForRetry = retryItems.has(item.id) || true;
       }
     } else {
-      // Traversal phase: check traversalStatus (on both src and dst)
-      const srcTraversalStatus = item.src?.traversalStatus;
-      const dstTraversalStatus = item.dst?.traversalStatus;
-      
-      if (srcTraversalStatus === "failed" || dstTraversalStatus === "failed") {
-        // If either node is failed, find the one that's failed
-        if (srcTraversalStatus === "failed" && srcNodeId) {
-          nodeIdToUpdate = srcNodeId;
-          isMarkedForRetry = retryItems.has(item.id) || false;
-        } else if (dstTraversalStatus === "failed" && dstNodeId) {
-          nodeIdToUpdate = dstNodeId;
-          isMarkedForRetry = retryItems.has(item.id) || false;
-        }
-      } else if (srcTraversalStatus === "pending" || dstTraversalStatus === "pending") {
-        // If either node is pending (and neither is failed), find the one that's pending
-        if (srcTraversalStatus === "pending" && srcNodeId) {
-          nodeIdToUpdate = srcNodeId;
-          isMarkedForRetry = retryItems.has(item.id) || true;
-        } else if (dstTraversalStatus === "pending" && dstNodeId) {
-          nodeIdToUpdate = dstNodeId;
-          isMarkedForRetry = retryItems.has(item.id) || true;
-        }
+      const nodeId = getTraversalRetryNodeId(item);
+      if (nodeId) {
+        nodeIdToUpdate = nodeId;
+        isMarkedForRetry =
+          item.src?.traversalStatus === "pending"
+            ? retryItems.has(item.id) || true
+            : retryItems.has(item.id) || false;
       }
     }
 
@@ -1528,11 +1513,9 @@ export default function PathReview() {
                   // Items with pending traversalStatus are treated as marked for retry
                   // But if traversalStatus is "failed", it's not marked for retry (even if in retryItems set)
                   // Check both src and dst nodes - failed overrides pending
-                  const srcTraversalStatus = item.src?.traversalStatus;
-                  const dstTraversalStatus = item.dst?.traversalStatus;
-                  const hasFailedStatus = srcTraversalStatus === "failed" || dstTraversalStatus === "failed";
-                  const hasPendingStatus = (srcTraversalStatus === "pending" || dstTraversalStatus === "pending") && !hasFailedStatus;
-                  const isMarkedForRetry = hasPendingStatus || (retryItems.has(item.id) && !hasFailedStatus);
+                  const isMarkedForRetry =
+                    isTraversalRetryPending(item) ||
+                    (retryItems.has(item.id) && !hasTraversalFailure(item));
                   const isHighlighted = highlightedItemId === item.id;
                   // isChecked is based on copyStatus: not excluded and not successful
                   const isChecked = !status.isExcluded && !status.isSuccessful;

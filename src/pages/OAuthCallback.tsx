@@ -5,13 +5,18 @@ import { Loader2 } from "lucide-react";
 import { postConnectionTokens } from "../api/providers";
 import {
   clearOAuthPendingSession,
-  exchangeGoogleAuthCode,
-  getGoogleClientId,
-  getGoogleClientSecret,
+  dedupeOAuthCodeExchange,
+  formatOAuthExchangeError,
   getOAuthRedirectUri,
   loadOAuthPendingSession,
   readOAuthCallbackParams,
-} from "../utils/googleOAuth";
+} from "../utils/cloudOAuth";
+import {
+  buildCloudProviderTokenPayload,
+  exchangeCloudProviderAuthCode,
+  getCloudProviderOAuthCredentials,
+  getCloudProviderSignInBrand,
+} from "../utils/cloudProviderOAuth";
 import "../App.css";
 
 export default function OAuthCallback() {
@@ -27,56 +32,54 @@ export default function OAuthCallback() {
       const state = params.get("state");
       const oauthError = params.get("error");
 
+      const pending = loadOAuthPendingSession();
+      const brand = pending
+        ? getCloudProviderSignInBrand(pending.providerId)
+        : "Cloud provider";
+
       if (oauthError) {
-        setError(`Google sign-in was cancelled or failed (${oauthError}).`);
+        setError(`${brand} sign-in was cancelled or failed (${oauthError}).`);
         return;
       }
 
       if (!code || !state) {
-        setError("Missing OAuth response from Google.");
+        setError(`Missing OAuth response from ${brand}.`);
         return;
       }
 
-      const pending = loadOAuthPendingSession();
       if (!pending || pending.state !== state) {
         setError("OAuth session expired or invalid. Please try connecting again.");
         return;
       }
 
-      const clientId = getGoogleClientId();
-      const clientSecret = getGoogleClientSecret();
-      if (!clientId || !clientSecret) {
-        setError("Google OAuth is not configured in this app.");
+      const creds = getCloudProviderOAuthCredentials(pending.providerId);
+      if (!creds) {
+        setError(`${brand} OAuth is not configured in this app.`);
         return;
       }
 
       try {
-        const tokens = await exchangeGoogleAuthCode({
-          code,
-          clientId,
-          clientSecret,
-          redirectUri: getOAuthRedirectUri(),
-        });
+        const tokens = await dedupeOAuthCodeExchange(code, () =>
+          exchangeCloudProviderAuthCode(pending.providerId, {
+            code,
+            clientId: creds.clientId,
+            clientSecret: creds.clientSecret,
+            redirectUri: getOAuthRedirectUri(),
+          })
+        );
 
         if (!tokens.refresh_token) {
           setError(
-            "Google did not return a refresh token. Try again — you may need to revoke Sylos access in your Google account and reconnect."
+            `${brand} did not return a refresh token. Try again. You may need to revoke Sylos access in your ${brand} account and reconnect.`
           );
           return;
         }
 
-        const scopes = tokens.scope
-          ? tokens.scope.split(" ").filter(Boolean)
-          : pending.scopes;
-
-        await postConnectionTokens(pending.providerId, pending.connectionId, {
-          access_token: tokens.access_token,
-          refresh_token: tokens.refresh_token,
-          expires_in: tokens.expires_in,
-          scopes,
-          client_id: clientId,
-          client_secret: clientSecret,
-        });
+        await postConnectionTokens(
+          pending.providerId,
+          pending.connectionId,
+          buildCloudProviderTokenPayload(pending.providerId, tokens, pending, creds)
+        );
 
         if (cancelled) return;
 
@@ -92,9 +95,9 @@ export default function OAuthCallback() {
         navigate(`/browse-cloud?${browseParams.toString()}`, { replace: true });
       } catch (err) {
         if (cancelled) return;
-        const message =
-          err instanceof Error ? err.message : "Failed to complete Google sign-in.";
-        setError(message);
+        const raw =
+          err instanceof Error ? err.message : `Failed to complete ${brand} sign-in.`;
+        setError(formatOAuthExchangeError(raw, brand));
       }
     }
 

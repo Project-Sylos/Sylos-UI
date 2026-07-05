@@ -70,7 +70,7 @@ export default function ProgressMonitor() {
   const [failureTooltipOpen, setFailureTooltipOpen] = useState(false);
   const [failureCopied, setFailureCopied] = useState(false);
 
-  /** After a retry sweep, status can briefly still say "review" before the run starts — require run activity before re-enabling review. */
+  /** After a retry sweep, status can briefly still say "review" before the run starts - require run activity before re-enabling review. */
   const isRetryRun = searchParams.get("retry") === "1";
   const hasSeenActiveRunRef = useRef(false);
   const isRetryRunRef = useRef(isRetryRun);
@@ -117,7 +117,7 @@ export default function ProgressMonitor() {
     return `${value.toFixed(2)} ${sizes[i]}`;
   };
 
-  // Fetch status — keep polling while on this page so phase/live updates after retry (don’t stop on “review” alone).
+  // Fetch status - keep polling while on this page so phase/live updates after retry (don’t stop on “review” alone).
   const fetchStatus = useCallback(async () => {
     if (!migrationId) return;
 

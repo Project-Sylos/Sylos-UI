@@ -12,6 +12,10 @@ export type CloudRootType =
   | "my_drive"
   | "shared_with_me"
   | "shared_drive"
+  | "user_root"
+  | "team_space"
+  | "team_folder"
+  | "shared_folder"
   | string;
 
 export interface CloudRoot {

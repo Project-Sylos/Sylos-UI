@@ -1,6 +1,6 @@
 /** Human-readable byte size (1024-based, B through PB). */
 export function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes < 0) return "—";
+  if (!Number.isFinite(bytes) || bytes < 0) return "-";
   if (bytes === 0) return "0 B";
 
   const k = 1024;

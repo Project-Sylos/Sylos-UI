@@ -90,7 +90,7 @@
   /* Backdrop saturation (light themes use >1 for liquid-glass read) */
   --glass-backdrop-saturate: 1;
 
-  /* Raised fields / modals (PathReview filters, etc.) — dark default */
+  /* Raised fields / modals (PathReview filters, etc.) - dark default */
   --ui-overlay-20: rgba(15, 23, 42, 0.2);
   --ui-overlay-30: rgba(15, 23, 42, 0.3);
   --ui-overlay-40: rgba(15, 23, 42, 0.4);
@@ -100,7 +100,7 @@
   --ui-overlay-95: rgba(15, 23, 42, 0.95);
 
   /*
-   * Surface / elevation — theme packs override (see quartz-theme / obsidian-theme).
+   * Surface / elevation - theme packs override (see quartz-theme / obsidian-theme).
    * Future: load extra stylesheets that only set these custom properties (plugin-style themes).
    * Prepend to box-shadow stacks: var(--elevation-contact-rest), …
    */
@@ -168,7 +168,7 @@
     0 18px 40px rgba(15, 23, 42, 0.2);
 
   /*
-   * Fixed .sidebar (legacy shell) — move hardcoded slate here so themes can retint
+   * Fixed .sidebar (legacy shell) - move hardcoded slate here so themes can retint
    */
   --sidebar-surface-bg: rgba(15, 23, 42, 0.15);
   --sidebar-surface-border: 1px solid rgba(148, 163, 184, 0.2);

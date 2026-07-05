@@ -8,6 +8,6 @@ build/
 .env.local
 .env.*.local
 
-# Google OAuth JSON — keep creds/README.txt, ignore secrets
+# Google OAuth JSON - keep creds/README.txt, ignore secrets
 creds/*.json
 creds.json

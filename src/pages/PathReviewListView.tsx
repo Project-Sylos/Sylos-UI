@@ -37,6 +37,10 @@ import { useZoom } from "../contexts/ZoomContext";
 import PathReviewStatusIcon from "../components/PathReviewStatusIcon";
 import PathReviewLegend from "../components/PathReviewLegend";
 import { getDiffItemFailureMessage } from "../utils/diffFailureMessage";
+import {
+  getTraversalRetryNodeId,
+  isTraversalRetryPending,
+} from "../utils/pathReviewTraversalStatus";
 import "./PathReview.css";
 
 export interface PathReviewListViewProps {
@@ -781,28 +785,10 @@ export default function PathReviewListView({
         isMarkedForRetry = true;
       }
     } else {
-      // Traversal phase: check traversalStatus (on both src and dst)
-      const srcTraversalStatus = item.src?.traversalStatus;
-      const dstTraversalStatus = item.dst?.traversalStatus;
-      
-      if (srcTraversalStatus === "failed" || dstTraversalStatus === "failed") {
-        // If either node is failed, find the one that's failed
-        if (srcTraversalStatus === "failed" && srcNodeId) {
-          nodeIdToUpdate = srcNodeId;
-          isMarkedForRetry = false;
-        } else if (dstTraversalStatus === "failed" && dstNodeId) {
-          nodeIdToUpdate = dstNodeId;
-          isMarkedForRetry = false;
-        }
-      } else if (srcTraversalStatus === "pending" || dstTraversalStatus === "pending") {
-        // If either node is pending (and neither is failed), find the one that's pending
-        if (srcTraversalStatus === "pending" && srcNodeId) {
-          nodeIdToUpdate = srcNodeId;
-          isMarkedForRetry = true;
-        } else if (dstTraversalStatus === "pending" && dstNodeId) {
-          nodeIdToUpdate = dstNodeId;
-          isMarkedForRetry = true;
-        }
+      const nodeId = getTraversalRetryNodeId(item);
+      if (nodeId) {
+        nodeIdToUpdate = nodeId;
+        isMarkedForRetry = item.src?.traversalStatus === "pending";
       }
     }
 
@@ -1649,7 +1635,7 @@ export default function PathReviewListView({
                   <div className="path-review-list__item-status-icon-container">
                     <PathReviewStatusIcon
                       item={item}
-                      isMarkedForRetry={item.traversalStatus === "pending"}
+                      isMarkedForRetry={isTraversalRetryPending(item)}
                       isLocked={isLocked}
                       zoomLevel={zoomLevel}
                       size={16 * zoomLevel}

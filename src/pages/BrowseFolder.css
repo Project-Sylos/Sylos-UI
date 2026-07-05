@@ -662,6 +662,10 @@
   display: block;
 }
 
+.browse-cloud-connect__generic-cloud-icon {
+  color: var(--accent-cyan);
+}
+
 .browse-cloud-connect__provider {
   margin: 0;
   font-size: 1.35rem;
@@ -684,5 +688,164 @@
   align-items: center;
   gap: 0.5rem;
   margin-top: 0.5rem;
+}
+
+.browse-cloud-connect__account-types {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  width: 100%;
+  max-width: 36rem;
+  margin-top: 0.5rem;
+}
+
+.browse-cloud-connect__account-type {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1.25rem 1rem;
+  background: linear-gradient(
+    160deg,
+    rgba(15, 23, 42, 0.65) 0%,
+    rgba(30, 41, 59, 0.35) 100%
+  );
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 16px;
+  color: inherit;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: center;
+}
+
+.browse-cloud-connect__account-type:hover {
+  border-color: var(--accent-cyan-opacity-20);
+  box-shadow: 0 0 0 1px var(--accent-cyan-opacity-10);
+}
+
+.browse-cloud-connect__account-type-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.browse-cloud-connect__account-type-desc {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.browse-cloud-connect__account-badge {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--accent-cyan);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.browse-cloud-connect__change-account-type {
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-tertiary);
+  font-size: 0.85rem;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.browse-cloud-connect__change-account-type:hover {
+  color: var(--accent-cyan);
+}
+
+@media (max-width: 640px) {
+  .browse-cloud-connect__account-types {
+    grid-template-columns: 1fr;
+  }
+}
+
+:root[data-theme="quartz"] .browse-cloud-connect__icon {
+  color: var(--icon-on-glass);
+  background: var(--accent-cyan-opacity-10);
+  box-shadow: inset 0 0 0 1px rgba(
+    var(--color-base-slate-r),
+    var(--color-base-slate-g),
+    var(--color-base-slate-b),
+    0.12
+  );
+}
+
+:root[data-theme="quartz"] .browse-cloud-connect__generic-cloud-icon {
+  color: var(--icon-on-glass);
+}
+
+:root[data-theme="quartz"] .browse-cloud-connect__account-type {
+  background: linear-gradient(
+    165deg,
+    rgba(255, 254, 252, 0.98) 0%,
+    rgba(252, 249, 245, 0.94) 100%
+  );
+  border-color: rgba(
+    var(--color-base-slate-r),
+    var(--color-base-slate-g),
+    var(--color-base-slate-b),
+    0.11
+  );
+  box-shadow:
+    var(--elevation-contact-rest),
+    0 1px 2px rgba(26, 26, 46, 0.04),
+    0 4px 14px rgba(26, 26, 46, 0.055),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
+}
+
+:root[data-theme="quartz"] .browse-cloud-connect__account-type svg {
+  color: var(--icon-on-glass);
+}
+
+:root[data-theme="quartz"] .browse-cloud-connect__account-type:hover {
+  background: linear-gradient(
+    165deg,
+    rgba(255, 255, 255, 1) 0%,
+    rgba(252, 253, 255, 0.98) 100%
+  );
+  border-color: rgba(
+    var(--color-base-slate-r),
+    var(--color-base-slate-g),
+    var(--color-base-slate-b),
+    var(--button-border-opacity-hover)
+  );
+  box-shadow:
+    var(--elevation-contact-hover),
+    0 0 0 1px var(--accent-cyan-opacity-10),
+    0 4px 18px rgba(26, 26, 46, 0.07),
+    0 8px 24px var(--accent-cyan-opacity-10);
+}
+
+:root[data-theme="quartz"] .browse-cloud-connect__account-type-title {
+  color: var(--text-primary);
+}
+
+:root[data-theme="quartz"] .browse-cloud-connect__account-type-desc {
+  color: var(--text-secondary);
+}
+
+:root[data-theme="quartz"] .browse-cloud-connect__account-badge {
+  color: var(--accent-cyan);
+}
+
+:root[data-theme="quartz"] .browse-cloud-connect__change-account-type {
+  color: var(--text-tertiary);
+}
+
+:root[data-theme="quartz"] .browse-cloud-connect__change-account-type:hover {
+  color: var(--accent-cyan);
+}
+
+:root[data-theme="quartz"] .browse-folder__error {
+  border-color: rgba(220, 38, 38, 0.22);
+  background: rgba(254, 242, 242, 0.92);
+  color: #991b1b;
+  line-height: 1.5;
 }
 

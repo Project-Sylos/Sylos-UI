@@ -1,21 +1,28 @@
-Google OAuth credentials (gitignored)
+Cloud OAuth credentials (gitignored)
 
-Place your Google Cloud OAuth client JSON here as:
+Google Drive - place your Google Cloud OAuth client JSON as:
 
   creds/google-oauth.json
 
 Use the JSON downloaded from Google Cloud Console (Desktop or Web client).
-The file may use a top-level "installed" or "web" object — both work.
+The file may use a top-level "installed" or "web" object - both work.
 
-Alternative locations (checked in order if .env.local is not set):
-  - Sylos-UI/creds/google-oauth.json   (preferred)
-  - Sylos-UI/creds.json
-  - ../creds.json                      (Sylos monorepo root)
-
-Or set values in Sylos-UI/.env.local instead:
+Or set in Sylos-UI/.env.local:
 
   VITE_GOOGLE_CLIENT_ID=...
   VITE_GOOGLE_CLIENT_SECRET=...
+
+Dropbox - place app credentials JSON as:
+
+  creds/dropbox-oauth.json
+
+Use a Full Dropbox app (not App folder). JSON may be a flat object with
+client_id and client_secret, or use the same installed/web wrapper shape.
+
+Or set in Sylos-UI/.env.local:
+
+  VITE_DROPBOX_CLIENT_ID=...
+  VITE_DROPBOX_CLIENT_SECRET=...
 
 .env.local overrides JSON files when both are present.
 JSON auto-loading runs in `npm run dev` only (not production builds).

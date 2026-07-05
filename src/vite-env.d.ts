@@ -4,6 +4,8 @@ interface ImportMetaEnv {
   readonly VITE_API_BASE?: string;
   readonly VITE_GOOGLE_CLIENT_ID?: string;
   readonly VITE_GOOGLE_CLIENT_SECRET?: string;
+  readonly VITE_DROPBOX_CLIENT_ID?: string;
+  readonly VITE_DROPBOX_CLIENT_SECRET?: string;
 }
 
 interface ImportMeta {

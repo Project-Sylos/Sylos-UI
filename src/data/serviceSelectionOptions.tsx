@@ -2,6 +2,7 @@ import { ReactNode } from "react";
 import { Cloud, Database, FolderOpen, Server } from "lucide-react";
 
 import googleDriveLogo from "../assets/external/Google_Drive_Logo.svg";
+import dropboxLogo from "../assets/external/dropbox-1-logo-png-transparent.png";
 
 /** Theme-driven icon tones on selection cards (see SelectionPage.css) */
 export type ServiceIconAccent = "a" | "b";
@@ -19,6 +20,16 @@ export const defaultServiceSelectionOption: ServiceSelectionVisual = {
 const googleDriveSelectionIcon = (
   <img
     src={googleDriveLogo}
+    alt=""
+    className="service-external-logo"
+    width={44}
+    height={44}
+  />
+);
+
+const dropboxSelectionIcon = (
+  <img
+    src={dropboxLogo}
     alt=""
     className="service-external-logo"
     width={44}
@@ -47,6 +58,11 @@ export const serviceSelectionOptions: Record<string, ServiceSelectionVisual> = {
     icon: googleDriveSelectionIcon,
     description:
       "Sign in with Google to browse My Drive, Shared with me, and Shared drives.",
+  },
+  dropbox: {
+    icon: dropboxSelectionIcon,
+    description:
+      "Sign in with Dropbox to browse My Dropbox, team folders, and shared folders.",
   },
 };
 

@@ -1,6 +1,10 @@
 import React from "react";
 import { Clock, X, Check, AlertCircle, RotateCw } from "lucide-react";
 import { DiffItem } from "../api/services";
+import {
+  hasTraversalFailure,
+  isTraversalRetryPending,
+} from "../utils/pathReviewTraversalStatus";
 
 export interface PathReviewStatusIconProps {
   item: DiffItem;
@@ -102,10 +106,9 @@ export default function PathReviewStatusIcon({
       );
     }
   } else {
-    // Traversal phase: use traversalStatus (existing behavior)
-    // Check both src and dst traversalStatus - failed overrides pending
-    const hasFailedStatus = srcTraversalStatus === "failed" || dstTraversalStatus === "failed";
-    const hasPendingStatus = (srcTraversalStatus === "pending" || dstTraversalStatus === "pending") && !hasFailedStatus;
+    // Traversal phase: retry/failed icons follow SRC queue; DST pending is not retry.
+    const hasFailedStatus = hasTraversalFailure(item);
+    const hasPendingRetry = isTraversalRetryPending(item);
     
     // 1. Failed traversalStatus (from either src or dst) - show failed icon (prioritize failed over pending)
     if (hasFailedStatus) {
@@ -131,8 +134,8 @@ export default function PathReviewStatusIcon({
       );
     }
 
-    // 3. Pending traversalStatus (from either src or dst) - show retry icon
-    if (hasPendingStatus) {
+    // 3. SRC marked for discovery retry
+    if (hasPendingRetry) {
       return (
         <RotateCw
           size={iconSize}

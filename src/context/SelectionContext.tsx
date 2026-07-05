@@ -5,12 +5,19 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
 import { fetchServices } from "../api/services";
 import { getPresetRootForServiceType } from "../data/presetRoots";
 import { Folder, ServiceDescriptor } from "../types/services";
+import { loadOAuthPendingSession } from "../utils/cloudOAuth";
+import {
+  clearMigrationSetup,
+  loadMigrationSetup,
+  saveMigrationSetup,
+} from "../utils/migrationSetupStorage";
 
 type SelectedService = {
   service: ServiceDescriptor;
@@ -40,11 +47,72 @@ type SelectionContextValue = {
   selectDestination: (service: ServiceDescriptor, root?: Folder) => void;
   updateMigration: (update: Partial<MigrationState>) => void;
   clearSelections: () => void;
+  /** Flush current setup to sessionStorage (e.g. before OAuth full-page redirect). */
+  persistSelections: (migrationPatch?: Partial<MigrationState>) => void;
 };
 
 const SelectionContext = createContext<SelectionContextValue | undefined>(
   undefined
 );
+
+function mergeOAuthPendingMigration(base: MigrationState): MigrationState {
+  const pending = loadOAuthPendingSession();
+  if (!pending) {
+    return base;
+  }
+
+  const next = { ...base };
+  if (pending.migrationId && !next.migrationId) {
+    next.migrationId = pending.migrationId;
+  }
+  if (pending.role === "source" && pending.connectionId) {
+    next.sourceConnectionId = next.sourceConnectionId ?? pending.connectionId;
+  }
+  if (pending.role === "destination" && pending.connectionId) {
+    next.destinationConnectionId =
+      next.destinationConnectionId ?? pending.connectionId;
+  }
+  return next;
+}
+
+function getInitialMigrationState(): MigrationState {
+  const stored = loadMigrationSetup()?.migration;
+  const base: MigrationState = stored ?? { ready: false };
+  return mergeOAuthPendingMigration(base);
+}
+
+function endpointFromStorage(
+  endpoint: { serviceId: string; root?: Folder } | undefined,
+  services: ServiceDescriptor[]
+): SelectedService | undefined {
+  if (!endpoint) {
+    return undefined;
+  }
+
+  const service = services.find((item) => item.id === endpoint.serviceId);
+  if (!service) {
+    return undefined;
+  }
+
+  return { service, root: endpoint.root };
+}
+
+function buildPersistedSetup(
+  migration: MigrationState,
+  source?: SelectedService,
+  destination?: SelectedService
+) {
+  saveMigrationSetup({
+    v: 1,
+    migration,
+    source: source
+      ? { serviceId: source.service.id, root: source.root }
+      : undefined,
+    destination: destination
+      ? { serviceId: destination.service.id, root: destination.root }
+      : undefined,
+  });
+}
 
 export function SelectionProvider({ children }: { children: ReactNode }) {
   const [services, setServices] = useState<ServiceDescriptor[]>([]);
@@ -52,7 +120,19 @@ export function SelectionProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [source, setSource] = useState<SelectedService | undefined>();
   const [destination, setDestination] = useState<SelectedService | undefined>();
-  const [migration, setMigration] = useState<MigrationState>({ ready: false });
+  const [migration, setMigration] = useState<MigrationState>(getInitialMigrationState);
+
+  const hydratedRef = useRef(false);
+  const stateRef = useRef({ migration, source, destination });
+  stateRef.current = { migration, source, destination };
+
+  const persistSelections = useCallback((migrationPatch?: Partial<MigrationState>) => {
+    const { migration: current, source: src, destination: dst } = stateRef.current;
+    const merged = migrationPatch
+      ? { ...current, ...migrationPatch }
+      : current;
+    buildPersistedSetup(merged, src, dst);
+  }, []);
 
   const loadServices = useCallback(async () => {
     setLoading(true);
@@ -73,6 +153,32 @@ export function SelectionProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     void loadServices();
   }, [loadServices]);
+
+  useEffect(() => {
+    if (hydratedRef.current || loading) {
+      return;
+    }
+
+    const stored = loadMigrationSetup();
+    if (stored?.source && services.length > 0) {
+      setSource((current) => current ?? endpointFromStorage(stored.source, services));
+    }
+    if (stored?.destination && services.length > 0) {
+      setDestination(
+        (current) => current ?? endpointFromStorage(stored.destination, services)
+      );
+    }
+
+    setMigration((current) => mergeOAuthPendingMigration(current));
+    hydratedRef.current = true;
+  }, [services, loading]);
+
+  useEffect(() => {
+    if (!hydratedRef.current) {
+      return;
+    }
+    persistSelections();
+  }, [migration, source, destination, persistSelections]);
 
   const selectSource = useCallback(
     (service: ServiceDescriptor, root?: Folder) => {
@@ -107,13 +213,24 @@ export function SelectionProvider({ children }: { children: ReactNode }) {
   );
 
   const updateMigration = useCallback((update: Partial<MigrationState>) => {
-    setMigration((prev) => ({ ...prev, ...update }));
+    setMigration((prev) => {
+      const next = { ...prev };
+      for (const [key, value] of Object.entries(update) as Array<
+        [keyof MigrationState, MigrationState[keyof MigrationState]]
+      >) {
+        if (value !== undefined) {
+          next[key] = value;
+        }
+      }
+      return next;
+    });
   }, []);
 
   const clearSelections = useCallback(() => {
     setSource(undefined);
     setDestination(undefined);
     setMigration({ ready: false });
+    clearMigrationSetup();
   }, []);
 
   const value = useMemo(
@@ -129,6 +246,7 @@ export function SelectionProvider({ children }: { children: ReactNode }) {
       selectDestination,
       updateMigration,
       clearSelections,
+      persistSelections,
     }),
     [
       services,
@@ -142,6 +260,7 @@ export function SelectionProvider({ children }: { children: ReactNode }) {
       selectDestination,
       updateMigration,
       clearSelections,
+      persistSelections,
     ]
   );
 
@@ -159,4 +278,3 @@ export function useSelection() {
   }
   return context;
 }
-

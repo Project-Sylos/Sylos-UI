@@ -1,3 +1,3 @@
-import { captureOAuthCallbackSearch } from "./utils/googleOAuth";
+import { captureOAuthCallbackSearch } from "./utils/cloudOAuth";
 
 captureOAuthCallbackSearch();

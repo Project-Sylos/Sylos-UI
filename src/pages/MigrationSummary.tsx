@@ -34,7 +34,7 @@ export default function MigrationSummary() {
   const spectraLocked = migration.spectraLocked === true;
   const spectraPrimaryRole = migration.spectraPrimaryRole ?? "source";
   const spectraLockTitle =
-    "Locked — Spectra sets the same root on both source and destination";
+    "Locked. Spectra sets the same root on both source and destination";
   const hasCloudConnectionIssues = invalidCloudResults(connectionIssues).length > 0;
   const canStart =
     migration.ready &&

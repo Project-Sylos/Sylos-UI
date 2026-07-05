@@ -39,12 +39,31 @@ function rootTypeLabel(rootType: string): string {
       return "Shared with me";
     case "shared_drive":
       return "Shared drive";
+    case "user_root":
+      return "My Dropbox";
+    case "team_space":
+      return "Team space";
+    case "team_folder":
+      return "Team folder";
+    case "shared_folder":
+      return "Shared folder";
     default:
       return rootType.replace(/_/g, " ");
   }
 }
 
+function isNamespacedCloudRoot(root: CloudRoot): boolean {
+  return (
+    root.rootType === "shared_drive" ||
+    root.rootType === "shared_with_me" ||
+    root.rootType === "team_space" ||
+    root.rootType === "team_folder" ||
+    root.rootType === "shared_folder"
+  );
+}
+
 function folderFromCloudRoot(root: CloudRoot): Folder {
+  const namespaced = isNamespacedCloudRoot(root);
   const isSharedDrive = root.rootType === "shared_drive";
   const isSharedWithMe = root.rootType === "shared_with_me";
 
@@ -53,13 +72,19 @@ function folderFromCloudRoot(root: CloudRoot): Folder {
     Id: root.id,
     name: root.displayName,
     locationPath: "/",
-    parentId: isSharedDrive || isSharedWithMe ? undefined : "root",
-    parentPath: isSharedDrive || isSharedWithMe ? undefined : "/",
+    parentId: namespaced && !root.driveId ? undefined : root.driveId ?? "root",
+    parentPath: namespaced && !root.driveId ? undefined : "/",
     type: isSharedDrive
       ? "shared_drive"
       : isSharedWithMe
         ? "shared_with_me"
-        : "folder",
+        : root.rootType === "team_folder"
+          ? "team_folder"
+          : root.rootType === "shared_folder"
+            ? "shared_folder"
+            : root.rootType === "team_space"
+              ? "team_space"
+              : "folder",
     browseTrail: [{ path: root.id, name: root.displayName }],
   };
 }
@@ -165,7 +190,7 @@ export default function BrowseCloudFolder() {
     }
 
     void loadRoots();
-    // Guard already verified the connection; do not call recheck here — that
+    // Guard already verified the connection; do not call recheck here. That
     // toggles checkingConnection and would re-trigger this effect in a loop.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [providerId, connectionId, serviceId, resumeFolder, connectionValid]);

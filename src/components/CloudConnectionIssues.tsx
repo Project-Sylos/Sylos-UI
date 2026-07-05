@@ -30,7 +30,7 @@ export default function CloudConnectionIssues({
           <li key={`${issue.role}-${issue.connectionId}`} className="cloud-connection-issues__item">
             <span className="cloud-connection-issues__label">
               {issue.label}
-              {issue.error ? ` — ${issue.error}` : ""}
+              {issue.error ? ` - ${issue.error}` : ""}
             </span>
             <button
               type="button"

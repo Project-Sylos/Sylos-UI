@@ -40,12 +40,17 @@ import { GlassSurfacePanel } from "../components/GlassSurfacePanel";
 import PageBackButton from "../components/PageBackButton";
 import Toast from "../components/Toast";
 import ConfirmDialog from "../components/ConfirmDialog";
-import ZoomControl from "../components/ZoomControl";
-import { useZoom } from "../contexts/ZoomContext";
+import ListDensityControl from "../components/ListDensityControl";
+import {
+  ListDensityProvider,
+  useListDensity,
+} from "../contexts/ListDensityContext";
+import { PATH_REVIEW_DENSITY_STORAGE_KEY } from "../utils/listDensity";
 import PathReviewListView from "./PathReviewListView";
 import PathReviewStatusIcon from "../components/PathReviewStatusIcon";
 import PathReviewLegend from "../components/PathReviewLegend";
 import PathReviewFooterInfo from "../components/PathReviewFooterInfo";
+import ListItemMeta from "../components/ListItemMeta";
 import { getDiffItemFailureMessage } from "../utils/diffFailureMessage";
 import {
   getTraversalRetryNodeId,
@@ -126,9 +131,18 @@ function mergeDeltas(
 }
 
 export default function PathReview() {
+  return (
+    <ListDensityProvider storageKey={PATH_REVIEW_DENSITY_STORAGE_KEY}>
+      <PathReviewPage />
+    </ListDensityProvider>
+  );
+}
+
+function PathReviewPage() {
   const { migrationId } = useParams<{ migrationId: string }>();
   const navigate = useNavigate();
-  const { zoomLevel } = useZoom();
+  const { densityStyle, setListViewportElement } = useListDensity();
+  const treeListRef = useRef<HTMLDivElement | null>(null);
   const [activeTab, setActiveTab] = useState<"tree" | "list">("tree");
   const activeTabRef = useRef<"tree" | "list">(activeTab);
   activeTabRef.current = activeTab;
@@ -153,6 +167,12 @@ export default function PathReview() {
   const pendingRetryUpdatesRef = useRef<Map<string, boolean>>(new Map());
   const pendingUpdatesRef = useRef<Map<string, boolean>>(new Map());
   
+  useEffect(() => {
+    if (activeTab === "tree") {
+      setListViewportElement(treeListRef.current);
+    }
+  }, [activeTab, setListViewportElement, items.length, loading]);
+
   // Workflow state tracking
   const [reviewIteration, setReviewIteration] = useState(1);
   const [pendingWork, setPendingWork] = useState<PendingWorkResponse | null>(null);
@@ -1360,7 +1380,7 @@ export default function PathReview() {
               onClick={handleBack}
               title="Go back"
             >
-              <ArrowLeft size={20 * zoomLevel} />
+              <ArrowLeft size={20} />
             </button>
           )}
           <div className="path-review__breadcrumbs">
@@ -1377,7 +1397,7 @@ export default function PathReview() {
             </button>
             {breadcrumbs.map((crumb, index) => (
               <div key={crumb.path} className="path-review__breadcrumb">
-                <ChevronRight size={16 * zoomLevel} className="path-review__breadcrumb-separator" />
+                <ChevronRight size={16} className="path-review__breadcrumb-separator" />
                 <button
                   type="button"
                   className="path-review__breadcrumb-link"
@@ -1394,7 +1414,7 @@ export default function PathReview() {
         {/* Status Legend with Pagination */}
         {!loading && items.length > 0 && (
           <div className="path-review-list__legend-wrapper">
-            <PathReviewLegend zoomLevel={zoomLevel} className="path-review__legend--compact" phase={getCurrentPhase()} />
+            <PathReviewLegend zoomLevel={1} className="path-review__legend--compact" phase={getCurrentPhase()} />
             {pagination && (
               <div className="path-review-list__page-nav">
                 <div className="path-review-list__items-per-page-compact" ref={treeItemsPerPageDropdownRef}>
@@ -1406,7 +1426,7 @@ export default function PathReview() {
                     aria-label="Items per page"
                   >
                     {treeItemsPerPage}
-                    <ChevronDown size={14 * zoomLevel} />
+                    <ChevronDown size={14} />
                   </button>
                   {showTreeItemsPerPageDropdown && (
                     <div className="path-review-list__items-per-page-dropdown">
@@ -1449,9 +1469,9 @@ export default function PathReview() {
                   title="Previous page"
                   aria-label="Previous page"
                 >
-                  <ChevronLeft size={18 * zoomLevel} />
+                  <ChevronLeft size={18} />
                 </button>
-                <span className="path-review__page-info" style={{ fontSize: `${zoomLevel * 0.875}rem` }}>
+                <span className="path-review__page-info">
                   Page {treeCurrentPage + 1} of {(() => {
                     const total = pagination.total;
                     return total > 0 ? Math.ceil(total / treeItemsPerPage) : 1;
@@ -1485,7 +1505,7 @@ export default function PathReview() {
                   title="Next page"
                   aria-label="Next page"
                 >
-                  <ChevronRight size={18 * zoomLevel} />
+                  <ChevronRight size={18} />
                 </button>
               </div>
             )}
@@ -1493,13 +1513,8 @@ export default function PathReview() {
         )}
 
         {/* Items List */}
-        <div className="path-review__list-container">
-          <div 
-            className="path-review__list" 
-            style={{ 
-              '--zoom': zoomLevel,
-            } as React.CSSProperties}
-          >
+        <div className="path-review__list-container" style={densityStyle}>
+          <div ref={treeListRef} className="path-review__list">
             {loading ? (
               <div className="path-review__empty">Loading...</div>
             ) : items.length === 0 ? (
@@ -1533,7 +1548,7 @@ export default function PathReview() {
                           item={item}
                           isMarkedForRetry={isMarkedForRetry}
                           isLocked={isLocked}
-                          zoomLevel={zoomLevel}
+                          zoomLevel={1}
                           phase={getCurrentPhase()}
                           onRetryClick={handleRetryClick}
                           onExcludeClick={handleCheckboxChange}
@@ -1542,52 +1557,53 @@ export default function PathReview() {
 
                       <div className="path-review__item-icon">
                         {isFolder ? (
-                          <Folder size={24 * zoomLevel} />
+                          <Folder size={16} />
                         ) : (
-                          <File size={24 * zoomLevel} />
+                          <File size={16} />
                         )}
                       </div>
 
                       <div
-                        className={`path-review__item-info ${isFolder ? "path-review__item-info--folder" : "path-review__item-info--file"}`}
+                        className={`path-review__item-name-col ${isFolder ? "path-review__item-name--folder" : ""}`}
                         onClick={() => {
                           if (isFolder && !status.isExcluded && !status.isFailed && !isMarkedForRetry && !status.existsOnlyOnDst) {
                             handleFolderClick(item);
                           }
                         }}
-                        style={{ 
+                        style={{
                           cursor: isFolder && !status.isExcluded && !status.isFailed && !isMarkedForRetry && !status.existsOnlyOnDst
-                            ? "pointer" 
-                            : (status.isExcluded || status.isFailed || isMarkedForRetry || status.existsOnlyOnDst) 
-                            ? "not-allowed" 
-                            : "default" 
+                            ? "pointer"
+                            : (status.isExcluded || status.isFailed || isMarkedForRetry || status.existsOnlyOnDst)
+                            ? "not-allowed"
+                            : "default",
                         }}
                       >
-                        <div className="path-review__item-info-row">
-                          <div className={`path-review__item-name ${isFolder ? "path-review__item-name--folder" : ""}`}>
-                            {item.name}
-                          </div>
-                          {failureMessage && (
-                            <div
-                              className="path-review__item-failure-message"
-                              title={failureMessage}
-                            >
-                              {failureMessage}
-                            </div>
-                          )}
-                        </div>
-                        {!isFolder && item.size !== undefined && (
-                          <div className="path-review__item-meta">
-                            {(item.size / 1024 / 1024).toFixed(2)} MB
+                        <div className="path-review__item-name">{item.name}</div>
+                        {failureMessage && (
+                          <div
+                            className="path-review__item-failure-message"
+                            title={failureMessage}
+                          >
+                            {failureMessage}
                           </div>
                         )}
                       </div>
 
-                      {isFolder && (
-                        <ChevronRight
-                          size={20 * zoomLevel}
-                          className="path-review__item-arrow"
-                        />
+                      <div className="path-review__item-path-col" title={item.locationPath}>
+                        {item.locationPath}
+                      </div>
+
+                      <ListItemMeta
+                        className="path-review__item-meta-col"
+                        lastUpdated={item.lastUpdated}
+                        size={item.size}
+                        type={isFolder ? "folder" : "file"}
+                      />
+
+                      {isFolder ? (
+                        <ChevronRight size={16} className="path-review__item-arrow" />
+                      ) : (
+                        <span className="path-review__item-arrow-spacer" aria-hidden="true" />
                       )}
                     </div>
                   );
@@ -1606,6 +1622,7 @@ export default function PathReview() {
           >
             <PathReviewListView
               migrationId={migrationId}
+              isActive={activeTab === "list"}
               treeListRefreshToken={treeListRefreshToken}
               onListDataMutated={handleListDataMutated}
               onItemUpdate={() => {
@@ -1635,7 +1652,7 @@ export default function PathReview() {
 
         {/* Footer with Stats, Zoom Control, Sweep Buttons, and Start Copying Button */}
         <div className="path-review__footer">
-          <ZoomControl />
+          <ListDensityControl />
           {/* Stats - Only show on tree view */}
           {stats && activeTab === "tree" && (
             <PathReviewFooterInfo
@@ -1685,7 +1702,7 @@ export default function PathReview() {
           <div className="path-review__footer-actions">
             {/* Review Iteration Counter */}
             {reviewIteration > 1 && (
-              <div className="path-review__iteration-counter" style={{ fontSize: `${zoomLevel * 0.9}rem` }}>
+              <div className="path-review__iteration-counter">
                 Review {reviewIteration}
               </div>
             )}

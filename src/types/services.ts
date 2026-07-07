@@ -22,6 +22,7 @@ export interface Folder {
   lastUpdated?: string;
   depthLevel?: number;
   type: string;
+  size?: number;
   /** Captured from the folder browser so edits can reopen the same location. */
   browseTrail?: BrowseTrailItem[];
 }

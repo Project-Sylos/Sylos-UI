@@ -4,7 +4,7 @@ import { ZoomIn, ZoomOut, Search } from "lucide-react";
 import "./ZoomControl.css";
 
 // Preset zoom levels similar to browser zoom
-const ZOOM_PRESETS = [0.75, 0.9, 1.0, 1.1, 1.25, 1.5];
+const ZOOM_PRESETS = [0.5, 0.75, 0.9, 1.0, 1.1, 1.25, 1.5];
 
 export default function ZoomControl() {
   const { zoomLevel, setZoomLevel } = useZoom();

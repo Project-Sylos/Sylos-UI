@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 
-import { postConnectionTokens } from "../api/providers";
+import { exchangeOAuthCode } from "../api/providers";
 import {
   clearOAuthPendingSession,
   dedupeOAuthCodeExchange,
@@ -11,12 +11,7 @@ import {
   loadOAuthPendingSession,
   readOAuthCallbackParams,
 } from "../utils/cloudOAuth";
-import {
-  buildCloudProviderTokenPayload,
-  exchangeCloudProviderAuthCode,
-  getCloudProviderOAuthCredentials,
-  getCloudProviderSignInBrand,
-} from "../utils/cloudProviderOAuth";
+import { getCloudProviderSignInBrand } from "../utils/cloudProviderOAuth";
 import "../App.css";
 
 export default function OAuthCallback() {
@@ -52,33 +47,13 @@ export default function OAuthCallback() {
         return;
       }
 
-      const creds = getCloudProviderOAuthCredentials(pending.providerId);
-      if (!creds) {
-        setError(`${brand} OAuth is not configured in this app.`);
-        return;
-      }
-
       try {
-        const tokens = await dedupeOAuthCodeExchange(code, () =>
-          exchangeCloudProviderAuthCode(pending.providerId, {
+        await dedupeOAuthCodeExchange(code, () =>
+          exchangeOAuthCode(pending.providerId, pending.connectionId, {
             code,
-            clientId: creds.clientId,
-            clientSecret: creds.clientSecret,
-            redirectUri: getOAuthRedirectUri(),
+            redirect_uri: getOAuthRedirectUri(),
+            scopes: pending.scopes,
           })
-        );
-
-        if (!tokens.refresh_token) {
-          setError(
-            `${brand} did not return a refresh token. Try again. You may need to revoke Sylos access in your ${brand} account and reconnect.`
-          );
-          return;
-        }
-
-        await postConnectionTokens(
-          pending.providerId,
-          pending.connectionId,
-          buildCloudProviderTokenPayload(pending.providerId, tokens, pending, creds)
         );
 
         if (cancelled) return;

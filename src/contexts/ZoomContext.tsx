@@ -9,7 +9,7 @@ const ZoomContext = createContext<ZoomContextType | undefined>(undefined);
 
 const ZOOM_STORAGE_KEY = "sylos_ui_zoom_level";
 const DEFAULT_ZOOM = 1.0;
-const MIN_ZOOM = 0.7;
+const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 1.5;
 const ZOOM_STEP = 0.05;
 

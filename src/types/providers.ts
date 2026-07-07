@@ -6,6 +6,7 @@ export interface ProviderDescriptor {
   serviceId: string;
   authType: ProviderAuthType;
   scopes: string[];
+  oauthClientId?: string;
 }
 
 export type CloudRootType =

@@ -1,11 +1,16 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Palette, X, HelpCircle, Code } from "lucide-react";
+import { Palette, X, HelpCircle, Code, Cloud } from "lucide-react";
 import "./Settings.css";
 import { GlassSurfacePanel } from "../components/GlassSurfacePanel";
 import { useTheme } from "../contexts/ThemeContext";
 import { usePreferences } from "../contexts/PreferencesContext";
-type SettingsSection = "appearance" | "tips" | "developer";
+import { useAuth } from "../contexts/AuthContext";
+import CloudProviderOAuthSetup from "../components/CloudProviderOAuthSetup";
+import { cleanSlate } from "../api/admin";
+import CleanSlateDialog from "../components/CleanSlateDialog";
+import "../components/CleanSlateDialog.css";
+type SettingsSection = "appearance" | "tips" | "developer" | "users" | "cloud" | "danger";
 
 // Known tip categories - can be expanded as needed
 const TIP_CATEGORIES = [
@@ -54,18 +59,48 @@ const TIP_CATEGORIES = [
     name: "Path Review - Destination Size",
     description: "Tip about the destination size statistic in the path review footer",
   },
+  {
+    id: "browse-folder-selection",
+    name: "Folder Browser - Selection",
+    description: "How to select and delete items while browsing folders",
+  },
   // Add more categories here as needed
 ] as const;
 
 export default function Settings() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const { theme, setTheme } = useTheme();
   const { preferences, updatePreferences } = usePreferences();
   const [activeSection, setActiveSection] = useState<SettingsSection>("appearance");
+  const [showCleanSlateDialog, setShowCleanSlateDialog] = useState(false);
+  const [cleanSlateBusy, setCleanSlateBusy] = useState(false);
+  const [cleanSlateMessage, setCleanSlateMessage] = useState<string | null>(null);
+
+  const cloudProviders = [
+    { providerId: "google_drive", displayName: "Google Drive" },
+    { providerId: "dropbox", displayName: "Dropbox" },
+  ] as const;
 
   const handleClose = () => {
     navigate(-1);
   };
+
+  const handleCleanSlate = async () => {
+    setCleanSlateBusy(true);
+    setCleanSlateMessage(null);
+    try {
+      const result = await cleanSlate();
+      setCleanSlateMessage(result.message);
+      setShowCleanSlateDialog(false);
+    } catch (err) {
+      setCleanSlateMessage(err instanceof Error ? err.message : "Failed to remove migration data.");
+    } finally {
+      setCleanSlateBusy(false);
+    }
+  };
+
+  const canCleanSlate = user?.capabilities?.cleanSlate === true;
 
   return (
     <section className="settings">
@@ -101,6 +136,31 @@ export default function Settings() {
             </div>
             <div className="settings__nav-group">
               <h3 className="settings__nav-group-title">Advanced</h3>
+              {user?.role === "admin" && (
+                <button
+                  className={`settings__nav-item ${activeSection === "users" ? "settings__nav-item--active" : ""}`}
+                  onClick={() => navigate("/settings/users")}
+                >
+                  <span>Users</span>
+                </button>
+              )}
+              {user?.role === "admin" && (
+                <button
+                  className={`settings__nav-item ${activeSection === "cloud" ? "settings__nav-item--active" : ""}`}
+                  onClick={() => setActiveSection("cloud")}
+                >
+                  <Cloud size={20} />
+                  <span>Cloud providers</span>
+                </button>
+              )}
+              {canCleanSlate && (
+                <button
+                  className={`settings__nav-item ${activeSection === "danger" ? "settings__nav-item--active" : ""}`}
+                  onClick={() => setActiveSection("danger")}
+                >
+                  <span>Danger zone</span>
+                </button>
+              )}
               <button
                 className={`settings__nav-item ${activeSection === "developer" ? "settings__nav-item--active" : ""}`}
                 onClick={() => setActiveSection("developer")}
@@ -327,6 +387,24 @@ export default function Settings() {
             </div>
           )}
 
+          {activeSection === "cloud" && user?.role === "admin" && (
+            <div className="settings__section">
+              <h1 className="settings__section-title">Cloud providers</h1>
+              <p className="settings__subsection-description">
+                Configure OAuth app credentials for cloud storage. You can also set these up when
+                choosing a cloud service during migration.
+              </p>
+              {cloudProviders.map((provider) => (
+                <CloudProviderOAuthSetup
+                  key={provider.providerId}
+                  providerId={provider.providerId}
+                  displayName={provider.displayName}
+                  className="settings__cloud-oauth"
+                />
+              ))}
+            </div>
+          )}
+
           {activeSection === "developer" && (
             <div className="settings__section">
               <h1 className="settings__section-title">Developer</h1>
@@ -391,8 +469,38 @@ export default function Settings() {
               </div>
             </div>
           )}
+
+          {activeSection === "danger" && canCleanSlate && (
+            <div className="settings__section">
+              <h1 className="settings__section-title">Danger zone</h1>
+              <p className="settings__subsection-description">
+                Remove every migration folder, migration database, and registry entry from this
+                install. User accounts and cloud provider app settings are not removed. Running
+                migrations are stopped first. This cannot be undone.
+              </p>
+              {cleanSlateMessage && (
+                <p className="settings__subsection-description">{cleanSlateMessage}</p>
+              )}
+              <button
+                type="button"
+                className="settings__danger-button"
+                onClick={() => setShowCleanSlateDialog(true)}
+                disabled={cleanSlateBusy}
+              >
+                Remove all migration data
+              </button>
+            </div>
+          )}
         </div>
       </GlassSurfacePanel>
+
+      {showCleanSlateDialog && (
+        <CleanSlateDialog
+          busy={cleanSlateBusy}
+          onCancel={() => setShowCleanSlateDialog(false)}
+          onConfirm={() => void handleCleanSlate()}
+        />
+      )}
     </section>
   );
 }

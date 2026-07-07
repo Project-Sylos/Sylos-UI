@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { UserPreferences, DEFAULT_PREFERENCES } from "../types/preferences";
 import { getPreferences, savePreferences } from "../api/services";
+import { useAuth } from "./AuthContext";
 
 interface PreferencesContextType {
   preferences: UserPreferences;
@@ -11,34 +12,56 @@ interface PreferencesContextType {
 const PreferencesContext = createContext<PreferencesContextType | undefined>(undefined);
 
 export function PreferencesProvider({ children }: { children: ReactNode }) {
+  const { user, isLoading: authLoading } = useAuth();
   const [preferences, setPreferences] = useState<UserPreferences>(DEFAULT_PREFERENCES);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Load preferences on mount
   useEffect(() => {
+    if (authLoading) {
+      return;
+    }
+
+    if (!user) {
+      setPreferences(DEFAULT_PREFERENCES);
+      setIsLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+
     async function loadPrefs() {
+      setIsLoading(true);
       try {
         const prefs = await getPreferences();
-        setPreferences(prefs);
+        if (!cancelled) {
+          setPreferences(prefs);
+        }
       } catch (error) {
         console.error("Failed to load preferences, using defaults", error);
-        // Just use defaults, no need to set again since that's the initial state
+        if (!cancelled) {
+          setPreferences(DEFAULT_PREFERENCES);
+        }
       } finally {
-        setIsLoading(false);
+        if (!cancelled) {
+          setIsLoading(false);
+        }
       }
     }
 
-    loadPrefs();
-  }, []);
+    void loadPrefs();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id, authLoading]);
 
-  // Only save when user explicitly updates preferences
   const updatePreferences = (updates: Partial<UserPreferences>) => {
     setPreferences((prev) => {
       const newPrefs = { ...prev, ...updates };
-      // Save to API when user changes preferences
-      savePreferences(newPrefs).catch((error) => {
-        console.error("Failed to save preferences", error);
-      });
+      if (user) {
+        savePreferences(newPrefs).catch((error) => {
+          console.error("Failed to save preferences", error);
+        });
+      }
       return newPrefs;
     });
   };

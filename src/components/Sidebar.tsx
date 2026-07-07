@@ -1,6 +1,7 @@
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import "./Sidebar.css";
 import logo from "../assets/logos/main-app-logo-transparent.png";
+import { useAuth } from "../contexts/AuthContext";
 import { usePreferences } from "../contexts/PreferencesContext";
 import {
   defaultHelpModalBody,
@@ -9,9 +10,15 @@ import {
 
 export default function Sidebar() {
   const { preferences, updatePreferences } = usePreferences();
+  const { user, logout } = useAuth();
   const isCollapsed = preferences.sidebarCollapsed;
   const navigate = useNavigate();
+  const location = useLocation();
   const { openHelp } = useHelpModal();
+
+  if (location.pathname === "/login" || location.pathname === "/setup") {
+    return null;
+  }
 
   const handleMigrationsClick = () => {
     navigate("/choose");
@@ -87,6 +94,11 @@ export default function Sidebar() {
         </div>
 
         <div className="sidebar__section sidebar__section--bottom">
+          {user && !isCollapsed && (
+            <div className="sidebar__user">
+              Signed in as <strong>{user.username}</strong>
+            </div>
+          )}
           <button
             className="sidebar__button"
             onClick={handleSettingsClick}
@@ -95,6 +107,16 @@ export default function Sidebar() {
             <span className="sidebar__button-emoji">⚙️</span>
             {!isCollapsed && <span className="sidebar__button-text">Settings</span>}
           </button>
+          {user && (
+            <button
+              className="sidebar__button"
+              onClick={() => void logout()}
+              aria-label="Sign out"
+            >
+              <span className="sidebar__button-emoji">🚪</span>
+              {!isCollapsed && <span className="sidebar__button-text">Sign out</span>}
+            </button>
+          )}
         </div>
       </div>
     </div>

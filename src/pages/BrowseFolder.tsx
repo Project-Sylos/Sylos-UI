@@ -1,16 +1,29 @@
 import { useEffect, useMemo, useState, useRef } from "react";
 import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
-import { FolderOpen, File, ChevronRight, ArrowLeft, HardDrive, Loader2, CircleAlert } from "lucide-react";
+import { ChevronRight, ArrowLeft, HardDrive, Loader2, CircleAlert, Copy, Check, FolderPlus, Trash2 } from "lucide-react";
 
 import "../App.css";
-import { listDrives, listChildren, mountDrive as mountDriveApi } from "../api/services";
+import { listDrives, listChildren, mountDrive as mountDriveApi, createBrowseFolder, deleteBrowseNodes } from "../api/services";
 import { Drive, Folder, PaginationInfo } from "../types/services";
 import { GlassSurfacePanel } from "../components/GlassSurfacePanel";
 import PageBackButton from "../components/PageBackButton";
-import ZoomControl from "../components/ZoomControl";
-import { useZoom } from "../contexts/ZoomContext";
+import BrowseDensityControl from "../components/BrowseDensityControl";
+import BrowseFolderItemRow from "../components/BrowseFolderItemRow";
+import ConfirmDialog from "../components/ConfirmDialog";
+import NewFolderModal from "../components/NewFolderModal";
+import BrowseContextMenu from "../components/BrowseContextMenu";
+import FileBrowserPane, { BROWSE_SELECTION_HELP } from "../components/FileBrowserPane";
+import { BrowseDensityProvider, useBrowseDensity } from "../contexts/BrowseDensityContext";
+import { useAltTextSelect } from "../hooks/useAltTextSelect";
 import { formatBytes } from "../utils/formatBytes";
 import { getBrowseTrailFromFolder } from "../utils/migrationRoots";
+import {
+  buildDeleteConfirmMessage,
+  BrowseSelectableItem,
+  formatDeleteErrors,
+  isMultiSelectModifier,
+  useBrowseSelection,
+} from "../hooks/useBrowseSelection";
 import "./BrowseFolder.css";
 
 interface BreadcrumbItem {
@@ -79,13 +92,13 @@ function DriveStorageInfo({ drive }: { drive: Drive }) {
   );
 }
 
-export default function BrowseFolder() {
+function BrowseFolderPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const serviceIdentifier = searchParams.get("serviceId") || "";
   const role = (searchParams.get("role") as "source" | "destination") || "source";
-  const { zoomLevel } = useZoom();
+  const { densityStyle } = useBrowseDensity();
 
   const [drives, setDrives] = useState<Drive[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
@@ -94,14 +107,33 @@ export default function BrowseFolder() {
   const [currentPath, setCurrentPath] = useState<string | null>(null);
   const [breadcrumbs, setBreadcrumbs] = useState<BreadcrumbItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isDriveView, setIsDriveView] = useState(true);
   const [showUnmountedDrives, setShowUnmountedDrives] = useState(false);
   const [mountingDrive, setMountingDrive] = useState<string | null>(null);
   const [pagination, setPagination] = useState<PaginationInfo | null>(null);
+  const [currentPage, setCurrentPage] = useState(0);
+  const [itemsPerPage, setItemsPerPage] = useState(100);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [pendingDeleteItems, setPendingDeleteItems] = useState<BrowseSelectableItem[]>([]);
+  const [showNewFolderModal, setShowNewFolderModal] = useState(false);
+  const [mutationLoading, setMutationLoading] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    item: BrowseSelectableItem;
+  } | null>(null);
+  const [pathCopied, setPathCopied] = useState(false);
+  const altTextSelect = useAltTextSelect();
   const resumeHandledRef = useRef(false);
   const hideFilesToggleInitializedRef = useRef(false);
+  const {
+    selectedCount,
+    selectedItems,
+    isSelected,
+    select: selectItem,
+    clear: clearSelection,
+  } = useBrowseSelection();
 
   const resumeFolder = (location.state as { resumeFolder?: Folder } | null)
     ?.resumeFolder;
@@ -117,6 +149,29 @@ export default function BrowseFolder() {
         ? drives
         : drives.filter((drive) => isDriveMounted(drive)),
     [drives, showUnmountedDrives]
+  );
+
+  const visibleItems = useMemo(
+    () => [
+      ...folders.map((folder) => ({
+        id: folder.ServiceID,
+        type: "folder" as const,
+        name: folder.name,
+      })),
+      ...(hideFiles
+        ? []
+        : files.map((file) => ({
+            id: file.ServiceID,
+            type: "file" as const,
+            name: file.name,
+          }))),
+    ],
+    [folders, files, hideFiles]
+  );
+
+  const deleteConfirmCopy = useMemo(
+    () => buildDeleteConfirmMessage(pendingDeleteItems),
+    [pendingDeleteItems]
   );
 
   useEffect(() => {
@@ -144,11 +199,13 @@ export default function BrowseFolder() {
       hideFilesToggleInitializedRef.current = true;
       return;
     }
-    if (isDriveView || !currentPath || breadcrumbs.length === 0) {
+    if (!currentPath || breadcrumbs.length === 0 || isDriveView) {
       return;
     }
-    const currentCrumb = breadcrumbs[breadcrumbs.length - 1];
-    void loadChildren(currentCrumb.path, currentCrumb.name, false, { hideFiles });
+    const currentBreadcrumb = breadcrumbs[breadcrumbs.length - 1];
+    void loadChildren(currentBreadcrumb.path, currentBreadcrumb.name, {
+      page: currentPage,
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hideFiles]);
 
@@ -160,7 +217,7 @@ export default function BrowseFolder() {
       const breadcrumbsTrail = getBrowseTrailFromFolder(folder);
       const response = await listChildren(serviceIdentifier, folder.ServiceID, role, {
         offset: 0,
-        limit: 100,
+        limit: itemsPerPage,
         ...(hideFiles ? { foldersOnly: true } : {}),
       });
 
@@ -170,6 +227,7 @@ export default function BrowseFolder() {
       setIsDriveView(false);
       setBreadcrumbs(breadcrumbsTrail);
       setPagination(response.pagination ?? null);
+      setCurrentPage(0);
     } catch (err) {
       setError(
         err instanceof Error
@@ -212,49 +270,42 @@ export default function BrowseFolder() {
   const loadChildren = async (
     path: string,
     name: string,
-    append = false,
-    options?: { hideFiles?: boolean }
+    options?: { page?: number; limit?: number }
   ) => {
-    const omitFiles = options?.hideFiles ?? hideFiles;
+    const page = options?.page ?? currentPage;
+    const limit = options?.limit ?? itemsPerPage;
+    const offset = page * limit;
 
-    if (!append) {
-      setLoading(true);
-      setError(null);
-    } else {
-      setLoadingMore(true);
-    }
-    
+    setLoading(true);
+    setError(null);
+
     try {
-      const offset = append && pagination ? pagination.offset + pagination.limit : 0;
       const response = await listChildren(serviceIdentifier, path, role, {
         offset,
-        limit: 100,
-        ...(omitFiles ? { foldersOnly: true } : {}),
+        limit,
+        ...(hideFiles ? { foldersOnly: true } : {}),
       });
-      
-      if (append) {
-        setFolders((prev) => [...prev, ...(response.folders || [])]);
-        if (!omitFiles) {
-          setFiles((prev) => [...prev, ...(response.files || [])]);
+
+      setFolders(response.folders || []);
+      setFiles(hideFiles ? [] : response.files || []);
+      setCurrentPath(path);
+      setIsDriveView(false);
+      clearSelection();
+
+      const newBreadcrumb: BreadcrumbItem = { path, name };
+      setBreadcrumbs((prev) => {
+        const index = prev.findIndex((b) => b.path === path);
+        if (index >= 0) {
+          return prev.slice(0, index + 1);
         }
-      } else {
-        setFolders(response.folders || []);
-        setFiles(omitFiles ? [] : response.files || []);
-        setCurrentPath(path);
-        setIsDriveView(false);
-        
-        const newBreadcrumb: BreadcrumbItem = { path, name: name };
-        setBreadcrumbs((prev) => {
-          const index = prev.findIndex((b) => b.path === path);
-          if (index >= 0) {
-            return prev.slice(0, index + 1);
-          }
-          return [...prev, newBreadcrumb];
-        });
-      }
-      
+        return [...prev, newBreadcrumb];
+      });
+
       if (response.pagination) {
         setPagination(response.pagination);
+      }
+      if (options?.page !== undefined) {
+        setCurrentPage(options.page);
       }
     } catch (err) {
       setError(
@@ -264,22 +315,32 @@ export default function BrowseFolder() {
       );
     } finally {
       setLoading(false);
-      setLoadingMore(false);
     }
   };
 
-  const handleLoadMore = () => {
-    if (!currentPath || !pagination?.hasMore || loadingMore) {
+  const reloadCurrentFolder = (page = currentPage, limit = itemsPerPage) => {
+    if (!currentPath || breadcrumbs.length === 0) {
       return;
     }
-    
     const currentBreadcrumb = breadcrumbs[breadcrumbs.length - 1];
-    loadChildren(currentPath, currentBreadcrumb.name, true);
+    void loadChildren(currentBreadcrumb.path, currentBreadcrumb.name, { page, limit });
+  };
+
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page);
+    reloadCurrentFolder(page);
+  };
+
+  const handleItemsPerPageChange = (nextItemsPerPage: number) => {
+    setItemsPerPage(nextItemsPerPage);
+    setCurrentPage(0);
+    reloadCurrentFolder(0, nextItemsPerPage);
   };
 
   const handleDriveSelect = (drive: Drive) => {
     if (!isDriveMounted(drive)) return;
-    loadChildren(drive.path, drive.name);
+    setCurrentPage(0);
+    loadChildren(drive.path, drive.name, { page: 0 });
   };
 
   const handleMountDrive = async (drive: Drive) => {
@@ -296,23 +357,140 @@ export default function BrowseFolder() {
     }
   };
 
-  const handleFolderClick = (folder: Folder) => {
-    loadChildren(folder.ServiceID, folder.name);
+  const handleFolderClick = (folder: Folder, event?: React.MouseEvent) => {
+    if (event && (isMultiSelectModifier(event) || event.altKey || altTextSelect)) {
+      return;
+    }
+    setCurrentPage(0);
+    loadChildren(folder.ServiceID, folder.name, { page: 0 });
+  };
+
+  const handleItemSelect = (
+    item: BrowseSelectableItem,
+    index: number,
+    event: React.MouseEvent
+  ) => {
+    if (event.altKey || altTextSelect) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    selectItem(
+      item,
+      index,
+      {
+        shiftKey: event.shiftKey,
+        ctrlKey: event.ctrlKey,
+        metaKey: event.metaKey,
+      },
+      visibleItems
+    );
+  };
+
+  const handleItemContextMenu = (
+    event: React.MouseEvent,
+    item: BrowseSelectableItem
+  ) => {
+    event.preventDefault();
+    setContextMenu({ x: event.clientX, y: event.clientY, item });
+  };
+
+  const requestDelete = (items: BrowseSelectableItem[]) => {
+    if (items.length === 0) {
+      return;
+    }
+    setPendingDeleteItems(items);
+    setShowDeleteConfirm(true);
+  };
+
+  const handleContextDelete = () => {
+    const targets = selectedCount > 0 ? selectedItems : contextMenu ? [contextMenu.item] : [];
+    requestDelete(targets);
   };
 
   const handleBack = () => {
     if (breadcrumbs.length > 1) {
-      // Go back to previous breadcrumb
       const previous = breadcrumbs[breadcrumbs.length - 2];
-      loadChildren(previous.path, previous.name);
+      setCurrentPage(0);
+      loadChildren(previous.path, previous.name, { page: 0 });
     } else if (breadcrumbs.length === 1) {
-      // Go back to drives view
       loadDrives();
+    }
+  };
+
+  const handleCopyPath = async () => {
+    if (!currentPath) return;
+    try {
+      await navigator.clipboard.writeText(currentPath);
+      setPathCopied(true);
+      window.setTimeout(() => setPathCopied(false), 1500);
+    } catch {
+      setError("Could not copy path to clipboard.");
     }
   };
 
   const handlePageBack = () => {
     navigate(role === "destination" ? "/destination" : "/connect");
+  };
+
+  const refreshCurrentFolder = () => {
+    reloadCurrentFolder();
+  };
+
+  const handleCreateFolder = async (name: string) => {
+    if (!currentPath) {
+      return;
+    }
+    setMutationLoading(true);
+    setError(null);
+    try {
+      await createBrowseFolder(serviceIdentifier, {
+        parentId: currentPath,
+        name,
+        role,
+      });
+      setShowNewFolderModal(false);
+      refreshCurrentFolder();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create folder.");
+    } finally {
+      setMutationLoading(false);
+    }
+  };
+
+  const handleDeleteConfirmed = async () => {
+    if (!currentPath || pendingDeleteItems.length === 0) {
+      return;
+    }
+    setMutationLoading(true);
+    setError(null);
+    try {
+      const result = await deleteBrowseNodes(serviceIdentifier, {
+        contextId: currentPath,
+        role,
+        nodes: pendingDeleteItems.map((item) => ({ id: item.id, type: item.type })),
+      });
+      setShowDeleteConfirm(false);
+      setPendingDeleteItems([]);
+
+      if (result.deleted.length > 0) {
+        clearSelection();
+        refreshCurrentFolder();
+      }
+
+      if (result.errors.length > 0) {
+        const errorText = formatDeleteErrors(result.errors);
+        const successNote =
+          result.deleted.length > 0
+            ? `${result.deleted.length} item(s) deleted successfully.`
+            : "No items were deleted.";
+        setError(`${successNote}\n${errorText}`);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete items.");
+    } finally {
+      setMutationLoading(false);
+    }
   };
 
   const handleSelectRoot = async () => {
@@ -328,6 +506,13 @@ export default function BrowseFolder() {
 
     if (breadcrumbs.length === 0) {
       setError("No folder selected.");
+      return;
+    }
+
+    if (role === "source" && pagination && pagination.total === 0) {
+      setError(
+        "You cannot use an empty folder as the source root. There is nothing to migrate."
+      );
       return;
     }
 
@@ -457,7 +642,8 @@ export default function BrowseFolder() {
                     className="browse-folder__breadcrumb-link"
                     onClick={() => {
                       if (index < breadcrumbs.length - 1) {
-                        loadChildren(crumb.path, crumb.name);
+                        setCurrentPage(0);
+                        loadChildren(crumb.path, crumb.name, { page: 0 });
                       }
                     }}
                     disabled={index === breadcrumbs.length - 1}
@@ -471,12 +657,23 @@ export default function BrowseFolder() {
               ))}
             </div>
           )}
+          {!isDriveView && currentPath && (
+            <button
+              type="button"
+              className="browse-folder__breadcrumb-copy"
+              onClick={() => void handleCopyPath()}
+              title="Copy path to clipboard"
+              aria-label="Copy path to clipboard"
+            >
+              {pathCopied ? <Check size={14} /> : <Copy size={14} />}
+            </button>
+          )}
         </div>
 
         {/* Content area */}
-        <div className="browse-folder__list-container" style={{ fontSize: `${zoomLevel}rem` }}>
+        <div className="browse-folder__list-container" style={densityStyle}>
           {isDriveView && !loading && unmountedDriveCount > 0 && (
-            <div className="browse-folder__drive-toolbar">
+            <div className="browse-folder__drive-toolbar browse-folder__drive-toolbar--left">
               <button
                 type="button"
                 className="browse-folder__drive-toggle"
@@ -489,52 +686,64 @@ export default function BrowseFolder() {
             </div>
           )}
 
-          {!isDriveView && !loading && (
-            <div className="browse-folder__drive-toolbar">
-              <button
-                type="button"
-                className={`browse-folder__drive-toggle${
-                  hideFiles ? " browse-folder__drive-toggle--active" : ""
-                }`}
-                onClick={() => setHideFiles((current) => !current)}
-                title={
-                  hideFiles
-                    ? "Show files in this folder (files cannot be selected as a root)"
-                    : "Hide files and show folders only"
-                }
-              >
-                {hideFiles ? "Show files" : "Hide files"}
-              </button>
-            </div>
-          )}
-
-          <div className="browse-folder__list">
           {loading ? (
             <div className="browse-folder__empty">Loading...</div>
           ) : isDriveView ? (
-            drives.length === 0 ? (
-              <div className="browse-folder__empty">No drives available.</div>
-            ) : visibleDrives.length === 0 ? (
-              <div className="browse-folder__empty">
-                No mounted drives available.
-                {unmountedDriveCount > 0
-                  ? ` Show unmounted drives (${unmountedDriveCount}) to mount one.`
-                  : null}
-              </div>
-            ) : (
-              visibleDrives.map((drive) => {
-                const mounted = isDriveMounted(drive);
-                const device = drive.device || drive.path;
-                const isMounting = mountingDrive === device;
+            <div className="browse-folder__list">
+              {drives.length === 0 ? (
+                <div className="browse-folder__empty">No drives available.</div>
+              ) : visibleDrives.length === 0 ? (
+                <div className="browse-folder__empty">
+                  No mounted drives available.
+                  {unmountedDriveCount > 0
+                    ? ` Show unmounted drives (${unmountedDriveCount}) to mount one.`
+                    : null}
+                </div>
+              ) : (
+                visibleDrives.map((drive) => {
+                  const mounted = isDriveMounted(drive);
+                  const device = drive.device || drive.path;
+                  const isMounting = mountingDrive === device;
 
-                if (mounted) {
+                  if (mounted) {
+                    return (
+                      <button
+                        key={drive.path}
+                        type="button"
+                        className="browse-folder__item browse-folder__item--drive"
+                        onClick={() => handleDriveSelect(drive)}
+                      >
+                        <div className="browse-folder__item-icon">
+                          <HardDrive size={32} />
+                        </div>
+                        <div className="browse-folder__item-info">
+                          <div className="browse-folder__item-name">{getDriveDisplayName(drive)}</div>
+                          <div className="browse-folder__item-meta">{getDriveSubtitle(drive)}</div>
+                          <DriveStorageInfo drive={drive} />
+                        </div>
+                        <div
+                          className="browse-folder__item-path-col browse-folder__item-path-col--drive"
+                          title={drive.path}
+                        >
+                          {drive.path}
+                        </div>
+                        <ChevronRight size={20} className="browse-folder__item-arrow" />
+                      </button>
+                    );
+                  }
+
                   return (
-                    <button
+                    <div
                       key={drive.path}
-                      type="button"
-                      className="browse-folder__item browse-folder__item--drive"
-                      onClick={() => handleDriveSelect(drive)}
+                      className="browse-folder__item browse-folder__item--drive browse-folder__item--unmounted"
                     >
+                      <span
+                        className="browse-folder__drive-unmounted-indicator"
+                        title="This drive is not mounted"
+                        aria-label="This drive is not mounted"
+                      >
+                        <CircleAlert size={18} strokeWidth={2.25} />
+                      </span>
                       <div className="browse-folder__item-icon">
                         <HardDrive size={32} />
                       </div>
@@ -543,113 +752,147 @@ export default function BrowseFolder() {
                         <div className="browse-folder__item-meta">{getDriveSubtitle(drive)}</div>
                         <DriveStorageInfo drive={drive} />
                       </div>
-                      <ChevronRight size={20} className="browse-folder__item-arrow" />
-                    </button>
+                      <div
+                        className="browse-folder__item-path-col browse-folder__item-path-col--drive"
+                        title={drive.path}
+                      >
+                        {drive.path}
+                      </div>
+                      <button
+                        type="button"
+                        className="browse-folder__drive-mount"
+                        onClick={() => void handleMountDrive(drive)}
+                        disabled={isMounting}
+                        title="Mount this drive"
+                      >
+                        {isMounting ? (
+                          <Loader2 size={18} className="browse-folder__spin" />
+                        ) : (
+                          "Mount"
+                        )}
+                      </button>
+                    </div>
                   );
-                }
-
-                return (
-                  <div
-                    key={drive.path}
-                    className="browse-folder__item browse-folder__item--drive browse-folder__item--unmounted"
+                })
+              )}
+            </div>
+          ) : (
+            <FileBrowserPane
+              pagination={pagination && pagination.total > 0 ? pagination : null}
+              currentPage={currentPage}
+              itemsPerPage={itemsPerPage}
+              onPageChange={handlePageChange}
+              onItemsPerPageChange={handleItemsPerPageChange}
+              listClassName={altTextSelect ? "browse-folder__list--text-select" : ""}
+              helpTooltip={BROWSE_SELECTION_HELP}
+              toolbarLeft={
+                <>
+                  <button
+                    type="button"
+                    className="browse-folder__drive-toggle"
+                    onClick={() => setShowNewFolderModal(true)}
+                    disabled={!currentPath || mutationLoading}
                   >
-                    <span
-                      className="browse-folder__drive-unmounted-indicator"
-                      title="This drive is not mounted"
-                      aria-label="This drive is not mounted"
-                    >
-                      <CircleAlert size={18} strokeWidth={2.25} />
-                    </span>
-                    <div className="browse-folder__item-icon">
-                      <HardDrive size={32} />
-                    </div>
-                    <div className="browse-folder__item-info">
-                      <div className="browse-folder__item-name">{getDriveDisplayName(drive)}</div>
-                      <div className="browse-folder__item-meta">{getDriveSubtitle(drive)}</div>
-                      <DriveStorageInfo drive={drive} />
-                    </div>
+                    <FolderPlus size={16} />
+                    New folder
+                  </button>
+                  <button
+                    type="button"
+                    className={`browse-folder__drive-toggle${
+                      hideFiles ? " browse-folder__drive-toggle--active" : ""
+                    }`}
+                    onClick={() => setHideFiles((current) => !current)}
+                  >
+                    {hideFiles ? "Show files" : "Hide files"}
+                  </button>
+                  {selectedCount > 0 && (
                     <button
                       type="button"
-                      className="browse-folder__drive-mount"
-                      onClick={() => void handleMountDrive(drive)}
-                      disabled={isMounting}
-                      title="Mount this drive"
+                      className="browse-folder__drive-toggle browse-folder__drive-toggle--danger"
+                      onClick={() => requestDelete(selectedItems)}
+                      disabled={mutationLoading}
                     >
-                      {isMounting ? (
-                        <Loader2 size={18} className="browse-folder__spin" />
-                      ) : (
-                        "Mount"
-                      )}
+                      <Trash2 size={16} />
+                      Delete ({selectedCount})
                     </button>
-                  </div>
-                );
-              })
-            )
-          ) : folders.length === 0 && (hideFiles || files.length === 0) ? (
-            <div className="browse-folder__empty">This folder is empty.</div>
-          ) : (
-            <>
-              {folders.map((folder) => (
-                <button
-                  key={folder.ServiceID}
-                  type="button"
-                  className="browse-folder__item"
-                  onClick={() => handleFolderClick(folder)}
-                >
-                  <div className="browse-folder__item-icon">
-                    <FolderOpen size={32} />
-                  </div>
-                  <div className="browse-folder__item-info">
-                    <div className="browse-folder__item-name">{folder.name}</div>
-                    <div className="browse-folder__item-meta">{folder.ServiceID}</div>
-                  </div>
-                  <ChevronRight size={20} className="browse-folder__item-arrow" />
-                </button>
-              ))}
-              {!hideFiles &&
-                files.map((file) => (
-                  <div
-                    key={file.ServiceID}
-                    className="browse-folder__item browse-folder__item--file"
-                    title="Files cannot be selected as a migration root"
-                    aria-disabled="true"
-                  >
-                    <div className="browse-folder__item-icon">
-                      <File size={32} />
-                    </div>
-                    <div className="browse-folder__item-info">
-                      <div className="browse-folder__item-name">{file.name}</div>
-                      <div className="browse-folder__item-meta">{file.ServiceID}</div>
-                    </div>
-                  </div>
-                ))}
-              {pagination?.hasMore && (
-                <button
-                  type="button"
-                  className="browse-folder__load-more"
-                  onClick={handleLoadMore}
-                  disabled={loadingMore}
-                >
-                  {loadingMore ? (
-                    <>
-                      <Loader2 size={20} className="browse-folder__load-more-spinner" />
-                      Loading...
-                    </>
-                  ) : (
-                    `Load More (${Math.max(
-                      0,
-                      pagination.total - folders.length - (hideFiles ? 0 : files.length)
-                    )} remaining)`
                   )}
-                </button>
+                </>
+              }
+            >
+              {folders.length === 0 && (hideFiles || files.length === 0) ? (
+                <div className="path-review-list__empty">This folder is empty.</div>
+              ) : (
+                <>
+                  {folders.map((folder, index) => {
+                    const item: BrowseSelectableItem = {
+                      id: folder.ServiceID,
+                      type: "folder",
+                      name: folder.name,
+                    };
+                    return (
+                      <div
+                        key={folder.ServiceID}
+                        className={`browse-folder__item browse-folder__item--selectable${
+                          isSelected(folder.ServiceID) ? " browse-folder__item--selected" : ""
+                        }`}
+                        onClick={(event) => {
+                          if (isMultiSelectModifier(event) || event.shiftKey) {
+                            handleItemSelect(item, index, event);
+                            return;
+                          }
+                          handleFolderClick(folder, event);
+                        }}
+                        onContextMenu={(event) => handleItemContextMenu(event, item)}
+                      >
+                        <BrowseFolderItemRow
+                          name={folder.name}
+                          path={folder.ServiceID}
+                          type="folder"
+                          showArrow
+                          lastUpdated={folder.lastUpdated}
+                        />
+                      </div>
+                    );
+                  })}
+                  {!hideFiles &&
+                    files.map((file, fileIndex) => {
+                    const index = folders.length + fileIndex;
+                    const item: BrowseSelectableItem = {
+                      id: file.ServiceID,
+                      type: "file",
+                      name: file.name,
+                    };
+                    return (
+                      <div
+                        key={file.ServiceID}
+                        className={`browse-folder__item browse-folder__item--file browse-folder__item--selectable${
+                          isSelected(file.ServiceID) ? " browse-folder__item--selected" : ""
+                        }`}
+                        onClick={(event) => {
+                          if (isMultiSelectModifier(event) || event.shiftKey) {
+                            handleItemSelect(item, index, event);
+                          }
+                        }}
+                        onContextMenu={(event) => handleItemContextMenu(event, item)}
+                      >
+                        <BrowseFolderItemRow
+                          name={file.name}
+                          path={file.ServiceID}
+                          type="file"
+                          lastUpdated={file.lastUpdated}
+                          size={file.size}
+                        />
+                      </div>
+                    );
+                  })}
+                </>
               )}
-            </>
+            </FileBrowserPane>
           )}
-          </div>
         </div>
 
         <div className="browse-folder__footer">
-          <ZoomControl />
+          <BrowseDensityControl />
           <div className="browse-folder__footer-actions">
             {!isDriveView && currentPath && (
               <button
@@ -663,7 +906,50 @@ export default function BrowseFolder() {
           </div>
         </div>
       </GlassSurfacePanel>
+
+      {contextMenu && (
+        <BrowseContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          label={
+            selectedCount > 0
+              ? `Delete ${selectedCount} selected`
+              : `Delete "${contextMenu.item.name}"`
+          }
+          onDelete={handleContextDelete}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
+
+      {showNewFolderModal && (
+        <NewFolderModal
+          onConfirm={handleCreateFolder}
+          onCancel={() => setShowNewFolderModal(false)}
+          submitting={mutationLoading}
+        />
+      )}
+
+      {showDeleteConfirm && (
+        <ConfirmDialog
+          title={deleteConfirmCopy.title}
+          message={deleteConfirmCopy.message}
+          confirmLabel={mutationLoading ? "Deleting…" : "Delete"}
+          onConfirm={() => void handleDeleteConfirmed()}
+          onCancel={() => {
+            setShowDeleteConfirm(false);
+            setPendingDeleteItems([]);
+          }}
+        />
+      )}
     </section>
+  );
+}
+
+export default function BrowseFolder() {
+  return (
+    <BrowseDensityProvider>
+      <BrowseFolderPage />
+    </BrowseDensityProvider>
   );
 }
 

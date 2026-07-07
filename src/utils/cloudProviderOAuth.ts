@@ -1,21 +1,5 @@
-import { ConnectionTokenPayload } from "../types/providers";
-import { OAuthPendingSession, OAuthTokenResponse } from "./cloudOAuth";
-import {
-  DropboxAccountType,
-  buildDropboxAuthUrl,
-  exchangeDropboxAuthCode,
-  getDropboxClientId,
-  getDropboxClientSecret,
-  getDropboxScopesForAccountType,
-  isDropboxOAuthConfigured,
-} from "./dropboxOAuth";
-import {
-  buildGoogleAuthUrl,
-  exchangeGoogleAuthCode,
-  getGoogleClientId,
-  getGoogleClientSecret,
-  isGoogleOAuthConfigured,
-} from "./googleOAuth";
+import { DropboxAccountType, getDropboxScopesForAccountType } from "./dropboxOAuth";
+import { buildGoogleAuthUrl } from "./googleOAuth";
 
 const DEFAULT_GOOGLE_SCOPES = ["https://www.googleapis.com/auth/drive"];
 
@@ -41,25 +25,13 @@ export function getCloudProviderSignInBrand(providerId: string): string {
   }
 }
 
-export function isCloudProviderOAuthConfigured(providerId: string): boolean {
-  switch (providerId) {
-    case "google_drive":
-      return isGoogleOAuthConfigured();
-    case "dropbox":
-      return isDropboxOAuthConfigured();
-    default:
-      return false;
-  }
+export function isCloudProviderOAuthConfigured(oauthClientId?: string): boolean {
+  return Boolean(oauthClientId?.trim());
 }
 
 export function getCloudProviderOAuthEnvHint(providerId: string): string {
-  switch (providerId) {
-    case "dropbox":
-      return "Set VITE_DROPBOX_CLIENT_ID and VITE_DROPBOX_CLIENT_SECRET in the app environment to enable Dropbox sign-in.";
-    case "google_drive":
-    default:
-      return "Set VITE_GOOGLE_CLIENT_ID and VITE_GOOGLE_CLIENT_SECRET in the app environment to enable Google sign-in.";
-  }
+  const name = getCloudProviderDisplayName(providerId);
+  return `${name} OAuth credentials are not configured. An administrator must add a developer app Client ID and Client Secret before you can sign in.`;
 }
 
 export function resolveCloudProviderScopes(
@@ -86,27 +58,6 @@ export function resolveCloudProviderScopes(
   }
 }
 
-export function getCloudProviderOAuthCredentials(
-  providerId: string
-): { clientId: string; clientSecret: string } | null {
-  switch (providerId) {
-    case "google_drive": {
-      const clientId = getGoogleClientId();
-      const clientSecret = getGoogleClientSecret();
-      if (!clientId || !clientSecret) return null;
-      return { clientId, clientSecret };
-    }
-    case "dropbox": {
-      const clientId = getDropboxClientId();
-      const clientSecret = getDropboxClientSecret();
-      if (!clientId || !clientSecret) return null;
-      return { clientId, clientSecret };
-    }
-    default:
-      return null;
-  }
-}
-
 export function buildCloudProviderAuthUrl(
   providerId: string,
   params: {
@@ -117,50 +68,19 @@ export function buildCloudProviderAuthUrl(
   }
 ): string {
   switch (providerId) {
-    case "dropbox":
-      return buildDropboxAuthUrl(params);
+    case "dropbox": {
+      const search = new URLSearchParams({
+        client_id: params.clientId,
+        redirect_uri: params.redirectUri,
+        response_type: "code",
+        token_access_type: "offline",
+        scope: params.scopes.join(" "),
+        state: params.state,
+      });
+      return `https://www.dropbox.com/oauth2/authorize?${search.toString()}`;
+    }
     case "google_drive":
     default:
       return buildGoogleAuthUrl(params);
   }
-}
-
-export async function exchangeCloudProviderAuthCode(
-  providerId: string,
-  params: {
-    code: string;
-    clientId: string;
-    clientSecret: string;
-    redirectUri: string;
-  }
-): Promise<OAuthTokenResponse> {
-  switch (providerId) {
-    case "dropbox":
-      return exchangeDropboxAuthCode(params);
-    case "google_drive":
-    default:
-      return exchangeGoogleAuthCode(params);
-  }
-}
-
-export function buildCloudProviderTokenPayload(
-  providerId: string,
-  tokens: OAuthTokenResponse,
-  pending: OAuthPendingSession,
-  creds: { clientId: string; clientSecret: string }
-): ConnectionTokenPayload {
-  const scopes = tokens.scope
-    ? tokens.scope.split(/[\s,]+/).filter(Boolean)
-    : pending.scopes;
-
-  const payload: ConnectionTokenPayload = {
-    access_token: tokens.access_token,
-    refresh_token: tokens.refresh_token!,
-    expires_in: tokens.expires_in,
-    scopes,
-    client_id: creds.clientId,
-    client_secret: creds.clientSecret,
-  };
-
-  return payload;
 }

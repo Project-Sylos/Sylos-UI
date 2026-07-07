@@ -232,6 +232,9 @@ export interface ListMigrationsResponse {
   offset: number;
   limit: number;
   hasMore: boolean;
+  capabilities?: {
+    cleanSlate?: boolean;
+  };
 }
 
 export type LogLevel = "trace" | "debug" | "info" | "warning" | "error" | "critical";

@@ -2,48 +2,12 @@ import {
   CloudConnection,
   CloudRoot,
   ConnectionStatusResponse,
-  ConnectionTokenPayload,
   ConnectionTokenResponse,
   ProviderDescriptor,
 } from "../types/providers";
 import { ChildrenResponse, Folder, PaginationInfo } from "../types/services";
-
-const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8086";
-const AUTH_STORAGE_KEY = "sylos.authToken";
-
-function getAuthToken(): string | null {
-  return window.localStorage.getItem(AUTH_STORAGE_KEY);
-}
-
-function buildHeaders(token?: string, extra?: HeadersInit): Headers {
-  const headers = new Headers({
-    "Content-Type": "application/json",
-  });
-
-  if (extra) {
-    const wrapper = new Headers(extra);
-    wrapper.forEach((value, key) => headers.set(key, value));
-  }
-
-  if (token) {
-    headers.set("Authorization", `Bearer ${token}`);
-  }
-
-  return headers;
-}
-
-async function readErrorMessage(response: Response): Promise<string> {
-  const text = await response.text();
-  if (!text) {
-    return response.statusText || "Unknown error";
-  }
-  try {
-    const parsed = JSON.parse(text) as { message?: string; error?: string };
-    return parsed.message || parsed.error || text;
-  } catch {
-    return text;
-  }
-}
+import { apiFetch, readErrorMessage } from "./client";
+import { DeleteBrowseNodesResult } from "./services";
 
 export function normalizeCloudFolder(folder: Record<string, unknown>): Folder {
   return {
@@ -78,6 +42,12 @@ export function normalizeCloudFolder(folder: Record<string, unknown>): Folder {
           ? folder.DepthLevel
           : undefined,
     type: String(folder.type ?? folder.Type ?? "folder"),
+    size:
+      typeof folder.size === "number"
+        ? folder.size
+        : typeof folder.Size === "number"
+          ? folder.Size
+          : undefined,
   };
 }
 
@@ -109,12 +79,21 @@ function normalizeCloudRoot(raw: Record<string, unknown>): CloudRoot {
   };
 }
 
+function normalizeConnectionResponse(
+  data: Record<string, unknown>,
+  providerId: string,
+  connectionId?: string
+): ConnectionTokenResponse {
+  return {
+    connectionId: String(data.connectionId ?? connectionId ?? ""),
+    providerId: String(data.providerId ?? providerId),
+    valid: Boolean(data.valid ?? true),
+    expiresAt: data.expiresAt != null ? String(data.expiresAt) : undefined,
+  };
+}
+
 export async function fetchProviders(): Promise<ProviderDescriptor[]> {
-  const token = getAuthToken() ?? undefined;
-  const response = await fetch(`${API_BASE}/api/providers`, {
-    method: "GET",
-    headers: buildHeaders(token),
-  });
+  const response = await apiFetch("/api/providers", { method: "GET" });
 
   if (!response.ok) {
     throw new Error(`Failed to fetch providers: ${await readErrorMessage(response)}`);
@@ -125,8 +104,14 @@ export async function fetchProviders(): Promise<ProviderDescriptor[]> {
     id: String(item.id ?? ""),
     displayName: String(item.displayName ?? item.name ?? item.id ?? ""),
     serviceId: String(item.serviceId ?? ""),
-    authType: String(item.authType ?? "oauth_ui_tokens"),
+    authType: String(item.authType ?? "oauth_server_exchange"),
     scopes: Array.isArray(item.scopes) ? item.scopes.map(String) : [],
+    oauthClientId:
+      item.oauthClientId != null
+        ? String(item.oauthClientId)
+        : item.oauth_client_id != null
+          ? String(item.oauth_client_id)
+          : undefined,
   }));
 }
 
@@ -134,13 +119,9 @@ export async function createConnection(
   providerId: string,
   options?: { migrationId?: string }
 ): Promise<CloudConnection> {
-  const token = getAuthToken() ?? undefined;
-  const response = await fetch(`${API_BASE}/api/providers/${providerId}/connections`, {
+  const response = await apiFetch(`/api/providers/${providerId}/connections`, {
     method: "POST",
-    headers: buildHeaders(token),
-    body: JSON.stringify(
-      options?.migrationId ? { migrationId: options.migrationId } : {}
-    ),
+    body: JSON.stringify(options?.migrationId ? { migrationId: options.migrationId } : {}),
   });
 
   if (!response.ok) {
@@ -154,45 +135,34 @@ export async function createConnection(
   };
 }
 
-export async function postConnectionTokens(
+export async function exchangeOAuthCode(
   providerId: string,
   connectionId: string,
-  payload: ConnectionTokenPayload
+  payload: { code: string; redirect_uri: string; scopes?: string[] }
 ): Promise<ConnectionTokenResponse> {
-  const token = getAuthToken() ?? undefined;
-  const response = await fetch(
-    `${API_BASE}/api/providers/${providerId}/connections/${connectionId}/tokens`,
+  const response = await apiFetch(
+    `/api/providers/${providerId}/connections/${connectionId}/oauth/exchange`,
     {
       method: "POST",
-      headers: buildHeaders(token),
       body: JSON.stringify(payload),
     }
   );
 
   if (!response.ok) {
-    throw new Error(`Failed to store tokens: ${await readErrorMessage(response)}`);
+    throw new Error(`Failed to complete OAuth sign-in: ${await readErrorMessage(response)}`);
   }
 
   const data = (await response.json()) as Record<string, unknown>;
-  return {
-    connectionId: String(data.connectionId ?? connectionId),
-    providerId: String(data.providerId ?? providerId),
-    valid: Boolean(data.valid ?? true),
-    expiresAt: data.expiresAt != null ? String(data.expiresAt) : undefined,
-  };
+  return normalizeConnectionResponse(data, providerId, connectionId);
 }
 
 export async function getConnectionStatus(
   providerId: string,
   connectionId: string
 ): Promise<ConnectionStatusResponse> {
-  const token = getAuthToken() ?? undefined;
-  const response = await fetch(
-    `${API_BASE}/api/providers/${providerId}/connections/${connectionId}/status`,
-    {
-      method: "GET",
-      headers: buildHeaders(token),
-    }
+  const response = await apiFetch(
+    `/api/providers/${providerId}/connections/${connectionId}/status`,
+    { method: "GET" }
   );
 
   if (!response.ok) {
@@ -212,13 +182,9 @@ export async function deleteConnection(
   providerId: string,
   connectionId: string
 ): Promise<void> {
-  const token = getAuthToken() ?? undefined;
-  const response = await fetch(
-    `${API_BASE}/api/providers/${providerId}/connections/${connectionId}`,
-    {
-      method: "DELETE",
-      headers: buildHeaders(token),
-    }
+  const response = await apiFetch(
+    `/api/providers/${providerId}/connections/${connectionId}`,
+    { method: "DELETE" }
   );
 
   if (!response.ok) {
@@ -230,13 +196,9 @@ export async function listCloudRoots(
   providerId: string,
   connectionId: string
 ): Promise<CloudRoot[]> {
-  const token = getAuthToken() ?? undefined;
-  const response = await fetch(
-    `${API_BASE}/api/providers/${providerId}/connections/${connectionId}/roots`,
-    {
-      method: "GET",
-      headers: buildHeaders(token),
-    }
+  const response = await apiFetch(
+    `/api/providers/${providerId}/connections/${connectionId}/roots`,
+    { method: "GET" }
   );
 
   if (!response.ok) {
@@ -258,7 +220,6 @@ export async function listCloudChildren(
     foldersOnly?: boolean;
   }
 ): Promise<ChildrenResponse> {
-  const token = getAuthToken() ?? undefined;
   const params = new URLSearchParams({ identifier });
   if (options?.offset !== undefined) {
     params.append("offset", String(options.offset));
@@ -270,12 +231,9 @@ export async function listCloudChildren(
     params.append("foldersOnly", String(options.foldersOnly));
   }
 
-  const response = await fetch(
-    `${API_BASE}/api/providers/${providerId}/connections/${connectionId}/children?${params.toString()}`,
-    {
-      method: "GET",
-      headers: buildHeaders(token),
-    }
+  const response = await apiFetch(
+    `/api/providers/${providerId}/connections/${connectionId}/children?${params.toString()}`,
+    { method: "GET" }
   );
 
   if (!response.ok) {
@@ -293,5 +251,70 @@ export async function listCloudChildren(
     folders: foldersRaw.map(normalizeCloudFolder),
     files: filesRaw.map(normalizeCloudFolder),
     pagination: normalizePagination(paginationRaw),
+  };
+}
+
+export async function createCloudBrowseFolder(
+  providerId: string,
+  connectionId: string,
+  body: {
+    parentId: string;
+    name: string;
+    role?: "source" | "destination";
+    rootType?: string;
+    driveId?: string;
+  }
+): Promise<Folder> {
+  const response = await apiFetch(
+    `/api/providers/${providerId}/connections/${connectionId}/folders`,
+    {
+      method: "POST",
+      body: JSON.stringify(body),
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(`Failed to create folder: ${await readErrorMessage(response)}`);
+  }
+
+  const data = (await response.json()) as Record<string, unknown>;
+  return normalizeCloudFolder(data);
+}
+
+export async function deleteCloudBrowseNodes(
+  providerId: string,
+  connectionId: string,
+  body: {
+    nodes: Array<{ id: string; type: "file" | "folder" }>;
+    contextId: string;
+    role?: "source" | "destination";
+    rootType?: string;
+    driveId?: string;
+  }
+): Promise<DeleteBrowseNodesResult> {
+  const response = await apiFetch(
+    `/api/providers/${providerId}/connections/${connectionId}/nodes/delete`,
+    {
+      method: "POST",
+      body: JSON.stringify(body),
+    }
+  );
+
+  let data: DeleteBrowseNodesResult = { deleted: [], errors: [] };
+  try {
+    data = (await response.json()) as DeleteBrowseNodesResult;
+  } catch {
+    if (!response.ok) {
+      throw new Error(`Failed to delete items: ${await readErrorMessage(response)}`);
+    }
+  }
+
+  if (!response.ok && data.errors.length === 0) {
+    throw new Error(`Failed to delete items: ${await readErrorMessage(response)}`);
+  }
+
+  return {
+    deleted: data.deleted ?? [],
+    errors: data.errors ?? [],
   };
 }

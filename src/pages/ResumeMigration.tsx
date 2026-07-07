@@ -11,6 +11,9 @@ import {
   getMigrationStatus,
   uploadMigrationDB,
 } from "../api/services";
+import { cleanSlate } from "../api/admin";
+import CleanSlateDialog from "../components/CleanSlateDialog";
+import "../components/CleanSlateDialog.css";
 import {
   MigrationWithStatus,
   getMigrationPhase,
@@ -38,6 +41,10 @@ export default function ResumeMigration() {
     file: File;
     filename: string;
   } | null>(null);
+  const [canCleanSlate, setCanCleanSlate] = useState(false);
+  const [showCleanSlateDialog, setShowCleanSlateDialog] = useState(false);
+  const [cleanSlateBusy, setCleanSlateBusy] = useState(false);
+  const [cleanSlateMessage, setCleanSlateMessage] = useState<string | null>(null);
 
   useEffect(() => {
     loadMigrations();
@@ -73,6 +80,7 @@ export default function ResumeMigration() {
         return dateB - dateA;
       });
       setMigrations(sorted);
+      setCanCleanSlate(response.capabilities?.cleanSlate === true);
     } catch (err) {
       setError(
         err instanceof Error
@@ -80,6 +88,7 @@ export default function ResumeMigration() {
           : "Failed to load migrations."
       );
       setMigrations([]);
+      setCanCleanSlate(false);
     } finally {
       setLoading(false);
     }
@@ -276,6 +285,22 @@ export default function ResumeMigration() {
     }
   };
 
+  const handleCleanSlate = async () => {
+    setCleanSlateBusy(true);
+    setCleanSlateMessage(null);
+    try {
+      const result = await cleanSlate();
+      setCleanSlateMessage(result.message);
+      setShowCleanSlateDialog(false);
+      await loadMigrations();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to remove migration data.");
+      setShowCleanSlateDialog(false);
+    } finally {
+      setCleanSlateBusy(false);
+    }
+  };
+
   return (
     <>
       <PageContainer
@@ -407,7 +432,37 @@ export default function ResumeMigration() {
             ))
           )}
         </div>
+
+        {canCleanSlate && (
+          <div className="resume-migration__danger">
+            <h2 className="resume-migration__danger-title">Danger zone</h2>
+            <p className="resume-migration__danger-text">
+              Remove every migration folder, migration database, and registry entry from this
+              install. User accounts and cloud provider app settings are not removed. Running
+              migrations are stopped first. This cannot be undone.
+            </p>
+            {cleanSlateMessage && (
+              <p className="resume-migration__danger-text">{cleanSlateMessage}</p>
+            )}
+            <button
+              type="button"
+              className="resume-migration__danger-button"
+              onClick={() => setShowCleanSlateDialog(true)}
+              disabled={cleanSlateBusy || uploading || resuming || stopping}
+            >
+              Remove all migration data
+            </button>
+          </div>
+        )}
       </PageContainer>
+
+      {showCleanSlateDialog && (
+        <CleanSlateDialog
+          busy={cleanSlateBusy}
+          onCancel={() => setShowCleanSlateDialog(false)}
+          onConfirm={() => void handleCleanSlate()}
+        />
+      )}
 
       {showOverwriteDialog && pendingUpload && (
         <OverwriteDialog

@@ -1,25 +1,42 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import {
   ArrowLeft,
   ChevronRight,
   Cloud,
-  File,
-  FolderOpen,
   Loader2,
   RefreshCw,
+  Copy,
+  Check,
+  FolderPlus,
+  Trash2,
 } from "lucide-react";
 
 import "../App.css";
 import {
   listCloudChildren,
   listCloudRoots,
+  createCloudBrowseFolder,
+  deleteCloudBrowseNodes,
 } from "../api/providers";
 import { GlassSurfacePanel } from "../components/GlassSurfacePanel";
 import PageBackButton from "../components/PageBackButton";
-import ZoomControl from "../components/ZoomControl";
-import { useZoom } from "../contexts/ZoomContext";
+import BrowseDensityControl from "../components/BrowseDensityControl";
+import BrowseFolderItemRow from "../components/BrowseFolderItemRow";
+import ConfirmDialog from "../components/ConfirmDialog";
+import NewFolderModal from "../components/NewFolderModal";
+import BrowseContextMenu from "../components/BrowseContextMenu";
+import FileBrowserPane, { BROWSE_SELECTION_HELP } from "../components/FileBrowserPane";
+import { BrowseDensityProvider, useBrowseDensity } from "../contexts/BrowseDensityContext";
+import { useAltTextSelect } from "../hooks/useAltTextSelect";
 import { useCloudConnectionGuard } from "../hooks/useCloudConnectionGuard";
+import {
+  buildDeleteConfirmMessage,
+  BrowseSelectableItem,
+  formatDeleteErrors,
+  isMultiSelectModifier,
+  useBrowseSelection,
+} from "../hooks/useBrowseSelection";
 import { CloudRoot } from "../types/providers";
 import { Folder, PaginationInfo } from "../types/services";
 import { buildCloudConnectPath } from "../utils/cloudConnections";
@@ -114,11 +131,11 @@ function folderFromBreadcrumbs(
   };
 }
 
-export default function BrowseCloudFolder() {
+function BrowseCloudFolderPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
-  const { zoomLevel } = useZoom();
+  const { densityStyle } = useBrowseDensity();
 
   const providerId = searchParams.get("providerId") ?? "";
   const connectionId = searchParams.get("connectionId") ?? "";
@@ -140,9 +157,29 @@ export default function BrowseCloudFolder() {
   const [currentIdentifier, setCurrentIdentifier] = useState<string | null>(null);
   const [isRootPicker, setIsRootPicker] = useState(true);
   const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pagination, setPagination] = useState<PaginationInfo | null>(null);
+  const [currentPage, setCurrentPage] = useState(0);
+  const [itemsPerPage, setItemsPerPage] = useState(100);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [pendingDeleteItems, setPendingDeleteItems] = useState<BrowseSelectableItem[]>([]);
+  const [showNewFolderModal, setShowNewFolderModal] = useState(false);
+  const [mutationLoading, setMutationLoading] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    item: BrowseSelectableItem;
+  } | null>(null);
+  const [pathCopied, setPathCopied] = useState(false);
+  const altTextSelect = useAltTextSelect();
+
+  const {
+    selectedCount,
+    selectedItems,
+    isSelected,
+    select: selectItem,
+    clear: clearSelection,
+  } = useBrowseSelection();
 
   const returnPath = role === "destination" ? "/destination" : "/connect";
 
@@ -156,10 +193,51 @@ export default function BrowseCloudFolder() {
     enabled: Boolean(providerId && connectionId),
   });
 
+  const visibleItems = useMemo(
+    () => [
+      ...folders.map((folder) => ({
+        id: folder.ServiceID,
+        type: "folder" as const,
+        name: folder.name,
+      })),
+      ...(hideFiles
+        ? []
+        : files.map((file) => ({
+            id: file.ServiceID,
+            type: "file" as const,
+            name: file.name,
+          }))),
+    ],
+    [folders, files, hideFiles]
+  );
+
+  const deleteConfirmCopy = useMemo(
+    () => buildDeleteConfirmMessage(pendingDeleteItems),
+    [pendingDeleteItems]
+  );
+
+  const cloudMutationContext = () => ({
+    role,
+    rootType: breadcrumbs.length <= 1 ? activeRoot?.rootType : undefined,
+    driveId: activeRoot?.driveId,
+  });
+
   useEffect(() => {
     rootsLoadedKeyRef.current = null;
     resumeHandledRef.current = false;
   }, [providerId, connectionId]);
+
+  useEffect(() => {
+    if (!hideFilesToggleInitializedRef.current) {
+      hideFilesToggleInitializedRef.current = true;
+      return;
+    }
+    if (!currentIdentifier || !activeRoot || isRootPicker) {
+      return;
+    }
+    void loadChildren(currentIdentifier, activeRoot, breadcrumbs, { page: currentPage });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hideFiles]);
 
   useEffect(() => {
     if (!providerId || !connectionId || !serviceId) {
@@ -194,18 +272,6 @@ export default function BrowseCloudFolder() {
     // toggles checkingConnection and would re-trigger this effect in a loop.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [providerId, connectionId, serviceId, resumeFolder, connectionValid]);
-
-  useEffect(() => {
-    if (!hideFilesToggleInitializedRef.current) {
-      hideFilesToggleInitializedRef.current = true;
-      return;
-    }
-    if (isRootPicker || !activeRoot || !currentIdentifier || breadcrumbs.length === 0) {
-      return;
-    }
-    void loadChildren(currentIdentifier, activeRoot, breadcrumbs, false, { hideFiles });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hideFiles]);
 
   const loadRoots = async () => {
     const loadKey = `${providerId}:${connectionId}`;
@@ -259,7 +325,7 @@ export default function BrowseCloudFolder() {
         folder.ServiceID,
         {
           offset: 0,
-          limit: 100,
+          limit: itemsPerPage,
           ...(hideFiles ? { foldersOnly: true } : {}),
         }
       );
@@ -271,6 +337,7 @@ export default function BrowseCloudFolder() {
       setCurrentIdentifier(folder.ServiceID);
       setIsRootPicker(false);
       setPagination(response.pagination ?? null);
+      setCurrentPage(0);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to resume folder location.");
       await loadRoots();
@@ -283,71 +350,143 @@ export default function BrowseCloudFolder() {
     identifier: string,
     root: CloudRoot,
     trail: BreadcrumbItem[],
-    append = false,
-    options?: { hideFiles?: boolean }
+    options?: { page?: number; limit?: number }
   ) => {
-    const omitFiles = options?.hideFiles ?? hideFiles;
+    const page = options?.page ?? currentPage;
+    const limit = options?.limit ?? itemsPerPage;
+    const offset = page * limit;
 
-    if (!append) {
-      setLoading(true);
-      setError(null);
-    } else {
-      setLoadingMore(true);
-    }
+    setLoading(true);
+    setError(null);
 
     try {
-      const nextOffset = append
-        ? (pagination?.offset ?? 0) + (pagination?.limit ?? 100)
-        : 0;
-
-      const response = await listCloudChildren(providerId, connectionId, identifier, {
-        offset: nextOffset,
-        limit: 100,
-        ...(omitFiles ? { foldersOnly: true } : {}),
-      });
-
-      if (append) {
-        setFolders((prev) => [...prev, ...(response.folders || [])]);
-        if (!omitFiles) {
-          setFiles((prev) => [...prev, ...(response.files || [])]);
+      const response = await listCloudChildren(
+        providerId,
+        connectionId,
+        identifier,
+        {
+          offset,
+          limit,
+          ...(hideFiles ? { foldersOnly: true } : {}),
         }
-      } else {
-        setFolders(response.folders || []);
-        setFiles(omitFiles ? [] : response.files || []);
-      }
+      );
+
+      setFolders(response.folders || []);
+      setFiles(hideFiles ? [] : response.files || []);
+      clearSelection();
       setActiveRoot(root);
       setCurrentIdentifier(identifier);
       setIsRootPicker(false);
       setBreadcrumbs(trail);
       setPagination(response.pagination ?? null);
+      if (options?.page !== undefined) {
+        setCurrentPage(options.page);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load folders.");
     } finally {
       setLoading(false);
-      setLoadingMore(false);
     }
+  };
+
+  const reloadCurrentFolder = (page = currentPage, limit = itemsPerPage) => {
+    if (!activeRoot || !currentIdentifier) {
+      return;
+    }
+    void loadChildren(currentIdentifier, activeRoot, breadcrumbs, { page, limit });
+  };
+
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page);
+    reloadCurrentFolder(page);
+  };
+
+  const handleItemsPerPageChange = (nextItemsPerPage: number) => {
+    setItemsPerPage(nextItemsPerPage);
+    setCurrentPage(0);
+    reloadCurrentFolder(0, nextItemsPerPage);
   };
 
   const handleRootSelect = (root: CloudRoot) => {
     const trail = [{ path: root.id, name: root.displayName }];
-    void loadChildren(root.id, root, trail);
+    setCurrentPage(0);
+    void loadChildren(root.id, root, trail, { page: 0 });
   };
 
-  const handleFolderClick = (folder: Folder) => {
+  const handleFolderClick = (folder: Folder, event?: React.MouseEvent) => {
+    if (event && (isMultiSelectModifier(event) || event.altKey || altTextSelect)) {
+      return;
+    }
     if (!activeRoot) return;
 
     const trail = [
       ...breadcrumbs,
       { path: folder.ServiceID, name: folder.name },
     ];
-    void loadChildren(folder.ServiceID, activeRoot, trail);
+    setCurrentPage(0);
+    void loadChildren(folder.ServiceID, activeRoot, trail, { page: 0 });
+  };
+
+  const handleItemSelect = (
+    item: BrowseSelectableItem,
+    index: number,
+    event: React.MouseEvent
+  ) => {
+    if (event.altKey || altTextSelect) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    selectItem(
+      item,
+      index,
+      {
+        shiftKey: event.shiftKey,
+        ctrlKey: event.ctrlKey,
+        metaKey: event.metaKey,
+      },
+      visibleItems
+    );
+  };
+
+  const handleItemContextMenu = (
+    event: React.MouseEvent,
+    item: BrowseSelectableItem
+  ) => {
+    event.preventDefault();
+    setContextMenu({ x: event.clientX, y: event.clientY, item });
+  };
+
+  const requestDelete = (items: BrowseSelectableItem[]) => {
+    if (items.length === 0) {
+      return;
+    }
+    setPendingDeleteItems(items);
+    setShowDeleteConfirm(true);
+  };
+
+  const handleContextDelete = () => {
+    const targets = selectedCount > 0 ? selectedItems : contextMenu ? [contextMenu.item] : [];
+    requestDelete(targets);
+  };
+
+  const handleCopyPath = async () => {
+    if (!currentIdentifier) return;
+    try {
+      await navigator.clipboard.writeText(currentIdentifier);
+      setPathCopied(true);
+      window.setTimeout(() => setPathCopied(false), 1500);
+    } catch {
+      setError("Could not copy path to clipboard.");
+    }
   };
 
   const handleBack = () => {
     if (breadcrumbs.length > 1 && activeRoot) {
       const previous = breadcrumbs[breadcrumbs.length - 2];
       const trail = breadcrumbs.slice(0, -1);
-      void loadChildren(previous.path, activeRoot, trail);
+      setCurrentPage(0);
+      void loadChildren(previous.path, activeRoot, trail, { page: 0 });
       return;
     }
 
@@ -359,19 +498,24 @@ export default function BrowseCloudFolder() {
       setBreadcrumbs([]);
       setCurrentIdentifier(null);
       setPagination(null);
+      setCurrentPage(0);
     }
   };
 
-  const handleLoadMore = () => {
-    if (!activeRoot || !currentIdentifier || !pagination?.hasMore || loadingMore) {
-      return;
-    }
-    void loadChildren(currentIdentifier, activeRoot, breadcrumbs, true);
+  const refreshCurrentFolder = () => {
+    reloadCurrentFolder();
   };
 
   const handleSelectRoot = async () => {
     if (isRootPicker || !activeRoot || !currentIdentifier) {
       setError("Choose a cloud location and folder first.");
+      return;
+    }
+
+    if (role === "source" && pagination && pagination.total === 0) {
+      setError(
+        "You cannot use an empty folder as the source root. There is nothing to migrate."
+      );
       return;
     }
 
@@ -398,6 +542,62 @@ export default function BrowseCloudFolder() {
         connectionId,
       },
     });
+  };
+
+  const handleCreateFolder = async (name: string) => {
+    if (!currentIdentifier || !activeRoot) {
+      return;
+    }
+    setMutationLoading(true);
+    setError(null);
+    try {
+      await createCloudBrowseFolder(providerId, connectionId, {
+        parentId: currentIdentifier,
+        name,
+        ...cloudMutationContext(),
+      });
+      setShowNewFolderModal(false);
+      refreshCurrentFolder();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create folder.");
+    } finally {
+      setMutationLoading(false);
+    }
+  };
+
+  const handleDeleteConfirmed = async () => {
+    if (!currentIdentifier || pendingDeleteItems.length === 0) {
+      return;
+    }
+    setMutationLoading(true);
+    setError(null);
+    try {
+      const result = await deleteCloudBrowseNodes(providerId, connectionId, {
+        contextId: currentIdentifier,
+        nodes: pendingDeleteItems.map((item) => ({ id: item.id, type: item.type })),
+        ...cloudMutationContext(),
+      });
+      setShowDeleteConfirm(false);
+      setPendingDeleteItems([]);
+
+      if (result.deleted.length > 0) {
+        clearSelection();
+        refreshCurrentFolder();
+      }
+
+      if (result.errors.length > 0) {
+        const errorText = formatDeleteErrors(result.errors);
+        const successNote =
+          result.deleted.length > 0
+            ? `${result.deleted.length} item(s) deleted successfully.`
+            : "No items were deleted.";
+        setError(`${successNote}\n${errorText}`);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete items.");
+    } finally {
+      setMutationLoading(false);
+    }
   };
 
   const canGoBack = Boolean(activeRoot);
@@ -471,7 +671,7 @@ export default function BrowseCloudFolder() {
               title="Go back"
               aria-label="Go back"
             >
-              <ArrowLeft size={20 * zoomLevel} />
+              <ArrowLeft size={20} />
             </button>
           )}
           {!isRootPicker && breadcrumbs.length > 0 && (
@@ -487,7 +687,7 @@ export default function BrowseCloudFolder() {
                   </button>
                   {index < breadcrumbs.length - 1 && (
                     <ChevronRight
-                      size={16 * zoomLevel}
+                      size={16}
                       className="browse-folder__breadcrumb-separator"
                       aria-hidden="true"
                     />
@@ -496,40 +696,29 @@ export default function BrowseCloudFolder() {
               ))}
             </div>
           )}
+          {!isRootPicker && currentIdentifier && (
+            <button
+              type="button"
+              className="browse-folder__breadcrumb-copy"
+              onClick={() => void handleCopyPath()}
+              title="Copy folder id to clipboard"
+              aria-label="Copy folder id to clipboard"
+            >
+              {pathCopied ? <Check size={14} /> : <Copy size={14} />}
+            </button>
+          )}
         </div>
 
-        <div
-          className="browse-folder__list-container"
-          style={{ fontSize: `${zoomLevel}rem` }}
-        >
-          {!isRootPicker && !loading && connectionValid !== false && (
-            <div className="browse-folder__drive-toolbar">
-              <button
-                type="button"
-                className={`browse-folder__drive-toggle${
-                  hideFiles ? " browse-folder__drive-toggle--active" : ""
-                }`}
-                onClick={() => setHideFiles((current) => !current)}
-                title={
-                  hideFiles
-                    ? "Show files in this folder (files cannot be selected as a root)"
-                    : "Hide files and show folders only"
-                }
-              >
-                {hideFiles ? "Show files" : "Hide files"}
-              </button>
+        <div className="browse-folder__list-container" style={densityStyle}>
+          {loading || checkingConnection ? (
+            <div className="browse-folder__empty">Loading…</div>
+          ) : connectionValid === false ? (
+            <div className="browse-folder__empty">
+              Reconnect your cloud account to browse folders.
             </div>
-          )}
-
-          <div className="browse-folder__list">
-            {loading || checkingConnection ? (
-              <div className="browse-folder__empty">Loading…</div>
-            ) : connectionValid === false ? (
-              <div className="browse-folder__empty">
-                Reconnect your cloud account to browse folders.
-              </div>
-            ) : isRootPicker ? (
-              roots.length === 0 ? (
+          ) : isRootPicker ? (
+            <div className="browse-folder__list">
+              {roots.length === 0 ? (
                 <div className="browse-folder__empty">No cloud locations found.</div>
               ) : (
                 roots.map((root) => (
@@ -548,75 +737,134 @@ export default function BrowseCloudFolder() {
                         {rootTypeLabel(root.rootType)}
                       </div>
                     </div>
+                    <div
+                      className="browse-folder__item-path-col browse-folder__item-path-col--drive"
+                      title={root.id}
+                    >
+                      {root.id}
+                    </div>
                     <ChevronRight size={20} className="browse-folder__item-arrow" />
                   </button>
                 ))
-              )
-            ) : folders.length === 0 && (hideFiles || files.length === 0) ? (
-              <div className="browse-folder__empty">This folder is empty.</div>
-            ) : (
-              <>
-                {folders.map((folder) => (
+              )}
+            </div>
+          ) : (
+            <FileBrowserPane
+              pagination={pagination && pagination.total > 0 ? pagination : null}
+              currentPage={currentPage}
+              itemsPerPage={itemsPerPage}
+              onPageChange={handlePageChange}
+              onItemsPerPageChange={handleItemsPerPageChange}
+              listClassName={altTextSelect ? "browse-folder__list--text-select" : ""}
+              helpTooltip={BROWSE_SELECTION_HELP}
+              toolbarLeft={
+                <>
                   <button
-                    key={folder.ServiceID}
                     type="button"
-                    className="browse-folder__item"
-                    onClick={() => handleFolderClick(folder)}
+                    className="browse-folder__drive-toggle"
+                    onClick={() => setShowNewFolderModal(true)}
+                    disabled={!currentIdentifier || mutationLoading}
                   >
-                    <div className="browse-folder__item-icon">
-                      <FolderOpen size={32} />
-                    </div>
-                    <div className="browse-folder__item-info">
-                      <div className="browse-folder__item-name">{folder.name}</div>
-                      <div className="browse-folder__item-meta">{folder.locationPath}</div>
-                    </div>
-                    <ChevronRight size={20} className="browse-folder__item-arrow" />
+                    <FolderPlus size={16} />
+                    New folder
                   </button>
-                ))}
-                {!hideFiles &&
-                  files.map((file) => (
-                    <div
-                      key={file.ServiceID}
-                      className="browse-folder__item browse-folder__item--file"
-                      title="Files cannot be selected as a migration root"
-                      aria-disabled="true"
+                  <button
+                    type="button"
+                    className={`browse-folder__drive-toggle${
+                      hideFiles ? " browse-folder__drive-toggle--active" : ""
+                    }`}
+                    onClick={() => setHideFiles((current) => !current)}
+                  >
+                    {hideFiles ? "Show files" : "Hide files"}
+                  </button>
+                  {selectedCount > 0 && (
+                    <button
+                      type="button"
+                      className="browse-folder__drive-toggle browse-folder__drive-toggle--danger"
+                      onClick={() => requestDelete(selectedItems)}
+                      disabled={mutationLoading}
                     >
-                      <div className="browse-folder__item-icon">
-                        <File size={32} />
+                      <Trash2 size={16} />
+                      Delete ({selectedCount})
+                    </button>
+                  )}
+                </>
+              }
+            >
+              {folders.length === 0 && (hideFiles || files.length === 0) ? (
+                <div className="path-review-list__empty">This folder is empty.</div>
+              ) : (
+                <>
+                  {folders.map((folder, index) => {
+                    const item: BrowseSelectableItem = {
+                      id: folder.ServiceID,
+                      type: "folder",
+                      name: folder.name,
+                    };
+                    return (
+                      <div
+                        key={folder.ServiceID}
+                        className={`browse-folder__item browse-folder__item--selectable${
+                          isSelected(folder.ServiceID) ? " browse-folder__item--selected" : ""
+                        }`}
+                        onClick={(event) => {
+                          if (isMultiSelectModifier(event) || event.shiftKey) {
+                            handleItemSelect(item, index, event);
+                            return;
+                          }
+                          handleFolderClick(folder, event);
+                        }}
+                        onContextMenu={(event) => handleItemContextMenu(event, item)}
+                      >
+                        <BrowseFolderItemRow
+                          name={folder.name}
+                          path={folder.ServiceID}
+                          type="folder"
+                          showArrow
+                          lastUpdated={folder.lastUpdated}
+                        />
                       </div>
-                      <div className="browse-folder__item-info">
-                        <div className="browse-folder__item-name">{file.name}</div>
-                        <div className="browse-folder__item-meta">{file.locationPath}</div>
+                    );
+                  })}
+                  {!hideFiles &&
+                    files.map((file, fileIndex) => {
+                    const index = folders.length + fileIndex;
+                    const item: BrowseSelectableItem = {
+                      id: file.ServiceID,
+                      type: "file",
+                      name: file.name,
+                    };
+                    return (
+                      <div
+                        key={file.ServiceID}
+                        className={`browse-folder__item browse-folder__item--file browse-folder__item--selectable${
+                          isSelected(file.ServiceID) ? " browse-folder__item--selected" : ""
+                        }`}
+                        onClick={(event) => {
+                          if (isMultiSelectModifier(event) || event.shiftKey) {
+                            handleItemSelect(item, index, event);
+                          }
+                        }}
+                        onContextMenu={(event) => handleItemContextMenu(event, item)}
+                      >
+                        <BrowseFolderItemRow
+                          name={file.name}
+                          path={file.ServiceID}
+                          type="file"
+                          lastUpdated={file.lastUpdated}
+                          size={file.size}
+                        />
                       </div>
-                    </div>
-                  ))}
-                {pagination?.hasMore && (
-                  <button
-                    type="button"
-                    className="browse-folder__load-more"
-                    onClick={handleLoadMore}
-                    disabled={loadingMore}
-                  >
-                    {loadingMore ? (
-                      <>
-                        <Loader2 size={20} className="browse-folder__load-more-spinner" />
-                        Loading…
-                      </>
-                    ) : (
-                      `Load more (${Math.max(
-                        0,
-                        pagination.total - folders.length - (hideFiles ? 0 : files.length)
-                      )} remaining)`
-                    )}
-                  </button>
-                )}
-              </>
-            )}
-          </div>
+                    );
+                  })}
+                </>
+              )}
+            </FileBrowserPane>
+          )}
         </div>
 
         <div className="browse-folder__footer">
-          <ZoomControl />
+          <BrowseDensityControl />
           <div className="browse-folder__footer-actions">
             {canSelect && connectionValid === true && (
               <button
@@ -630,6 +878,49 @@ export default function BrowseCloudFolder() {
           </div>
         </div>
       </GlassSurfacePanel>
+
+      {contextMenu && (
+        <BrowseContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          label={
+            selectedCount > 0
+              ? `Delete ${selectedCount} selected`
+              : `Delete "${contextMenu.item.name}"`
+          }
+          onDelete={handleContextDelete}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
+
+      {showNewFolderModal && (
+        <NewFolderModal
+          onConfirm={handleCreateFolder}
+          onCancel={() => setShowNewFolderModal(false)}
+          submitting={mutationLoading}
+        />
+      )}
+
+      {showDeleteConfirm && (
+        <ConfirmDialog
+          title={deleteConfirmCopy.title}
+          message={deleteConfirmCopy.message}
+          confirmLabel={mutationLoading ? "Deleting…" : "Delete"}
+          onConfirm={() => void handleDeleteConfirmed()}
+          onCancel={() => {
+            setShowDeleteConfirm(false);
+            setPendingDeleteItems([]);
+          }}
+        />
+      )}
     </section>
+  );
+}
+
+export default function BrowseCloudFolder() {
+  return (
+    <BrowseDensityProvider>
+      <BrowseCloudFolderPage />
+    </BrowseDensityProvider>
   );
 }

@@ -20,16 +20,17 @@ import {
   getOAuthRedirectUri,
   saveOAuthPendingSession,
 } from "../utils/cloudOAuth";
+import CloudProviderOAuthSetup from "../components/CloudProviderOAuthSetup";
+import { useAuth } from "../contexts/AuthContext";
+import { serviceIdToProviderId } from "../utils/cloudProviders";
 import {
   buildCloudProviderAuthUrl,
   getCloudProviderDisplayName,
   getCloudProviderOAuthEnvHint,
-  getCloudProviderOAuthCredentials,
   getCloudProviderSignInBrand,
   isCloudProviderOAuthConfigured,
   resolveCloudProviderScopes,
 } from "../utils/cloudProviderOAuth";
-import { serviceIdToProviderId } from "../utils/cloudProviders";
 import {
   DropboxAccountType,
   getDropboxAccountTypeLabel,
@@ -65,6 +66,7 @@ function ProviderConnectIcon({ providerId }: { providerId: string }) {
 
 export default function ConnectCloudAccount() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const { migration, updateMigration, persistSelections } = useSelection();
 
@@ -89,8 +91,18 @@ export default function ConnectCloudAccount() {
   const reconnectHandledRef = useRef(false);
 
   const returnPath = role === "destination" ? "/destination" : "/connect";
-  const oauthConfigured = isCloudProviderOAuthConfigured(providerId);
+  const oauthConfigured = isCloudProviderOAuthConfigured(provider?.oauthClientId);
   const signInBrand = getCloudProviderSignInBrand(providerId);
+  const isAdmin = user?.role === "admin";
+
+  const reloadProvider = async () => {
+    const providers = await fetchProviders();
+    const match =
+      providers.find((item) => item.id === providerId) ??
+      providers.find((item) => item.serviceId === serviceId) ??
+      null;
+    setProvider(match);
+  };
 
   const {
     checking: checkingConnection,
@@ -265,15 +277,15 @@ export default function ConnectCloudAccount() {
         dropboxAccountType: dropboxAccountType ?? undefined,
       });
 
-      const creds = getCloudProviderOAuthCredentials(providerId);
-      if (!creds) {
+      const credsClientId = provider?.oauthClientId;
+      if (!credsClientId) {
         setError(getCloudProviderOAuthEnvHint(providerId));
         setConnecting(false);
         return;
       }
 
       const authUrl = buildCloudProviderAuthUrl(providerId, {
-        clientId: creds.clientId,
+        clientId: credsClientId,
         redirectUri: getOAuthRedirectUri(),
         scopes,
         state,
@@ -480,41 +492,50 @@ export default function ConnectCloudAccount() {
               </span>
             )}
 
-            {!oauthConfigured && (
+            {!oauthConfigured && !isAdmin && (
               <p className="browse-folder__error browse-cloud-connect__notice">
-                {signInBrand} OAuth credentials are not configured for this build.
+                {getCloudProviderOAuthEnvHint(providerId)}
               </p>
+            )}
+
+            {!oauthConfigured && isAdmin && (
+              <CloudProviderOAuthSetup
+                providerId={providerId}
+                displayName={providerLabel}
+                onConfigured={() => void reloadProvider()}
+              />
             )}
 
             {error && <p className="browse-folder__error">{error}</p>}
 
-            <button
-              type="button"
-              className="glass-button glass-button--progress-cta browse-cloud-connect__button"
-              onClick={() => void handleSignIn()}
-              disabled={
-                connecting ||
-                !provider ||
-                !oauthConfigured ||
-                (providerId === "dropbox" && !dropboxAccountType)
-              }
-            >
-              {connecting ? (
-                <>
-                  <Loader2 className="browse-folder__spin" size={18} aria-hidden="true" />
-                  Connecting…
-                </>
-              ) : (
-                <>
-                  <LogIn size={18} aria-hidden="true" />
-                  {showInvalidPanel
-                    ? `Reconnect with ${signInBrand}`
-                    : providerId === "dropbox" && dropboxAccountType
-                      ? `Sign in to ${getDropboxAccountTypeLabel(dropboxAccountType).toLowerCase()} ${signInBrand}`
-                      : `Sign in with ${signInBrand}`}
-                </>
-              )}
-            </button>
+            {oauthConfigured && (
+              <button
+                type="button"
+                className="glass-button glass-button--progress-cta browse-cloud-connect__button"
+                onClick={() => void handleSignIn()}
+                disabled={
+                  connecting ||
+                  !provider ||
+                  (providerId === "dropbox" && !dropboxAccountType)
+                }
+              >
+                {connecting ? (
+                  <>
+                    <Loader2 className="browse-folder__spin" size={18} aria-hidden="true" />
+                    Connecting…
+                  </>
+                ) : (
+                  <>
+                    <LogIn size={18} aria-hidden="true" />
+                    {showInvalidPanel
+                      ? `Reconnect with ${signInBrand}`
+                      : providerId === "dropbox" && dropboxAccountType
+                        ? `Sign in to ${getDropboxAccountTypeLabel(dropboxAccountType).toLowerCase()} ${signInBrand}`
+                        : `Sign in with ${signInBrand}`}
+                  </>
+                )}
+              </button>
+            )}
           </div>
         )}
       </GlassSurfacePanel>

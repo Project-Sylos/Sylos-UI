@@ -16,42 +16,17 @@ import {
 } from "../types/migrations";
 import { ServiceDescriptor, Drive, ChildrenResponse, Folder } from "../types/services";
 import { UserPreferences, DEFAULT_PREFERENCES } from "../types/preferences";
-
-const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8086";
-const AUTH_STORAGE_KEY = "sylos.authToken";
+import { apiFetch, getAuthToken, readErrorMessage } from "./client";
 
 const fallbackServices: ServiceDescriptor[] = [
   { id: "local", displayName: "Local Filesystem", type: "local" },
   { id: "spectra-primary", displayName: "Spectra Simulator", type: "spectra" },
 ];
 
-function getAuthToken(): string | null {
-  return window.localStorage.getItem(AUTH_STORAGE_KEY);
-}
-
-function buildHeaders(token?: string, extra?: HeadersInit): Headers {
-  const headers = new Headers({
-    "Content-Type": "application/json",
-  });
-
-  if (extra) {
-    const wrapper = new Headers(extra);
-    wrapper.forEach((value, key) => headers.set(key, value));
-  }
-
-  if (token) {
-    headers.set("Authorization", `Bearer ${token}`);
-  }
-
-  return headers;
-}
-
 export async function fetchServices(): Promise<ServiceDescriptor[]> {
-  const token = getAuthToken() ?? undefined;
   try {
-    const response = await fetch(`${API_BASE}/api/services`, {
+    const response = await apiFetch(`/api/services`, {
       method: "GET",
-      headers: buildHeaders(token),
     });
 
     if (!response.ok) {
@@ -69,11 +44,9 @@ export async function fetchServices(): Promise<ServiceDescriptor[]> {
 export async function setMigrationRoot(
   payload: MigrationRootRequest
 ): Promise<MigrationRootResponse> {
-  const token = getAuthToken() ?? undefined;
 
-  const response = await fetch(`${API_BASE}/api/migrations/roots`, {
+  const response = await apiFetch(`/api/migrations/roots`, {
     method: "POST",
-    headers: buildHeaders(token),
     body: JSON.stringify(payload),
   });
 
@@ -92,11 +65,9 @@ export async function setMigrationRoot(
 export async function startMigration(
   payload: StartMigrationPayload
 ): Promise<MigrationResponse> {
-  const token = getAuthToken() ?? undefined;
 
-  const response = await fetch(`${API_BASE}/api/migrations`, {
+  const response = await apiFetch(`/api/migrations`, {
     method: "POST",
-    headers: buildHeaders(token),
     body: JSON.stringify(payload),
   });
 
@@ -115,7 +86,6 @@ export async function uploadMigrationDB(
   filename: string,
   overwrite = false
 ): Promise<MigrationUploadResponse> {
-  const token = getAuthToken() ?? undefined;
 
   const formData = new FormData();
   formData.append("file", file);
@@ -124,14 +94,8 @@ export async function uploadMigrationDB(
     formData.append("overwrite", "true");
   }
 
-  const headers = new Headers();
-  if (token) {
-    headers.set("Authorization", `Bearer ${token}`);
-  }
-
-  const response = await fetch(`${API_BASE}/api/migrations/db/upload`, {
+  const response = await apiFetch(`/api/migrations/db/upload`, {
     method: "POST",
-    headers,
     body: formData,
   });
 
@@ -152,11 +116,9 @@ export async function uploadMigrationDB(
 }
 
 export async function listMigrationDBs(): Promise<MigrationDBFile[]> {
-  const token = getAuthToken() ?? undefined;
 
-  const response = await fetch(`${API_BASE}/api/migrations/db/list`, {
+  const response = await apiFetch(`/api/migrations/db/list`, {
     method: "GET",
-    headers: buildHeaders(token),
   });
 
   if (!response.ok) {
@@ -176,13 +138,11 @@ export async function listMigrationDBs(): Promise<MigrationDBFile[]> {
 export async function getMigrationStatus(
   migrationId: string
 ): Promise<MigrationStatusResponse> {
-  const token = getAuthToken() ?? undefined;
 
-  const response = await fetch(
-    `${API_BASE}/api/migrations/${migrationId}`,
+  const response = await apiFetch(
+    `/api/migrations/${migrationId}`,
     {
       method: "GET",
-      headers: buildHeaders(token),
     }
   );
 
@@ -201,13 +161,11 @@ export async function getMigrationStatus(
 export async function inspectMigration(
   migrationId: string
 ): Promise<MigrationInspectResponse> {
-  const token = getAuthToken() ?? undefined;
 
-  const response = await fetch(
-    `${API_BASE}/api/migrations/${migrationId}/inspect`,
+  const response = await apiFetch(
+    `/api/migrations/${migrationId}/inspect`,
     {
       method: "GET",
-      headers: buildHeaders(token),
     }
   );
 
@@ -227,7 +185,6 @@ export async function listMigrations(options?: {
   offset?: number;
   limit?: number;
 }): Promise<ListMigrationsResponse> {
-  const token = getAuthToken() ?? undefined;
 
   const params = new URLSearchParams();
   if (options?.offset !== undefined) {
@@ -237,11 +194,10 @@ export async function listMigrations(options?: {
     params.append("limit", options.limit.toString());
   }
 
-  const url = `${API_BASE}/api/migrations${params.toString() ? `?${params.toString()}` : ""}`;
+  const url = `/api/migrations${params.toString() ? `?${params.toString()}` : ""}`;
 
-  const response = await fetch(url, {
+  const response = await apiFetch(url, {
     method: "GET",
-    headers: buildHeaders(token),
   });
 
   if (!response.ok) {
@@ -259,13 +215,11 @@ export async function listMigrations(options?: {
 export async function loadMigration(
   migrationId: string
 ): Promise<MigrationResponse> {
-  const token = getAuthToken() ?? undefined;
 
-  const response = await fetch(
-    `${API_BASE}/api/migrations/${migrationId}/load`,
+  const response = await apiFetch(
+    `/api/migrations/${migrationId}/load`,
     {
       method: "POST",
-      headers: buildHeaders(token),
     }
   );
 
@@ -298,13 +252,11 @@ export async function loadMigration(
 export async function stopMigration(
   migrationId: string
 ): Promise<MigrationStatusResponse> {
-  const token = getAuthToken() ?? undefined;
 
-  const response = await fetch(
-    `${API_BASE}/api/migrations/${migrationId}/stop`,
+  const response = await apiFetch(
+    `/api/migrations/${migrationId}/stop`,
     {
       method: "POST",
-      headers: buildHeaders(token),
     }
   );
 
@@ -354,13 +306,11 @@ function mapDriveFromAPI(drive: Record<string, unknown>): Drive {
 export async function listDrives(
   serviceId: string
 ): Promise<Drive[]> {
-  const token = getAuthToken() ?? undefined;
 
-  const response = await fetch(
-    `${API_BASE}/api/services/${serviceId}/drives`,
+  const response = await apiFetch(
+    `/api/services/${serviceId}/drives`,
     {
       method: "GET",
-      headers: buildHeaders(token),
     }
   );
 
@@ -383,14 +333,12 @@ export async function mountDrive(
   serviceId: string,
   device: string
 ): Promise<Drive> {
-  const token = getAuthToken() ?? undefined;
 
-  const response = await fetch(
-    `${API_BASE}/api/services/${serviceId}/drives/mount`,
+  const response = await apiFetch(
+    `/api/services/${serviceId}/drives/mount`,
     {
       method: "POST",
-      headers: buildHeaders(token, { "Content-Type": "application/json" }),
-      body: JSON.stringify({ device }),
+            body: JSON.stringify({ device }),
     }
   );
 
@@ -409,6 +357,83 @@ export async function mountDrive(
   return mapDriveFromAPI(data);
 }
 
+export type BrowseNodeRef = {
+  id: string;
+  type: "file" | "folder";
+};
+
+export type DeleteBrowseNodesResult = {
+  deleted: string[];
+  errors: Array<{ id: string; message: string }>;
+};
+
+export async function createBrowseFolder(
+  serviceId: string,
+  body: {
+    parentId: string;
+    name: string;
+    connectionId?: string;
+    role?: "source" | "destination";
+    rootType?: string;
+    driveId?: string;
+  }
+): Promise<Folder> {
+  const response = await apiFetch(`/api/services/${serviceId}/folders`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to create folder: ${await readErrorMessage(response)}`);
+  }
+
+  const data = (await response.json()) as Record<string, unknown>;
+  return {
+    ServiceID: String(data.id ?? data.ID ?? ""),
+    Id: String(data.id ?? data.ID ?? ""),
+    name: String(data.displayName ?? data.DisplayName ?? body.name),
+    locationPath: String(data.locationPath ?? data.LocationPath ?? ""),
+    parentId: data.parentId != null ? String(data.parentId) : undefined,
+    parentPath: data.parentPath != null ? String(data.parentPath) : undefined,
+    type: "folder",
+  };
+}
+
+export async function deleteBrowseNodes(
+  serviceId: string,
+  body: {
+    nodes: BrowseNodeRef[];
+    contextId: string;
+    connectionId?: string;
+    role?: "source" | "destination";
+    rootType?: string;
+    driveId?: string;
+  }
+): Promise<DeleteBrowseNodesResult> {
+  const response = await apiFetch(`/api/services/${serviceId}/nodes/delete`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+  let data: DeleteBrowseNodesResult = { deleted: [], errors: [] };
+  try {
+    data = (await response.json()) as DeleteBrowseNodesResult;
+  } catch {
+    if (!response.ok) {
+      throw new Error(`Failed to delete items: ${await readErrorMessage(response)}`);
+    }
+  }
+
+  if (!response.ok && data.errors.length === 0) {
+    throw new Error(`Failed to delete items: ${await readErrorMessage(response)}`);
+  }
+
+  return {
+    deleted: data.deleted ?? [],
+    errors: data.errors ?? [],
+  };
+}
+
 export async function listChildren(
   serviceId: string,
   identifier: string,
@@ -419,7 +444,6 @@ export async function listChildren(
     foldersOnly?: boolean;
   }
 ): Promise<ChildrenResponse> {
-  const token = getAuthToken() ?? undefined;
 
   const params = new URLSearchParams({ identifier });
   if (role) {
@@ -435,11 +459,10 @@ export async function listChildren(
     params.append("foldersOnly", options.foldersOnly.toString());
   }
 
-  const response = await fetch(
-    `${API_BASE}/api/services/${serviceId}/children?${params.toString()}`,
+  const response = await apiFetch(
+    `/api/services/${serviceId}/children?${params.toString()}`,
     {
       method: "GET",
-      headers: buildHeaders(token),
     }
   );
 
@@ -486,6 +509,12 @@ export async function listChildren(
           ? item.depthLevel
           : undefined,
     type: String(item.Type ?? item.type ?? "folder"),
+    size:
+      typeof item.Size === "number"
+        ? item.Size
+        : typeof item.size === "number"
+          ? item.size
+          : undefined,
   });
 
   const folders = (data.folders || []).map((item: Record<string, unknown>) =>
@@ -513,14 +542,12 @@ export async function getMigrationLogs(
   migrationId: string,
   request: MigrationLogsRequest = {}
 ): Promise<MigrationLogsResponse> {
-  const token = getAuthToken() ?? undefined;
 
   // Don't send lastSeenIds - we filter duplicates on the frontend
-  const response = await fetch(
-    `${API_BASE}/api/migrations/${migrationId}/logs`,
+  const response = await apiFetch(
+    `/api/migrations/${migrationId}/logs`,
     {
       method: "POST",
-      headers: buildHeaders(token),
       body: JSON.stringify({}),
     }
   );
@@ -543,13 +570,11 @@ export async function getMigrationLogs(
 export async function getMigrationQueueMetrics(
   migrationId: string
 ): Promise<MigrationQueueMetricsResponse> {
-  const token = getAuthToken() ?? undefined;
 
-  const response = await fetch(
-    `${API_BASE}/api/migrations/${migrationId}/queue-metrics`,
+  const response = await apiFetch(
+    `/api/migrations/${migrationId}/queue-metrics`,
     {
       method: "GET",
-      headers: buildHeaders(token),
     }
   );
 
@@ -640,7 +665,6 @@ export async function getMigrationDiffs(
     foldersOnly?: boolean;
   }
 ): Promise<{ items: DiffItem[]; pagination: PaginationInfo }> {
-  const token = getAuthToken() ?? undefined;
 
   const params = new URLSearchParams();
   // Append path if provided (defaults to "/" for root if not provided)
@@ -659,11 +683,10 @@ export async function getMigrationDiffs(
     params.append("foldersOnly", options.foldersOnly.toString());
   }
 
-  const response = await fetch(
-    `${API_BASE}/api/migrations/${migrationId}/diffs?${params.toString()}`,
+  const response = await apiFetch(
+    `/api/migrations/${migrationId}/diffs?${params.toString()}`,
     {
       method: "GET",
-      headers: buildHeaders(token),
     }
   );
 
@@ -774,7 +797,6 @@ export async function getMigrationDiffsStats(
     foldersOnly?: boolean;
   }
 ): Promise<DiffsStatsResponse> {
-  const token = getAuthToken() ?? undefined;
 
   const params = new URLSearchParams();
   if (options?.path !== undefined) {
@@ -785,11 +807,10 @@ export async function getMigrationDiffsStats(
   }
 
   const query = params.toString();
-  const url = `${API_BASE}/api/migrations/${migrationId}/diffs/stats${query ? `?${query}` : ""}`;
+  const url = `/api/migrations/${migrationId}/diffs/stats${query ? `?${query}` : ""}`;
 
-  const response = await fetch(url, {
+  const response = await apiFetch(url, {
     method: "GET",
-    headers: buildHeaders(token),
   });
 
   if (!response.ok) {
@@ -833,13 +854,11 @@ export async function excludeNode(
   migrationId: string,
   nodeId: string
 ): Promise<ExclusionResponse> {
-  const token = getAuthToken() ?? undefined;
 
-  const response = await fetch(
-    `${API_BASE}/api/migrations/${migrationId}/exclude`,
+  const response = await apiFetch(
+    `/api/migrations/${migrationId}/exclude`,
     {
       method: "POST",
-      headers: buildHeaders(token),
       body: JSON.stringify({
         nodeIDs: [nodeId],
       }),
@@ -874,13 +893,11 @@ export async function unexcludeNode(
   migrationId: string,
   nodeId: string
 ): Promise<ExclusionResponse> {
-  const token = getAuthToken() ?? undefined;
 
-  const response = await fetch(
-    `${API_BASE}/api/migrations/${migrationId}/unexclude`,
+  const response = await apiFetch(
+    `/api/migrations/${migrationId}/unexclude`,
     {
       method: "POST",
-      headers: buildHeaders(token),
       body: JSON.stringify({
         nodeIDs: [nodeId],
       }),
@@ -921,13 +938,11 @@ export async function markNodeForRetryDiscovery(
   migrationId: string,
   nodeId: string
 ): Promise<ExclusionResponse> {
-  const token = getAuthToken() ?? undefined;
 
-  const response = await fetch(
-    `${API_BASE}/api/migrations/${migrationId}/node/${encodeURIComponent(nodeId)}/mark-retry-discovery`,
+  const response = await apiFetch(
+    `/api/migrations/${migrationId}/node/${encodeURIComponent(nodeId)}/mark-retry-discovery`,
     {
       method: "POST",
-      headers: buildHeaders(token),
     }
   );
 
@@ -959,13 +974,11 @@ export async function unmarkNodeForRetryDiscovery(
   migrationId: string,
   nodeId: string
 ): Promise<ExclusionResponse> {
-  const token = getAuthToken() ?? undefined;
 
-  const response = await fetch(
-    `${API_BASE}/api/migrations/${migrationId}/node/${encodeURIComponent(nodeId)}/unmark-retry-discovery`,
+  const response = await apiFetch(
+    `/api/migrations/${migrationId}/node/${encodeURIComponent(nodeId)}/unmark-retry-discovery`,
     {
       method: "POST",
-      headers: buildHeaders(token),
     }
   );
 
@@ -997,13 +1010,11 @@ export async function markNodeForRetryCopy(
   migrationId: string,
   nodeId: string
 ): Promise<ExclusionResponse> {
-  const token = getAuthToken() ?? undefined;
 
-  const response = await fetch(
-    `${API_BASE}/api/migrations/${migrationId}/node/${encodeURIComponent(nodeId)}/mark-retry-copy`,
+  const response = await apiFetch(
+    `/api/migrations/${migrationId}/node/${encodeURIComponent(nodeId)}/mark-retry-copy`,
     {
       method: "POST",
-      headers: buildHeaders(token),
     }
   );
 
@@ -1035,13 +1046,11 @@ export async function unmarkNodeForRetryCopy(
   migrationId: string,
   nodeId: string
 ): Promise<ExclusionResponse> {
-  const token = getAuthToken() ?? undefined;
 
-  const response = await fetch(
-    `${API_BASE}/api/migrations/${migrationId}/node/${encodeURIComponent(nodeId)}/unmark-retry-copy`,
+  const response = await apiFetch(
+    `/api/migrations/${migrationId}/node/${encodeURIComponent(nodeId)}/unmark-retry-copy`,
     {
       method: "POST",
-      headers: buildHeaders(token),
     }
   );
 
@@ -1100,7 +1109,6 @@ export async function changePhase(
   phase: "traversal" | "copy",
   options?: PhaseChangeRequest["options"]
 ): Promise<PhaseChangeResponse> {
-  const token = getAuthToken() ?? undefined;
 
   const requestBody: PhaseChangeRequest = {
     phase,
@@ -1108,14 +1116,10 @@ export async function changePhase(
     options,
   };
 
-  const response = await fetch(
-    `${API_BASE}/api/migrations/${migrationId}/phase-change`,
+  const response = await apiFetch(
+    `/api/migrations/${migrationId}/phase-change`,
     {
       method: "POST",
-      headers: {
-        ...buildHeaders(token),
-        "Content-Type": "application/json",
-      },
       body: JSON.stringify(requestBody),
     }
   );
@@ -1153,13 +1157,11 @@ export interface PendingWorkResponse {
 export async function getPendingWork(
   migrationId: string
 ): Promise<PendingWorkResponse> {
-  const token = getAuthToken() ?? undefined;
 
-  const response = await fetch(
-    `${API_BASE}/api/migrations/${migrationId}/pending-work`,
+  const response = await apiFetch(
+    `/api/migrations/${migrationId}/pending-work`,
     {
       method: "GET",
-      headers: buildHeaders(token),
     }
   );
 
@@ -1288,13 +1290,11 @@ export async function getPathReviewStats(
   migrationId: string,
   phase?: "traversal" | "copy"
 ): Promise<PathReviewStats> {
-  const token = getAuthToken() ?? undefined;
 
-  const response = await fetch(
-    `${API_BASE}/api/migrations/${migrationId}/stats`,
+  const response = await apiFetch(
+    `/api/migrations/${migrationId}/stats`,
     {
       method: "GET",
-      headers: buildHeaders(token),
     }
   );
 
@@ -1356,7 +1356,6 @@ export async function searchPathReviewItems(
   migrationId: string,
   options?: SearchOptions
 ): Promise<{ items: DiffItem[]; pagination: PaginationInfo; stats: PathReviewStats | null }> {
-  const token = getAuthToken() ?? undefined;
 
   const params = new URLSearchParams();
   if (options?.offset !== undefined) {
@@ -1461,11 +1460,10 @@ export async function searchPathReviewItems(
     requestBody.conditions = undefined;
   }
 
-  const url = `${API_BASE}/api/migrations/${migrationId}/search${params.toString() ? `?${params.toString()}` : ""}`;
+  const url = `/api/migrations/${migrationId}/search${params.toString() ? `?${params.toString()}` : ""}`;
 
-  const response = await fetch(url, {
+  const response = await apiFetch(url, {
     method: "POST",
-    headers: buildHeaders(token),
     body: JSON.stringify(requestBody),
   });
 
@@ -1594,13 +1592,11 @@ export async function bulkExcludeNodes(
   migrationId: string,
   request: BulkExclusionRequest
 ): Promise<ExclusionResponse> {
-  const token = getAuthToken() ?? undefined;
 
-  const response = await fetch(
-    `${API_BASE}/api/migrations/${migrationId}/exclude`,
+  const response = await apiFetch(
+    `/api/migrations/${migrationId}/exclude`,
     {
       method: "POST",
-      headers: buildHeaders(token),
       body: JSON.stringify(request),
     }
   );
@@ -1633,13 +1629,11 @@ export async function bulkUnexcludeNodes(
   migrationId: string,
   request: BulkExclusionRequest
 ): Promise<ExclusionResponse> {
-  const token = getAuthToken() ?? undefined;
 
-  const response = await fetch(
-    `${API_BASE}/api/migrations/${migrationId}/unexclude`,
+  const response = await apiFetch(
+    `/api/migrations/${migrationId}/unexclude`,
     {
       method: "POST",
-      headers: buildHeaders(token),
       body: JSON.stringify(request),
     }
   );
@@ -1698,13 +1692,11 @@ export interface RunningTasksResponse {
 export async function getBackgroundTasks(
   migrationId: string
 ): Promise<BackgroundTask[]> {
-  const token = getAuthToken() ?? undefined;
 
-  const response = await fetch(
-    `${API_BASE}/api/migrations/${migrationId}/bgTasks`,
+  const response = await apiFetch(
+    `/api/migrations/${migrationId}/bgTasks`,
     {
       method: "GET",
-      headers: buildHeaders(token),
     }
   );
 
@@ -1729,13 +1721,11 @@ export async function getBackgroundTasks(
 export async function getRunningBackgroundTasks(
   migrationId: string
 ): Promise<RunningTasksResponse> {
-  const token = getAuthToken() ?? undefined;
 
-  const response = await fetch(
-    `${API_BASE}/api/migrations/${migrationId}/bgTasks/running`,
+  const response = await apiFetch(
+    `/api/migrations/${migrationId}/bgTasks/running`,
     {
       method: "GET",
-      headers: buildHeaders(token),
     }
   );
 
@@ -1779,13 +1769,11 @@ export async function triggerRetrySweep(
   migrationId: string,
   config?: RetrySweepRequest
 ): Promise<RetrySweepResponse> {
-  const token = getAuthToken() ?? undefined;
 
-  const response = await fetch(
-    `${API_BASE}/api/migrations/${migrationId}/retry-sweep`,
+  const response = await apiFetch(
+    `/api/migrations/${migrationId}/retry-sweep`,
     {
       method: "POST",
-      headers: buildHeaders(token),
       body: JSON.stringify(config || {}),
     }
   );
@@ -1807,12 +1795,10 @@ export async function triggerRetrySweep(
  * @returns Promise resolving to UserPreferences, falls back to defaults on error
  */
 export async function getPreferences(): Promise<UserPreferences> {
-  const token = getAuthToken() ?? undefined;
 
   try {
-    const response = await fetch(`${API_BASE}/api/preferences`, {
+    const response = await apiFetch(`/api/preferences`, {
       method: "GET",
-      headers: buildHeaders(token),
     });
 
     if (!response.ok) {
@@ -1846,6 +1832,10 @@ export async function getPreferences(): Promise<UserPreferences> {
         enabled: typeof data.tips.enabled === "boolean" ? data.tips.enabled : DEFAULT_PREFERENCES.tips!.enabled,
         categories: typeof data.tips.categories === "object" && data.tips.categories !== null ? data.tips.categories : DEFAULT_PREFERENCES.tips!.categories,
       } : DEFAULT_PREFERENCES.tips,
+      developer: data.developer && typeof data.developer === "object" ? {
+        enabled: typeof data.developer.enabled === "boolean" ? data.developer.enabled : DEFAULT_PREFERENCES.developer!.enabled,
+        showSpectraService: typeof data.developer.showSpectraService === "boolean" ? data.developer.showSpectraService : DEFAULT_PREFERENCES.developer!.showSpectraService,
+      } : DEFAULT_PREFERENCES.developer,
     };
   } catch (error) {
     console.error("Error fetching preferences, using defaults", error);
@@ -1859,11 +1849,9 @@ export async function getPreferences(): Promise<UserPreferences> {
  * @returns Promise resolving when save completes, rejects on error
  */
 export async function savePreferences(prefs: UserPreferences): Promise<void> {
-  const token = getAuthToken() ?? undefined;
 
-  const response = await fetch(`${API_BASE}/api/preferences`, {
+  const response = await apiFetch(`/api/preferences`, {
     method: "PUT",
-    headers: buildHeaders(token),
     body: JSON.stringify(prefs),
   });
 

@@ -34,6 +34,7 @@ export default function ConnectSource() {
   } = useSelection();
   const { preferences } = usePreferences();
   const [isPicking, setIsPicking] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const processedStateRef = useRef<string | null>(null);
 
   const spectraEligible = isSpectraEligible(
@@ -101,6 +102,7 @@ export default function ConnectSource() {
 
     try {
       setIsPicking(true);
+      setSaveError(null);
       const response = await setMigrationRoot({
         migrationId: migration.migrationId,
         role: "source",
@@ -121,7 +123,7 @@ export default function ConnectSource() {
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Failed to set source root.";
-      alert(message);
+      setSaveError(message);
     } finally {
       setIsPicking(false);
     }
@@ -231,6 +233,7 @@ export default function ConnectSource() {
 
     try {
       setIsPicking(true);
+      setSaveError(null);
       const response = await setMigrationRoot({
         migrationId: migration.migrationId,
         role: "source",
@@ -251,7 +254,7 @@ export default function ConnectSource() {
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Failed to set source root.";
-      alert(message);
+      setSaveError(message);
     } finally {
       setIsPicking(false);
     }
@@ -266,7 +269,7 @@ export default function ConnectSource() {
           service
         </>
       }
-      error={error}
+      error={saveError ?? error}
       options={options}
       onSelect={handleSelect}
       onBack={() => navigate("/summary")}

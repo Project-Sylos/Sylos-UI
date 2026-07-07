@@ -4,7 +4,6 @@ import {
   File,
   ChevronUp,
   ChevronDown,
-  ChevronLeft,
   ChevronRight,
   Filter,
   ArrowRight,
@@ -33,9 +32,11 @@ import {
   MigrationStatusResponse,
   isCopyReviewPhase,
 } from "../types/migrations";
-import { useZoom } from "../contexts/ZoomContext";
+import { useListDensity } from "../contexts/ListDensityContext";
 import PathReviewStatusIcon from "../components/PathReviewStatusIcon";
 import PathReviewLegend from "../components/PathReviewLegend";
+import ListViewPagination from "../components/ListViewPagination";
+import ListItemMeta from "../components/ListItemMeta";
 import { getDiffItemFailureMessage } from "../utils/diffFailureMessage";
 import {
   getTraversalRetryNodeId,
@@ -56,6 +57,7 @@ export interface PathReviewListViewProps {
   onPaginationChange?: (pagination: PaginationInfo | null, itemsPerPage: number) => void; // Callback for pagination info
   onNavigateToTreeView?: (item: DiffItem) => void; // Callback to navigate to tree view and highlight item
   onToast?: (message: string, type: "success" | "error") => void; // Callback to show toast (e.g. retry/exclude success or error)
+  isActive?: boolean;
 }
 
 export default function PathReviewListView({
@@ -69,8 +71,9 @@ export default function PathReviewListView({
   onPaginationChange,
   onNavigateToTreeView,
   onToast,
+  isActive = true,
 }: PathReviewListViewProps) {
-  const { zoomLevel } = useZoom();
+  const { densityStyle, setListViewportElement } = useListDensity();
   const [items, setItems] = useState<DiffItem[]>([]);
   const [pagination, setPagination] = useState<PaginationInfo | null>(null);
   const [loading, setLoading] = useState(true);
@@ -100,13 +103,12 @@ export default function PathReviewListView({
   const [showFilterMenu, setShowFilterMenu] = useState(false);
   const [showSortMenu, setShowSortMenu] = useState(false);
   const [apiStats, setApiStats] = useState<PathReviewStats | null>(null);
-  const [showItemsPerPageDropdown, setShowItemsPerPageDropdown] = useState(false);
   const [migrationStatus, setMigrationStatus] = useState<MigrationStatusResponse | null>(null);
   const filterMenuRef = useRef<HTMLDivElement>(null);
   const filterButtonRef = useRef<HTMLButtonElement>(null);
   const sortMenuRef = useRef<HTMLDivElement>(null);
+  const listItemsRef = useRef<HTMLDivElement | null>(null);
   const sortButtonRef = useRef<HTMLButtonElement>(null);
-  const itemsPerPageDropdownRef = useRef<HTMLDivElement>(null);
 
   // Phase detection helpers
   const isCopyPhase = (status: MigrationStatusResponse | null): boolean =>
@@ -221,6 +223,12 @@ export default function PathReviewListView({
       return updated;
     });
   }, [items]); // Remove explicitSelected dependency to avoid unnecessary updates
+
+  useEffect(() => {
+    if (isActive) {
+      setListViewportElement(listItemsRef.current);
+    }
+  }, [isActive, setListViewportElement, items.length, loading]);
 
   // Helper: Check if a path is a child of any explicitly selected path
   const isChildOfSelectedPath = (itemPath: string, explicitSelectedPaths: Set<string>): boolean => {
@@ -445,24 +453,6 @@ export default function PathReviewListView({
     loadItems();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [migrationId, currentPage, itemsPerPage, sortField, sortDir, activeSearchQuery, searchField, typeFilter, depthFilter, depthOperator, sizeFilter, sizeOperator, sizeDisplayUnit, traversalStatusFilter, treeListRefreshToken]);
-
-  // Close items per page dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (
-        showItemsPerPageDropdown &&
-        itemsPerPageDropdownRef.current &&
-        !itemsPerPageDropdownRef.current.contains(event.target as Node)
-      ) {
-        setShowItemsPerPageDropdown(false);
-      }
-    };
-
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-    };
-  }, [showItemsPerPageDropdown]);
 
   // Poll background tasks
   useEffect(() => {
@@ -974,10 +964,6 @@ export default function PathReviewListView({
   }, [pagination, itemsPerPage]);
 
 
-  const totalPages = pagination
-    ? Math.ceil(pagination.total / itemsPerPage)
-    : 0;
-
   // Check if any filters are active
   const hasActiveFilters = () => {
     return (
@@ -995,12 +981,7 @@ export default function PathReviewListView({
   const isSortActive = sortField !== "path" || sortDir !== "asc";
 
   return (
-    <div 
-      className="path-review-list"
-      style={{ 
-        '--zoom': zoomLevel,
-      } as React.CSSProperties}
-    >
+    <div className="path-review-list" style={densityStyle}>
       {/* Toolbar */}
       <div className="path-review-list__toolbar">
         <div className="path-review-list__select-all-wrapper">
@@ -1514,79 +1495,25 @@ export default function PathReviewListView({
       {/* Status Legend with Pagination Arrows */}
       {!loading && items.length > 0 && (
         <div className="path-review-list__legend-wrapper">
-          <PathReviewLegend zoomLevel={zoomLevel} className="path-review__legend--compact" phase={getCurrentPhase()} />
+          <PathReviewLegend zoomLevel={1} className="path-review__legend--compact" phase={getCurrentPhase()} />
           {pagination && (
-            <div className="path-review-list__page-nav">
-              <div className="path-review-list__items-per-page-compact" ref={itemsPerPageDropdownRef}>
-                <button
-                  type="button"
-                  className="path-review-list__items-per-page-button"
-                  onClick={() => setShowItemsPerPageDropdown(!showItemsPerPageDropdown)}
-                  title="Items per page"
-                  aria-label="Items per page"
-                >
-                  {itemsPerPage}
-                  <ChevronDown size={14 * zoomLevel} />
-                </button>
-                {showItemsPerPageDropdown && (
-                  <div className="path-review-list__items-per-page-dropdown">
-                    {[50, 100, 500, 1000].map((value) => (
-                      <button
-                        key={value}
-                        type="button"
-                        className={`path-review-list__items-per-page-option ${
-                          itemsPerPage === value ? "path-review-list__items-per-page-option--selected" : ""
-                        }`}
-                        onClick={() => {
-                          setItemsPerPage(value);
-                          setCurrentPage(0);
-                          setShowItemsPerPageDropdown(false);
-                        }}
-                      >
-                        {value}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <button
-                type="button"
-                className="path-review-list__page-nav-button"
-                onClick={() => setCurrentPage(Math.max(0, currentPage - 1))}
-                disabled={currentPage === 0}
-                title="Previous page"
-                aria-label="Previous page"
-              >
-                <ChevronLeft size={18 * zoomLevel} />
-              </button>
-              <button
-                type="button"
-                className="path-review-list__page-nav-button"
-                onClick={() => {
-                  if (totalPages > 0) {
-                    setCurrentPage(Math.min(totalPages - 1, currentPage + 1));
-                  } else {
-                    setCurrentPage(currentPage + 1);
-                  }
-                }}
-                disabled={totalPages > 0 ? currentPage >= totalPages - 1 : !pagination.hasMore}
-                title="Next page"
-                aria-label="Next page"
-              >
-                <ChevronRight size={18 * zoomLevel} />
-              </button>
-            </div>
+            <ListViewPagination
+              pagination={pagination}
+              currentPage={currentPage}
+              itemsPerPage={itemsPerPage}
+              onPageChange={setCurrentPage}
+              onItemsPerPageChange={(value) => {
+                setItemsPerPage(value);
+                setCurrentPage(0);
+              }}
+              zoomLevel={1}
+            />
           )}
         </div>
       )}
 
       {/* Items List */}
-      <div 
-        className="path-review-list__items-container"
-        style={{ 
-          '--zoom': zoomLevel,
-        } as React.CSSProperties}
-      >
+      <div className="path-review-list__items-container">
         {loading ? (
           <div className="path-review-list__empty">Loading...</div>
         ) : error ? (
@@ -1594,7 +1521,10 @@ export default function PathReviewListView({
         ) : items.length === 0 ? (
           <div className="path-review-list__empty">No items found.</div>
         ) : (
-          <div className="path-review-list__items">
+          <div
+            ref={listItemsRef}
+            className="path-review-list__items"
+          >
             {/* Items */}
             {items.map((item, index) => {
               const status = getItemStatus(item);
@@ -1637,8 +1567,8 @@ export default function PathReviewListView({
                       item={item}
                       isMarkedForRetry={isTraversalRetryPending(item)}
                       isLocked={isLocked}
-                      zoomLevel={zoomLevel}
-                      size={16 * zoomLevel}
+                      zoomLevel={1}
+                      size={16}
                       className="path-review-list__item-status-icon"
                       phase={getCurrentPhase()}
                       onRetryClick={handleRetryClick}
@@ -1649,9 +1579,9 @@ export default function PathReviewListView({
                   {/* File/Folder Icon */}
                   <div className="path-review-list__item-icon">
                     {isFolder ? (
-                      <Folder size={16 * zoomLevel} />
+                      <Folder size={16} />
                     ) : (
-                      <File size={16 * zoomLevel} />
+                      <File size={16} />
                     )}
                   </div>
 
@@ -1669,14 +1599,16 @@ export default function PathReviewListView({
                   </div>
 
                   {/* Path Column */}
-                  <div className="path-review-list__item-path-col">
+                  <div className="path-review-list__item-path-col" title={item.locationPath}>
                     <div className="path-review-list__item-path">{item.locationPath}</div>
-                    {!isFolder && item.size !== undefined && (
-                      <div className="path-review-list__item-meta">
-                        {(item.size / 1024 / 1024).toFixed(2)} MB
-                      </div>
-                    )}
                   </div>
+
+                  <ListItemMeta
+                    className="path-review-list__item-meta-col"
+                    lastUpdated={item.lastUpdated}
+                    size={item.size}
+                    type={isFolder ? "folder" : "file"}
+                  />
 
                   {/* Navigate to Tree View Icon */}
                   <div className="path-review-list__item-navigate">
@@ -1692,7 +1624,7 @@ export default function PathReviewListView({
                       title="Show in tree view"
                       aria-label="Show in tree view"
                     >
-                      <ExternalLink size={14 * zoomLevel} />
+                      <ExternalLink size={14} />
                     </button>
                   </div>
                 </div>

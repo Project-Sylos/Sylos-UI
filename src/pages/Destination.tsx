@@ -225,10 +225,27 @@ export default function Destination() {
     if (isCloudServiceType(selected.type)) {
       setIsSubmitting(true);
       try {
+        const selectedProviderId = serviceIdToProviderId(selected.id);
+        let connectionId = migration.destinationConnectionId;
+        if (connectionId) {
+          try {
+            const status = await checkCloudConnection(
+              selectedProviderId,
+              connectionId
+            );
+            if (!status.valid) {
+              connectionId = undefined;
+              updateMigration({ destinationConnectionId: undefined });
+            }
+          } catch {
+            connectionId = undefined;
+            updateMigration({ destinationConnectionId: undefined });
+          }
+        }
         const navigation = await resolveCloudNavigation({
           role: "destination",
           serviceId: selected.id,
-          connectionId: migration.destinationConnectionId,
+          connectionId,
         });
         navigate(navigation.path);
       } finally {

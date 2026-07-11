@@ -1,8 +1,11 @@
+import { useEffect, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import "./Sidebar.css";
 import logo from "../assets/logos/main-app-logo-transparent.png";
 import { useAuth } from "../contexts/AuthContext";
 import { usePreferences } from "../contexts/PreferencesContext";
+import { fetchOAuthHealthSummary } from "../api/oauthApps";
+import { useRecoveryCode } from "../contexts/RecoveryCodeContext";
 import {
   defaultHelpModalBody,
   useHelpModal,
@@ -15,6 +18,33 @@ export default function Sidebar() {
   const navigate = useNavigate();
   const location = useLocation();
   const { openHelp } = useHelpModal();
+  const [oauthHealthIssues, setOauthHealthIssues] = useState(false);
+  const { needsAttention: recoveryNeedsAttention } = useRecoveryCode();
+
+  useEffect(() => {
+    if (!user) {
+      setOauthHealthIssues(false);
+      return;
+    }
+    let cancelled = false;
+
+    const load = () => {
+      void fetchOAuthHealthSummary()
+        .then((summary) => {
+          if (!cancelled) setOauthHealthIssues(summary.hasIssues);
+        })
+        .catch(() => {
+          if (!cancelled) setOauthHealthIssues(false);
+        });
+    };
+
+    load();
+    const interval = window.setInterval(load, 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [user]);
 
   if (location.pathname === "/login" || location.pathname === "/setup") {
     return null;
@@ -100,12 +130,25 @@ export default function Sidebar() {
             </div>
           )}
           <button
-            className="sidebar__button"
+            className={`sidebar__button sidebar__button--with-badge`}
             onClick={handleSettingsClick}
-            aria-label="Settings"
+            aria-label={
+              oauthHealthIssues || recoveryNeedsAttention ? "Settings — needs attention" : "Settings"
+            }
           >
             <span className="sidebar__button-emoji">⚙️</span>
             {!isCollapsed && <span className="sidebar__button-text">Settings</span>}
+            {(recoveryNeedsAttention || oauthHealthIssues) && (
+              <span
+                className="sidebar__settings-badge"
+                aria-hidden="true"
+                title={
+                  recoveryNeedsAttention
+                    ? "Recovery code needs attention"
+                    : "Cloud OAuth connections need attention"
+                }
+              />
+            )}
           </button>
           {user && (
             <button

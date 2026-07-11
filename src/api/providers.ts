@@ -4,6 +4,9 @@ import {
   ConnectionStatusResponse,
   ConnectionTokenResponse,
   ProviderDescriptor,
+  SFTPHostKeyProbePayload,
+  SFTPHostKeyProbeResponse,
+  SFTPCredentialsPayload,
 } from "../types/providers";
 import { ChildrenResponse, Folder, PaginationInfo } from "../types/services";
 import { apiFetch, readErrorMessage } from "./client";
@@ -133,6 +136,47 @@ export async function createConnection(
     connectionId: String(data.connectionId ?? data.ConnectionId ?? ""),
     providerId: String(data.providerId ?? data.ProviderId ?? providerId),
   };
+}
+
+export async function probeSftpHostKey(
+  providerId: string,
+  payload: SFTPHostKeyProbePayload
+): Promise<SFTPHostKeyProbeResponse> {
+  const response = await apiFetch(`/api/providers/${providerId}/host-key/probe`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to verify server host key: ${await readErrorMessage(response)}`);
+  }
+
+  const data = (await response.json()) as Record<string, unknown>;
+  return {
+    hostKey: String(data.hostKey ?? ""),
+    fingerprint: String(data.fingerprint ?? ""),
+  };
+}
+
+export async function postProviderCredentials(
+  providerId: string,
+  connectionId: string,
+  payload: SFTPCredentialsPayload
+): Promise<ConnectionTokenResponse> {
+  const response = await apiFetch(
+    `/api/providers/${providerId}/connections/${connectionId}/credentials`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(`Failed to store credentials: ${await readErrorMessage(response)}`);
+  }
+
+  const data = (await response.json()) as Record<string, unknown>;
+  return normalizeConnectionResponse(data, providerId, connectionId);
 }
 
 export async function exchangeOAuthCode(

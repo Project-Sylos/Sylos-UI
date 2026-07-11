@@ -155,7 +155,7 @@ export function buildCloudBrowsePath(params: {
   return `/browse-cloud?${search.toString()}`;
 }
 
-/** Valid connection → browse; missing/invalid → connect (optionally reconnect). */
+/** Valid connection → browse; missing/invalid/wrong provider → connect (reconnect only when same provider expired). */
 export async function resolveCloudNavigation(params: {
   role: CloudEndpointRole;
   serviceId: string;
@@ -178,7 +178,7 @@ export async function resolveCloudNavigation(params: {
         };
       }
     } catch {
-      // fall through to reconnect
+      // fall through to connect
     }
 
     return {
@@ -186,8 +186,6 @@ export async function resolveCloudNavigation(params: {
         role: params.role,
         serviceId: params.serviceId,
         providerId,
-        connectionId: params.connectionId,
-        reconnect: true,
       }),
       valid: false,
     };

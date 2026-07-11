@@ -16,18 +16,21 @@ import {
   getMigrationQueueMetrics,
   fetchServices,
   stopMigration,
-  triggerRetrySweep,
+  resumeMigration,
 } from "../api/services";
 import {
   getMigrationPhase,
   isCopyReviewPhase,
+  isDeleteReviewPhase,
   isMigrationLive,
   isMigrationSuspended,
   isMigrationFailed,
 } from "../types/migrations";
 import { useSelection } from "../context/SelectionContext";
+import { formatMigrationPath } from "../utils/migrationRoots";
 import HelpTooltip from "../components/HelpTooltip";
 import ConfirmDialog from "../components/ConfirmDialog";
+import Toast from "../components/Toast";
 import { GlassSurfacePanel } from "../components/GlassSurfacePanel";
 import PageBackButton from "../components/PageBackButton";
 import "./ProgressMonitor.css";
@@ -44,6 +47,15 @@ function softSuspendRequestedPayload(data: unknown): boolean {
   );
 }
 
+/** Stop response: migration was not in a stoppable live phase. */
+function stopAlreadyHandled(data: unknown): boolean {
+  if (!data || typeof data !== "object") return false;
+  const o = data as Record<string, unknown>;
+  if (o.alreadyStopped === true || o.AlreadyStopped === true) return true;
+  if (o.success === false || o.Success === false) return true;
+  return false;
+}
+
 /** Resume only when the API explicitly reports not live (omitted `live` means “running” until we know otherwise). */
 function isLiveExplicitlyFalse(s: unknown): boolean {
   if (!s || typeof s !== "object") return false;
@@ -57,7 +69,7 @@ export default function ProgressMonitor() {
   const { migrationId } = useParams<{ migrationId: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { source, destination, services } = useSelection();
+  const { source, destination, services, applyServerRoots } = useSelection();
 
   const [status, setStatus] = useState<any>(null);
   const [queueMetrics, setQueueMetrics] = useState<any>(null);
@@ -67,8 +79,13 @@ export default function ProgressMonitor() {
   const [confirmKind, setConfirmKind] = useState<null | "stop" | "resume">(null);
   const [actionBusy, setActionBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [toast, setToast] = useState<{
+    message: string;
+    type: "success" | "error" | "info";
+  } | null>(null);
   const [failureTooltipOpen, setFailureTooltipOpen] = useState(false);
   const [failureCopied, setFailureCopied] = useState(false);
+  const [stallTooltipOpen, setStallTooltipOpen] = useState(false);
 
   /** After a retry sweep, status can briefly still say "review" before the run starts - require run activity before re-enabling review. */
   const isRetryRun = searchParams.get("retry") === "1";
@@ -83,6 +100,8 @@ export default function ProgressMonitor() {
   const queueMetricsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const failureWrapRef = useRef<HTMLDivElement>(null);
   const failureLeaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stallWrapRef = useRef<HTMLDivElement>(null);
+  const stallLeaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     isRetryRunRef.current = searchParams.get("retry") === "1";
@@ -93,9 +112,16 @@ export default function ProgressMonitor() {
   const showCopyUI =
     modeFromUrl === "copy"
       ? true
+      : modeFromUrl === "delete"
+        ? false
       : modeFromUrl === "discovery"
         ? false
-        : isCopyReviewPhase(status);
+        : isCopyReviewPhase(status) && !isDeleteReviewPhase(status);
+  const showDeleteUI =
+    modeFromUrl === "delete"
+      ? true
+      : isDeleteReviewPhase(status);
+  const showDiscoveryUI = !showCopyUI && !showDeleteUI;
 
   // Format bytes to human-readable format
   const formatBytes = (bytes: number): string => {
@@ -124,6 +150,8 @@ export default function ProgressMonitor() {
     try {
       const statusData = await getMigrationStatus(migrationId);
       setStatus(statusData);
+      // Rehydrate roots from the server when opening directly in a fresh session.
+      applyServerRoots(statusData.sourceRoot, statusData.destinationRoot);
       const phase = getMigrationPhase(statusData);
       const hadRunBefore = hasSeenActiveRunRef.current;
 
@@ -164,7 +192,8 @@ export default function ProgressMonitor() {
       if (
         isMigrationLive(statusData) ||
         phase === "traversal-in-progress" ||
-        phase === "copy-in-progress"
+        phase === "copy-in-progress" ||
+        phase === "delete-in-progress"
       ) {
         hasSeenActiveRunRef.current = true;
       }
@@ -191,7 +220,7 @@ export default function ProgressMonitor() {
       console.error("Failed to fetch status:", err);
       setError(err instanceof Error ? err.message : "Failed to fetch status");
     }
-  }, [migrationId]);
+  }, [migrationId, applyServerRoots]);
 
   // Fetch queue metrics
   const fetchQueueMetrics = useCallback(async () => {
@@ -215,12 +244,15 @@ export default function ProgressMonitor() {
       if (
         response.srcTraversal !== undefined ||
         response.dstTraversal !== undefined ||
-        response.copy !== undefined
+        response.copy !== undefined ||
+        response.delete !== undefined
       ) {
         setQueueMetrics({
           srcTraversal: response.srcTraversal ?? null,
           dstTraversal: response.dstTraversal ?? null,
           copy: response.copy ?? null,
+          delete: response.delete ?? null,
+          possibleStall: Boolean(response.possibleStall),
         });
       }
     } catch (err) {
@@ -238,15 +270,18 @@ export default function ProgressMonitor() {
     const phase = getMigrationPhase(status);
     const inTraversalReview = phase === "awaiting-traversal-review";
     const inCopyReview = phase === "awaiting-copy-review";
+    const inDeleteReview = phase === "awaiting-delete-review";
     const inMatchingReview =
-      (showCopyUI && inCopyReview) || (!showCopyUI && inTraversalReview);
+      (showDeleteUI && inDeleteReview) ||
+      (showCopyUI && inCopyReview) ||
+      (showDiscoveryUI && inTraversalReview);
     const live = isMigrationLive(status);
     const canReview =
       inMatchingReview &&
       !live &&
       (!isRetryRun || hasSeenActiveRunRef.current);
     setShowResultsButton(!!canReview);
-  }, [status, showCopyUI, isRetryRun, runGate]);
+  }, [status, showCopyUI, showDeleteUI, isRetryRun, runGate]);
 
   // Retry sweep: clear metrics and gate review like a fresh run (stale API may still say “review”).
   useEffect(() => {
@@ -290,31 +325,45 @@ export default function ProgressMonitor() {
 
   const phase = status ? getMigrationPhase(status) : "";
   const inAwaitingReview =
-    phase === "awaiting-traversal-review" || phase === "awaiting-copy-review";
+    phase === "awaiting-traversal-review" ||
+    phase === "awaiting-copy-review" ||
+    phase === "awaiting-delete-review";
   const inRunPhase =
-    phase === "traversal-in-progress" || phase === "copy-in-progress";
+    phase === "traversal-in-progress" ||
+    phase === "copy-in-progress" ||
+    phase === "delete-in-progress";
   const isSuspended = status ? isMigrationSuspended(status) : false;
   const isFailed = status ? isMigrationFailed(status) : false;
   const explicitlyNotLive = status ? isLiveExplicitlyFalse(status) : false;
   const live = status ? isMigrationLive(status) : false;
+  const stoppedMidRun = inRunPhase && !live;
   const showStopButton = Boolean(
     status &&
       !isFailed &&
       !isSuspended &&
       !inAwaitingReview &&
-      (live || (inRunPhase && !explicitlyNotLive))
+      live
   );
   const showResumeButton = Boolean(
     status &&
       !inAwaitingReview &&
       (isFailed ||
         isSuspended ||
+        stoppedMidRun ||
         (inRunPhase && explicitlyNotLive))
+  );
+
+  const possibleStall = Boolean(
+    status?.possibleStall ||
+      (status as { PossibleStall?: boolean } | null)?.PossibleStall ||
+      queueMetrics?.possibleStall
   );
 
   const failureErrorText =
     (status?.error && String(status.error).trim()) || "Unknown error";
-  const failureHoverSummary = showCopyUI
+  const failureHoverSummary = showDeleteUI
+    ? `Source removal failed due to error: ${failureErrorText}. Please retry or report this error to our community.`
+    : showCopyUI
     ? `Copy failed due to error: ${failureErrorText}. Please retry or report this error to our community.`
     : `discovery failed due to error: ${failureErrorText}. Please retry or report this error to our community.`;
 
@@ -328,12 +377,12 @@ export default function ProgressMonitor() {
         error: failureErrorText,
         completedAt: status.completedAt ?? null,
         startedAt: status.startedAt ?? null,
-        uiContext: showCopyUI ? "copy" : "discovery",
+        uiContext: showDeleteUI ? "delete" : showCopyUI ? "copy" : "discovery",
       },
       null,
       2
     );
-  }, [migrationId, status, failureErrorText, showCopyUI]);
+  }, [migrationId, status, failureErrorText, showCopyUI, showDeleteUI]);
 
   const clearFailureLeaveTimer = () => {
     if (failureLeaveTimerRef.current) {
@@ -363,6 +412,32 @@ export default function ProgressMonitor() {
       setFailureCopied(false);
     }
   };
+
+  const clearStallLeaveTimer = () => {
+    if (stallLeaveTimerRef.current) {
+      clearTimeout(stallLeaveTimerRef.current);
+      stallLeaveTimerRef.current = null;
+    }
+  };
+
+  const openStallTooltip = () => {
+    if (!possibleStall) return;
+    clearStallLeaveTimer();
+    setStallTooltipOpen(true);
+  };
+
+  const scheduleCloseStallTooltip = () => {
+    clearStallLeaveTimer();
+    stallLeaveTimerRef.current = setTimeout(() => {
+      setStallTooltipOpen(false);
+    }, 220);
+  };
+
+  useEffect(() => {
+    if (!possibleStall) {
+      setStallTooltipOpen(false);
+    }
+  }, [possibleStall]);
 
   useEffect(() => {
     if (!isMigrationFailed(status)) {
@@ -412,6 +487,15 @@ export default function ProgressMonitor() {
     setActionError(null);
     try {
       const next = await stopMigration(migrationId);
+
+      if (stopAlreadyHandled(next)) {
+        const fresh = await getMigrationStatus(migrationId);
+        setStatus(fresh);
+        setStallTooltipOpen(false);
+        setToast({ message: "Migration is already stopped.", type: "info" });
+        return;
+      }
+
       setStatus(next);
 
       if (softSuspendRequestedPayload(next)) {
@@ -440,15 +524,15 @@ export default function ProgressMonitor() {
     setActionBusy(true);
     setActionError(null);
     try {
-      const result = await triggerRetrySweep(migrationId);
+      const result = await resumeMigration(migrationId);
       if (!result.success) {
-        setActionError(result.error || "Failed to resume (retry sweep).");
+        setActionError(result.error || "Failed to resume migration.");
         return;
       }
       const next = new URLSearchParams(searchParams);
       next.set("retry", "1");
       if (!next.get("mode")) {
-        next.set("mode", showCopyUI ? "copy" : "discovery");
+        next.set("mode", showDeleteUI ? "delete" : showCopyUI ? "copy" : "discovery");
       }
       setSearchParams(next, { replace: true });
       await fetchStatus();
@@ -527,7 +611,9 @@ export default function ProgressMonitor() {
         />
         <header className="progress-monitor__header">
           <h1>
-            {showCopyUI ? (
+            {showDeleteUI ? (
+              <>Source Removal <span className="progress-monitor__highlight">Progress</span></>
+            ) : showCopyUI ? (
               <>Copy <span className="progress-monitor__highlight">Progress</span></>
             ) : (
               <>Discovery <span className="progress-monitor__highlight">Progress</span></>
@@ -561,12 +647,12 @@ export default function ProgressMonitor() {
                           Source
                         </h3>
                       </div>
-                      {(source?.root?.locationPath && source.root.locationPath !== '/') ? (
+                      {source?.root ? (
                         <div className="progress-monitor__metric-context">
                           <div className="progress-monitor__metric-context-row">
                             <span className="progress-monitor__metric-context-label">Root Path:</span>
-                            <span className="progress-monitor__metric-context-value" title={source?.root?.locationPath || source?.root?.name || ""}>
-                              {source?.root?.locationPath || source?.root?.name || "Not specified"}
+                            <span className="progress-monitor__metric-context-value" title={formatMigrationPath(source?.root)}>
+                              {formatMigrationPath(source?.root)}
                             </span>
                           </div>
                         </div>
@@ -587,12 +673,12 @@ export default function ProgressMonitor() {
                           Destination
                         </h3>
                       </div>
-                      {(destination?.root?.locationPath && destination.root.locationPath !== '/') ? (
+                      {destination?.root ? (
                         <div className="progress-monitor__metric-context">
                           <div className="progress-monitor__metric-context-row">
                             <span className="progress-monitor__metric-context-label">Root Path:</span>
-                            <span className="progress-monitor__metric-context-value" title={destination?.root?.locationPath || destination?.root?.name || ""}>
-                              {destination?.root?.locationPath || destination?.root?.name || "Not specified"}
+                            <span className="progress-monitor__metric-context-value" title={formatMigrationPath(destination?.root)}>
+                              {formatMigrationPath(destination?.root)}
                             </span>
                           </div>
                         </div>
@@ -614,12 +700,12 @@ export default function ProgressMonitor() {
                       Source
                     </h3>
                   </div>
-                  {(source?.root?.locationPath && source.root.locationPath !== '/') ? (
+                  {source?.root ? (
                     <div className="progress-monitor__metric-context">
                       <div className="progress-monitor__metric-context-row">
                         <span className="progress-monitor__metric-context-label">Root Path:</span>
-                        <span className="progress-monitor__metric-context-value" title={source?.root?.locationPath || source?.root?.name || ""}>
-                          {source?.root?.locationPath || source?.root?.name || "Not specified"}
+                        <span className="progress-monitor__metric-context-value" title={formatMigrationPath(source?.root)}>
+                          {formatMigrationPath(source?.root)}
                         </span>
                       </div>
                     </div>
@@ -674,6 +760,41 @@ export default function ProgressMonitor() {
                 ) : (
                   <div className="progress-monitor__metric-empty">Not started</div>
                 )
+              ) : showDeleteUI ? (
+                queueMetrics?.delete ? (
+                  <div className="progress-monitor__metric-details">
+                    <div className="progress-monitor__metric-row">
+                      <span>Folders removed:</span>
+                      <span>{(queueMetrics.delete.folders || 0).toLocaleString()}</span>
+                    </div>
+                    <div className="progress-monitor__metric-row">
+                      <span>Files removed:</span>
+                      <span>{(queueMetrics.delete.files || 0).toLocaleString()}</span>
+                    </div>
+                    <div className="progress-monitor__metric-row">
+                      <span>Total removed:</span>
+                      <span>{(queueMetrics.delete.total || 0).toLocaleString()}</span>
+                    </div>
+                    <div className="progress-monitor__metric-row">
+                      <span>Items/sec:</span>
+                      <span>{(queueMetrics.delete.items_per_second || 0).toFixed(1)}</span>
+                    </div>
+                    {(queueMetrics.delete.total_pending ?? 0) > 0 && (
+                      <div className="progress-monitor__metric-row">
+                        <span>Pending:</span>
+                        <span>{(queueMetrics.delete.total_pending || 0).toLocaleString()}</span>
+                      </div>
+                    )}
+                    {(queueMetrics.delete.total_failed ?? 0) > 0 && (
+                      <div className="progress-monitor__metric-row">
+                        <span>Failed:</span>
+                        <span>{(queueMetrics.delete.total_failed || 0).toLocaleString()}</span>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="progress-monitor__metric-empty">Not started</div>
+                )
               ) : (
                 // Traversal phase: show discovery metrics from srcTraversal
                 queueMetrics?.srcTraversal ? (
@@ -721,8 +842,8 @@ export default function ProgressMonitor() {
               )}
             </div>
 
-            {/* Destination card - only show in traversal phase */}
-            {!showCopyUI && (
+            {/* Destination card - only show in discovery phase */}
+            {showDiscoveryUI && (
               <div className="progress-monitor__metric-card">
                 <div className="progress-monitor__metric-header">
                   <div className="progress-monitor__metric-service">
@@ -733,12 +854,12 @@ export default function ProgressMonitor() {
                     Destination
                   </h3>
                 </div>
-                {(destination?.root?.locationPath && destination.root.locationPath !== '/') ? (
+                {destination?.root ? (
                   <div className="progress-monitor__metric-context">
                     <div className="progress-monitor__metric-context-row">
                       <span className="progress-monitor__metric-context-label">Root Path:</span>
-                      <span className="progress-monitor__metric-context-value" title={destination?.root?.locationPath || destination?.root?.name || ""}>
-                        {destination?.root?.locationPath || destination?.root?.name || "Not specified"}
+                      <span className="progress-monitor__metric-context-value" title={formatMigrationPath(destination?.root)}>
+                        {formatMigrationPath(destination?.root)}
                       </span>
                     </div>
                   </div>
@@ -806,16 +927,63 @@ export default function ProgressMonitor() {
           <div className="progress-monitor__footer-spacer" />
           <div className="progress-monitor__footer-actions">
             {showStopButton && (
-              <button
-                type="button"
-                className="progress-monitor__control progress-monitor__control--stop"
-                disabled={actionBusy}
-                onClick={() => setConfirmKind("stop")}
-                title="Stop the running migration"
+              <div
+                ref={stallWrapRef}
+                className={`progress-monitor__stop-wrap${possibleStall ? " progress-monitor__stop-wrap--stall" : ""}`}
+                onMouseEnter={openStallTooltip}
+                onMouseLeave={scheduleCloseStallTooltip}
               >
-                <Square size={18} style={{ marginRight: "0.5rem" }} fill="currentColor" />
-                Stop
-              </button>
+                <button
+                  type="button"
+                  className="progress-monitor__control progress-monitor__control--stop"
+                  disabled={actionBusy}
+                  onClick={() => setConfirmKind("stop")}
+                  title={
+                    possibleStall
+                      ? "Migration may have stalled. Click to stop"
+                      : "Stop the running migration"
+                  }
+                  aria-describedby={
+                    possibleStall && stallTooltipOpen
+                      ? "progress-monitor-stall-tooltip"
+                      : undefined
+                  }
+                  onFocus={openStallTooltip}
+                  onBlur={(e) => {
+                    if (!stallWrapRef.current?.contains(e.relatedTarget)) {
+                      scheduleCloseStallTooltip();
+                    }
+                  }}
+                >
+                  <Square size={18} style={{ marginRight: "0.5rem" }} fill="currentColor" />
+                  Stop
+                  {possibleStall && (
+                    <span className="progress-monitor__stall-dot" aria-hidden="true" />
+                  )}
+                </button>
+                {possibleStall && stallTooltipOpen && (
+                  <div
+                    id="progress-monitor-stall-tooltip"
+                    className="progress-monitor__stall-tooltip"
+                    role="tooltip"
+                    onMouseEnter={openStallTooltip}
+                    onMouseLeave={scheduleCloseStallTooltip}
+                  >
+                    <p className="progress-monitor__stall-tooltip-text">
+                      It looks like this migration may have stalled. Progress has not updated
+                      recently. Would you like to stop the process?
+                    </p>
+                    <button
+                      type="button"
+                      className="progress-monitor__stall-tooltip-button"
+                      disabled={actionBusy}
+                      onClick={() => setConfirmKind("stop")}
+                    >
+                      Stop migration
+                    </button>
+                  </div>
+                )}
+              </div>
             )}
             {showResumeButton && (
               <div className="progress-monitor__resume-with-hint">
@@ -906,7 +1074,9 @@ export default function ProgressMonitor() {
               disabled={!showResultsButton}
             >
               <Eye size={20} style={{ marginRight: "0.5rem" }} />
-              {showCopyUI
+              {showDeleteUI
+                ? "View Removal Results"
+                : showCopyUI
                 ? "View Copy Results"
                 : "View Discovery Results"}
             </button>
@@ -916,7 +1086,7 @@ export default function ProgressMonitor() {
         {confirmKind === "stop" && (
           <ConfirmDialog
             title="Stop migration?"
-            message="This pauses the running migration. Work in progress will stop; you can resume later with a retry sweep (heavy operation). Are you sure?"
+            message="This pauses the running migration. You can resume later from where it left off. Are you sure?"
             confirmLabel="Stop migration"
             cancelLabel="Cancel"
             onCancel={() => setConfirmKind(null)}
@@ -927,8 +1097,10 @@ export default function ProgressMonitor() {
           <ConfirmDialog
             title="Resume migration?"
             message={
-              showCopyUI
-                ? "This starts a copy retry sweep to continue copying. It can use significant resources and run for a long time. Continue?"
+              showDeleteUI
+                ? "This resumes source removal from where it stopped. It can use significant resources and run for a long time. Continue?"
+                : showCopyUI
+                ? "This resumes the copy phase from where it stopped. It can use significant resources and run for a long time. Continue?"
                 : "This starts a discovery retry sweep to continue traversal. It can use significant resources and run for a long time. Continue?"
             }
             confirmLabel="Resume"
@@ -938,6 +1110,13 @@ export default function ProgressMonitor() {
           />
         )}
       </GlassSurfacePanel>
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
+      )}
     </section>
   );
 }

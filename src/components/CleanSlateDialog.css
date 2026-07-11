@@ -105,6 +105,11 @@
   cursor: not-allowed;
 }
 
+.settings__danger-button--severe {
+  background: rgba(185, 28, 28, 0.28);
+  border-color: rgba(248, 113, 113, 0.65);
+}
+
 .resume-migration__danger {
   margin-top: 2rem;
   padding: 1rem 1.25rem;

@@ -1,17 +1,25 @@
 import { useState } from "react";
 import "./CleanSlateDialog.css";
 
-type CleanSlateDialogProps = {
+export type DestructiveConfirmDialogProps = {
+  title: string;
+  body: string;
+  confirmLabel: string;
+  confirmPhrase?: string;
   onConfirm: () => void;
   onCancel: () => void;
   busy?: boolean;
 };
 
-export default function CleanSlateDialog({
+export default function DestructiveConfirmDialog({
+  title,
+  body,
+  confirmLabel,
+  confirmPhrase = "DELETE",
   onConfirm,
   onCancel,
   busy = false,
-}: CleanSlateDialogProps) {
+}: DestructiveConfirmDialogProps) {
   const [typed, setTyped] = useState("");
 
   return (
@@ -19,20 +27,15 @@ export default function CleanSlateDialog({
       <div
         className="clean-slate-dialog"
         role="dialog"
-        aria-labelledby="clean-slate-title"
+        aria-labelledby="destructive-confirm-title"
         aria-modal="true"
       >
-        <h2 id="clean-slate-title" className="clean-slate-dialog__title">
-          Remove all migration data?
+        <h2 id="destructive-confirm-title" className="clean-slate-dialog__title">
+          {title}
         </h2>
-        <p className="clean-slate-dialog__body">
-          This permanently deletes every migration folder, migration database file, and
-          migration registry entry on this Sylos install. User accounts, cloud provider app
-          settings, and your login are kept. Running migrations are stopped first. This
-          cannot be undone.
-        </p>
+        <p className="clean-slate-dialog__body">{body}</p>
         <label className="clean-slate-dialog__confirm-label">
-          Type <strong>DELETE</strong> to confirm
+          Type <strong>{confirmPhrase}</strong> to confirm
           <input
             type="text"
             className="clean-slate-dialog__input"
@@ -55,9 +58,9 @@ export default function CleanSlateDialog({
             type="button"
             className="clean-slate-dialog__confirm"
             onClick={onConfirm}
-            disabled={busy || typed !== "DELETE"}
+            disabled={busy || typed !== confirmPhrase}
           >
-            {busy ? "Removing..." : "Remove all migration data"}
+            {busy ? "Working..." : confirmLabel}
           </button>
         </div>
       </div>

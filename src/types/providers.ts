@@ -1,4 +1,4 @@
-export type ProviderAuthType = "oauth_ui_tokens" | string;
+export type ProviderAuthType = "oauth_server_exchange" | "credentials_form" | string;
 
 export interface ProviderDescriptor {
   id: string;
@@ -52,4 +52,24 @@ export interface ConnectionStatusResponse {
   providerId: string;
   valid: boolean;
   expiresAt?: string;
+}
+
+export interface SFTPCredentialsPayload {
+  host: string;
+  port?: number;
+  username: string;
+  password?: string;
+  privateKey?: string;
+  keyPassphrase?: string;
+  hostKey?: string;
+}
+
+export interface SFTPHostKeyProbePayload {
+  host: string;
+  port?: number;
+}
+
+export interface SFTPHostKeyProbeResponse {
+  hostKey: string;
+  fingerprint: string;
 }

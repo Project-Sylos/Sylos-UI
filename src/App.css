@@ -80,6 +80,34 @@
   margin: 0;
 }
 
+.auth-form__success {
+  color: #86efac;
+  margin: 0;
+}
+
+.auth-form__heading {
+  margin: 0 0 0.5rem;
+  font-size: 1.35rem;
+}
+
+.auth-form__hint {
+  margin: 0 0 1rem;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+
+.auth-form__link-button {
+  margin-top: 0.5rem;
+  padding: 0;
+  border: none;
+  background: none;
+  color: #93c5fd;
+  cursor: pointer;
+  font-size: 0.92rem;
+  text-decoration: underline;
+}
+
 .users-list {
   list-style: none;
   padding: 0;

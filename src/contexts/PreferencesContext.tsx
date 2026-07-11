@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
-import { UserPreferences, DEFAULT_PREFERENCES } from "../types/preferences";
+import { UserPreferences, DEFAULT_PREFERENCES, themeSupportsPreSplash } from "../types/preferences";
 import { getPreferences, savePreferences } from "../api/services";
 import { useAuth } from "./AuthContext";
 
@@ -57,6 +57,9 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   const updatePreferences = (updates: Partial<UserPreferences>) => {
     setPreferences((prev) => {
       const newPrefs = { ...prev, ...updates };
+      if (!themeSupportsPreSplash(newPrefs.theme)) {
+        newPrefs.preSplashEnabled = false;
+      }
       if (user) {
         savePreferences(newPrefs).catch((error) => {
           console.error("Failed to save preferences", error);

@@ -1,0 +1,91 @@
+export type TipCategory = {
+  id: string;
+  name: string;
+  description: string;
+};
+
+export type TipGroup = {
+  id: string;
+  name: string;
+  description: string;
+  categories: TipCategory[];
+};
+
+export const TIP_GROUPS: TipGroup[] = [
+  {
+    id: "discovery",
+    name: "Discovery",
+    description: "Tips shown on the progress monitor during traversal.",
+    categories: [
+      {
+        id: "discovery-rate-source",
+        name: "Source rate",
+        description: "Discovery rate metric for the source traversal queue.",
+      },
+      {
+        id: "discovery-rate-destination",
+        name: "Destination rate",
+        description: "Discovery rate metric for the destination traversal queue.",
+      },
+      {
+        id: "discovery-destination-total",
+        name: "Destination total",
+        description: "Total discovered count for the destination traversal queue.",
+      },
+    ],
+  },
+  {
+    id: "path-review",
+    name: "Path review",
+    description: "Legend and footer tips on the path review screen.",
+    categories: [
+      {
+        id: "path-review-pending",
+        name: "Pending",
+        description: "Pending item icons in the path review legend.",
+      },
+      {
+        id: "path-review-excluded",
+        name: "Excluded",
+        description: "Excluded item icons in the path review legend.",
+      },
+      {
+        id: "path-review-destination-only",
+        name: "Destination only",
+        description: "Destination-only item icons in the path review legend.",
+      },
+      {
+        id: "path-review-failed",
+        name: "Failed",
+        description: "Failed item icons in the path review legend.",
+      },
+      {
+        id: "path-review-retry",
+        name: "Retry",
+        description: "Retry item icons in the path review legend.",
+      },
+      {
+        id: "path-review-dst-size",
+        name: "Destination size",
+        description: "Destination size statistic in the path review footer.",
+      },
+    ],
+  },
+  {
+    id: "browse",
+    name: "Folder browser",
+    description: "Tips while choosing source or destination roots.",
+    categories: [
+      {
+        id: "browse-folder-selection",
+        name: "Selection",
+        description: "How to select and delete items while browsing folders.",
+      },
+    ],
+  },
+];
+
+/** Flat list of every tip category id (for bulk enable/disable). */
+export const ALL_TIP_CATEGORY_IDS = TIP_GROUPS.flatMap((group) =>
+  group.categories.map((category) => category.id)
+);

@@ -66,7 +66,7 @@ export default function ListDensityControl() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [isOpen]);
 
-  const popover = isOpen
+  const popover = isOpen && Object.keys(popoverStyle).length > 0
     ? createPortal(
         <div
           ref={popoverRef}
@@ -102,7 +102,20 @@ export default function ListDensityControl() {
         ref={buttonRef}
         type="button"
         className="list-density-control__button"
-        onClick={() => setIsOpen((current) => !current)}
+        onClick={() => {
+          const next = !isOpen;
+          if (next && buttonRef.current) {
+            const rect = buttonRef.current.getBoundingClientRect();
+            setPopoverStyle({
+              position: "fixed",
+              top: rect.top - 8,
+              left: rect.left + rect.width / 2,
+              transform: "translate(-50%, -100%)",
+              zIndex: 100000,
+            });
+          }
+          setIsOpen(next);
+        }}
         aria-label="Adjust list density"
         aria-expanded={isOpen}
         title="List density"

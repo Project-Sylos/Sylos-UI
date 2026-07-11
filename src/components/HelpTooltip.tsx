@@ -115,7 +115,11 @@ export default function HelpTooltip({
   }
 
   const handleIconClick = () => {
-    setIsOpen((current) => !current);
+    const next = !isOpen;
+    if (next && iconRef.current) {
+      setBubbleStyle(getBubblePosition(iconRef.current.getBoundingClientRect(), position));
+    }
+    setIsOpen(next);
   };
 
   const handleDismiss = () => {
@@ -134,7 +138,7 @@ export default function HelpTooltip({
     setIsOpen(false);
   };
 
-  const bubble = isOpen
+  const bubble = isOpen && Object.keys(bubbleStyle).length > 0
     ? createPortal(
         <div
           ref={tooltipRef}

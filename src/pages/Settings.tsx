@@ -1,81 +1,56 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { Palette, X, HelpCircle, Code, Cloud } from "lucide-react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
+import { Palette, X, Code, Cloud, Users, AlertTriangle, ChevronDown } from "lucide-react";
 import "./Settings.css";
 import { GlassSurfacePanel } from "../components/GlassSurfacePanel";
 import { useTheme } from "../contexts/ThemeContext";
 import { usePreferences } from "../contexts/PreferencesContext";
+import { themeSupportsPreSplash } from "../types/preferences";
 import { useAuth } from "../contexts/AuthContext";
 import CloudProviderOAuthSetup from "../components/CloudProviderOAuthSetup";
-import { cleanSlate } from "../api/admin";
-import CleanSlateDialog from "../components/CleanSlateDialog";
+import "../components/CloudProviderOAuthSetup.css";
+import { clearAllMigrations, wipeInstall } from "../api/admin";
+import {
+  fetchOAuthHealthSettings,
+  fetchOAuthHealthSummary,
+  OAUTH_HEALTH_SCAN_OPTIONS,
+  saveOAuthHealthSettings,
+} from "../api/oauthApps";
+import { clearAuthToken } from "../api/client";
+import { useRecoveryCode } from "../contexts/RecoveryCodeContext";
+import DestructiveConfirmDialog from "../components/CleanSlateDialog";
+import SettingsUsersSection from "../components/SettingsUsersSection";
+import "../components/SettingsUsersSection.css";
 import "../components/CleanSlateDialog.css";
-type SettingsSection = "appearance" | "tips" | "developer" | "users" | "cloud" | "danger";
+import { ALL_TIP_CATEGORY_IDS, TIP_GROUPS, type TipGroup } from "./settingsTips";
 
-// Known tip categories - can be expanded as needed
-const TIP_CATEGORIES = [
-  {
-    id: "discovery-rate-source",
-    name: "Discovery - Source Rate",
-    description: "Tip about the discovery rate metric for the source traversal",
-  },
-  {
-    id: "discovery-rate-destination",
-    name: "Discovery - Destination Rate",
-    description: "Tip about the discovery rate metric for the destination traversal",
-  },
-  {
-    id: "discovery-destination-total",
-    name: "Discovery - Destination Total",
-    description: "Tip about the total discovered metric for the destination traversal",
-  },
-  {
-    id: "path-review-pending",
-    name: "Path Review - Pending",
-    description: "Tip about pending item icons in the path review legend",
-  },
-  {
-    id: "path-review-excluded",
-    name: "Path Review - Excluded",
-    description: "Tip about excluded item icons in the path review legend",
-  },
-  {
-    id: "path-review-destination-only",
-    name: "Path Review - Destination Only",
-    description: "Tip about destination-only item icons in the path review legend",
-  },
-  {
-    id: "path-review-failed",
-    name: "Path Review - Failed",
-    description: "Tip about failed item icons in the path review legend",
-  },
-  {
-    id: "path-review-retry",
-    name: "Path Review - Retry",
-    description: "Tip about retry item icons in the path review legend",
-  },
-  {
-    id: "path-review-dst-size",
-    name: "Path Review - Destination Size",
-    description: "Tip about the destination size statistic in the path review footer",
-  },
-  {
-    id: "browse-folder-selection",
-    name: "Folder Browser - Selection",
-    description: "How to select and delete items while browsing folders",
-  },
-  // Add more categories here as needed
-] as const;
+type SettingsSection = "appearance" | "developer" | "users" | "cloud" | "danger";
+
+const SECTION_IDS: Record<SettingsSection, string> = {
+  appearance: "settings-appearance",
+  users: "settings-users",
+  cloud: "settings-cloud",
+  danger: "settings-danger",
+  developer: "settings-developer",
+};
 
 export default function Settings() {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const location = useLocation();
+  const contentRef = useRef<HTMLDivElement>(null);
+  const { user, refresh } = useAuth();
   const { theme, setTheme } = useTheme();
   const { preferences, updatePreferences } = usePreferences();
   const [activeSection, setActiveSection] = useState<SettingsSection>("appearance");
-  const [showCleanSlateDialog, setShowCleanSlateDialog] = useState(false);
-  const [cleanSlateBusy, setCleanSlateBusy] = useState(false);
-  const [cleanSlateMessage, setCleanSlateMessage] = useState<string | null>(null);
+  const [expandedTipGroups, setExpandedTipGroups] = useState<Record<string, boolean>>({});
+  const [dangerDialog, setDangerDialog] = useState<"clear-migrations" | "wipe-install" | null>(null);
+  const [dangerBusy, setDangerBusy] = useState(false);
+  const [dangerMessage, setDangerMessage] = useState<string | null>(null);
+  const [oauthHealthIssues, setOauthHealthIssues] = useState(false);
+  const [oauthScanMinutes, setOauthScanMinutes] = useState(0);
+  const [oauthScanSaving, setOauthScanSaving] = useState(false);
+  const [oauthScanError, setOauthScanError] = useState<string | null>(null);
+  const { needsAttention: recoveryNeedsAttention } = useRecoveryCode();
 
   const cloudProviders = [
     { providerId: "google_drive", displayName: "Google Drive" },
@@ -86,21 +61,229 @@ export default function Settings() {
     navigate(-1);
   };
 
-  const handleCleanSlate = async () => {
-    setCleanSlateBusy(true);
-    setCleanSlateMessage(null);
+  const scrollToSection = useCallback((section: SettingsSection) => {
+    setActiveSection(section);
+    document.getElementById(SECTION_IDS[section])?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
+
+  const toggleTipGroup = (groupId: string) => {
+    setExpandedTipGroups((prev) => ({ ...prev, [groupId]: !prev[groupId] }));
+  };
+
+  const handleClearMigrations = async () => {
+    setDangerBusy(true);
+    setDangerMessage(null);
     try {
-      const result = await cleanSlate();
-      setCleanSlateMessage(result.message);
-      setShowCleanSlateDialog(false);
+      const result = await clearAllMigrations();
+      setDangerMessage(result.message);
+      setDangerDialog(null);
     } catch (err) {
-      setCleanSlateMessage(err instanceof Error ? err.message : "Failed to remove migration data.");
+      setDangerMessage(err instanceof Error ? err.message : "Failed to remove migration data.");
     } finally {
-      setCleanSlateBusy(false);
+      setDangerBusy(false);
+    }
+  };
+
+  const handleWipeInstall = async () => {
+    setDangerBusy(true);
+    setDangerMessage(null);
+    try {
+      const result = await wipeInstall();
+      setDangerMessage(result.message);
+      setDangerDialog(null);
+      clearAuthToken();
+      await refresh();
+    } catch (err) {
+      setDangerMessage(err instanceof Error ? err.message : "Failed to wipe install data.");
+    } finally {
+      setDangerBusy(false);
     }
   };
 
   const canCleanSlate = user?.capabilities?.cleanSlate === true;
+  const showPreSplashSetting = themeSupportsPreSplash(theme);
+  const isAdmin = user?.role === "admin";
+
+  useEffect(() => {
+    if (location.pathname.endsWith("/users")) {
+      navigate("/settings", { replace: true });
+      requestAnimationFrame(() => scrollToSection("users"));
+      return;
+    }
+
+    const hashSection = location.hash.replace("#", "") as SettingsSection;
+    if (hashSection && SECTION_IDS[hashSection]) {
+      requestAnimationFrame(() => scrollToSection(hashSection));
+    }
+  }, [location.pathname, location.hash, navigate, scrollToSection]);
+
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+
+    const loadOAuthHealth = () => {
+      void fetchOAuthHealthSummary()
+        .then((summary) => {
+          if (!cancelled) setOauthHealthIssues(summary.hasIssues);
+        })
+        .catch(() => {
+          if (!cancelled) setOauthHealthIssues(false);
+        });
+    };
+
+    loadOAuthHealth();
+    const interval = window.setInterval(loadOAuthHealth, 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [user]);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    let cancelled = false;
+    void fetchOAuthHealthSettings()
+      .then((settings) => {
+        if (!cancelled) setOauthScanMinutes(settings.scanIntervalMinutes);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setOauthScanError(
+            err instanceof Error ? err.message : "Failed to load OAuth health settings"
+          );
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isAdmin]);
+
+  useEffect(() => {
+    const root = contentRef.current;
+    if (!root) return;
+
+    const visibleSections: SettingsSection[] = ["appearance"];
+    if (user) visibleSections.push("users", "cloud");
+    if (canCleanSlate) visibleSections.push("danger");
+    visibleSections.push("developer");
+
+    const elements = visibleSections
+      .map((section) => document.getElementById(SECTION_IDS[section]))
+      .filter((el): el is HTMLElement => el !== null);
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const intersecting = entries
+          .filter((entry) => entry.isIntersecting)
+          .sort((a, b) => b.intersectionRatio - a.intersectionRatio);
+        const top = intersecting[0]?.target.id;
+        if (!top) return;
+        const section = top.replace("settings-", "") as SettingsSection;
+        if (SECTION_IDS[section]) setActiveSection(section);
+      },
+      { root, rootMargin: "-15% 0px -55% 0px", threshold: [0, 0.15, 0.4] }
+    );
+
+    elements.forEach((el) => observer.observe(el));
+    return () => observer.disconnect();
+  }, [user, canCleanSlate]);
+
+  const handleOAuthScanChange = async (minutes: number) => {
+    setOauthScanMinutes(minutes);
+    setOauthScanSaving(true);
+    setOauthScanError(null);
+    try {
+      await saveOAuthHealthSettings({ scanIntervalMinutes: minutes });
+    } catch (err) {
+      setOauthScanError(
+        err instanceof Error ? err.message : "Failed to save OAuth health settings"
+      );
+    } finally {
+      setOauthScanSaving(false);
+    }
+  };
+
+  const renderTipGroup = (group: TipGroup) => {
+    const expanded = expandedTipGroups[group.id] === true;
+    const enabledCount = group.categories.filter(
+      (category) => preferences.tips?.categories?.[category.id] !== false
+    ).length;
+
+    return (
+      <div key={group.id} className="settings__tip-group">
+        <button
+          type="button"
+          className="settings__tip-group-header"
+          onClick={() => toggleTipGroup(group.id)}
+          aria-expanded={expanded}
+        >
+          <span className="settings__tip-group-header-main">
+            <ChevronDown
+              size={18}
+              className={`settings__tip-group-chevron ${expanded ? "settings__tip-group-chevron--expanded" : ""}`}
+              aria-hidden
+            />
+            <span>
+              <span className="settings__tip-group-name">{group.name}</span>
+              <span className="settings__tip-group-meta">
+                {enabledCount} of {group.categories.length} enabled
+              </span>
+            </span>
+          </span>
+          <span className="settings__tip-group-description">{group.description}</span>
+        </button>
+
+        {expanded && (
+          <div className="settings__tip-categories settings__tip-categories--nested">
+            {group.categories.map((category) => {
+              const categoryEnabled = preferences.tips?.categories?.[category.id] !== false;
+              return (
+                <div key={category.id} className="settings__tip-category">
+                  <div className="settings__tip-category-info">
+                    <h3 className="settings__tip-category-name">{category.name}</h3>
+                    <p className="settings__tip-category-description">{category.description}</p>
+                  </div>
+                  <label className="settings__toggle">
+                    <input
+                      type="checkbox"
+                      checked={categoryEnabled}
+                      onChange={(e) => {
+                        const currentTips = preferences.tips || { enabled: true, categories: {} };
+                        const currentCategories = currentTips.categories || {};
+                        updatePreferences({
+                          tips: {
+                            ...currentTips,
+                            categories: {
+                              ...currentCategories,
+                              [category.id]: e.target.checked,
+                            },
+                          },
+                        });
+                      }}
+                      className="settings__toggle-input"
+                    />
+                    <span className="settings__toggle-slider"></span>
+                  </label>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const navButton = (section: SettingsSection, icon: ReactNode, label: string, badge?: ReactNode) => (
+    <button
+      type="button"
+      className={`settings__nav-item ${activeSection === section ? "settings__nav-item--active" : ""}`}
+      onClick={() => scrollToSection(section)}
+    >
+      {icon}
+      <span>{label}</span>
+      {badge}
+    </button>
+  );
 
   return (
     <section className="settings">
@@ -118,168 +301,150 @@ export default function Settings() {
           </div>
           <nav className="settings__nav">
             <div className="settings__nav-group">
-              <h3 className="settings__nav-group-title">App Settings</h3>
-              <button
-                className={`settings__nav-item ${activeSection === "appearance" ? "settings__nav-item--active" : ""}`}
-                onClick={() => setActiveSection("appearance")}
-              >
-                <Palette size={20} />
-                <span>Appearance</span>
-              </button>
-              <button
-                className={`settings__nav-item ${activeSection === "tips" ? "settings__nav-item--active" : ""}`}
-                onClick={() => setActiveSection("tips")}
-              >
-                <HelpCircle size={20} />
-                <span>Tips</span>
-              </button>
+              {navButton("appearance", <Palette size={20} />, "Appearance")}
+              {user &&
+                navButton(
+                  "users",
+                  <Users size={20} />,
+                  "Users",
+                  recoveryNeedsAttention ? (
+                    <span
+                      className="settings__nav-badge"
+                      aria-label="Recovery code needs attention"
+                      title="Generate and store your recovery code"
+                    />
+                  ) : undefined
+                )}
+              {user &&
+                navButton(
+                  "cloud",
+                  <Cloud size={20} />,
+                  "Cloud providers",
+                  oauthHealthIssues ? (
+                    <span
+                      className="settings__nav-badge"
+                      aria-label="OAuth connection issues"
+                      title="One or more cloud OAuth connections need attention"
+                    />
+                  ) : undefined
+                )}
+              {canCleanSlate &&
+                navButton("danger", <AlertTriangle size={20} />, "Danger zone")}
             </div>
-            <div className="settings__nav-group">
-              <h3 className="settings__nav-group-title">Advanced</h3>
-              {user?.role === "admin" && (
-                <button
-                  className={`settings__nav-item ${activeSection === "users" ? "settings__nav-item--active" : ""}`}
-                  onClick={() => navigate("/settings/users")}
-                >
-                  <span>Users</span>
-                </button>
-              )}
-              {user?.role === "admin" && (
-                <button
-                  className={`settings__nav-item ${activeSection === "cloud" ? "settings__nav-item--active" : ""}`}
-                  onClick={() => setActiveSection("cloud")}
-                >
-                  <Cloud size={20} />
-                  <span>Cloud providers</span>
-                </button>
-              )}
-              {canCleanSlate && (
-                <button
-                  className={`settings__nav-item ${activeSection === "danger" ? "settings__nav-item--active" : ""}`}
-                  onClick={() => setActiveSection("danger")}
-                >
-                  <span>Danger zone</span>
-                </button>
-              )}
-              <button
-                className={`settings__nav-item ${activeSection === "developer" ? "settings__nav-item--active" : ""}`}
-                onClick={() => setActiveSection("developer")}
-              >
-                <Code size={20} />
-                <span>Developer</span>
-              </button>
+            <div className="settings__nav-group settings__nav-group--divider">
+              {navButton("developer", <Code size={20} />, "Developer")}
             </div>
           </nav>
         </aside>
 
-        <div className="settings__content">
-          {activeSection === "appearance" && (
-            <div className="settings__section">
-              <h1 className="settings__section-title">Appearance</h1>
-              
-              <div className="settings__subsection">
-                <div className="settings__subsection-header">
-                  <div>
-                    <h2 className="settings__subsection-title">Theme</h2>
-                    <p className="settings__subsection-description">
-                      Choose your preferred color theme
-                    </p>
-                  </div>
-                </div>
+        <div className="settings__content" ref={contentRef}>
+          <div className="settings__section settings__page-section" id={SECTION_IDS.appearance}>
+            <h1 className="settings__section-title">Appearance</h1>
 
-                <div className="settings__theme-options">
-                  <button
-                    type="button"
-                    className={`settings__theme-option ${theme === "obsidian" ? "settings__theme-option--active" : ""}`}
-                    onClick={() => setTheme("obsidian")}
-                    aria-label="Obsidian theme"
-                  >
-                    <div
-                      className="settings__theme-preview settings__theme-preview--obsidian"
-                      aria-hidden
-                    />
-                    <span className="settings__theme-label">Obsidian</span>
-                    {theme === "obsidian" && (
-                      <div className="settings__theme-check">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                          <polyline points="20 6 9 17 4 12"></polyline>
-                        </svg>
-                      </div>
-                    )}
-                  </button>
-
-                  <button
-                    type="button"
-                    className={`settings__theme-option ${theme === "quartz" ? "settings__theme-option--active" : ""}`}
-                    onClick={() => setTheme("quartz")}
-                    aria-label="Quartz theme"
-                  >
-                    <div
-                      className="settings__theme-preview settings__theme-preview--quartz"
-                      aria-hidden
-                    />
-                    <span className="settings__theme-label">Quartz</span>
-                    {theme === "quartz" && (
-                      <div className="settings__theme-check">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                          <polyline points="20 6 9 17 4 12"></polyline>
-                        </svg>
-                      </div>
-                    )}
-                  </button>
-
-                  <button
-                    type="button"
-                    className={`settings__theme-option ${theme === "neon-dark" ? "settings__theme-option--active" : ""}`}
-                    onClick={() => setTheme("neon-dark")}
-                    aria-label="Neon dark theme"
-                  >
-                    <div
-                      className="settings__theme-preview settings__theme-preview--neon-dark"
-                      aria-hidden
-                    >
-                      <div className="settings__theme-preview-bg-stripes" />
-                    </div>
-                    <span className="settings__theme-label">Neon Dark</span>
-                    {theme === "neon-dark" && (
-                      <div className="settings__theme-check">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                          <polyline points="20 6 9 17 4 12"></polyline>
-                        </svg>
-                      </div>
-                    )}
-                  </button>
-
-                  <button
-                    type="button"
-                    className={`settings__theme-option ${theme === "neon-light" ? "settings__theme-option--active" : ""}`}
-                    onClick={() => setTheme("neon-light")}
-                    aria-label="Neon light theme"
-                  >
-                    <div
-                      className="settings__theme-preview settings__theme-preview--neon-light"
-                      aria-hidden
-                    >
-                      <div className="settings__theme-preview-bg-stripes settings__theme-preview-bg-stripes--light" />
-                    </div>
-                    <span className="settings__theme-label">Neon Light</span>
-                    {theme === "neon-light" && (
-                      <div className="settings__theme-check">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                          <polyline points="20 6 9 17 4 12"></polyline>
-                        </svg>
-                      </div>
-                    )}
-                  </button>
+            <div className="settings__subsection">
+              <div className="settings__subsection-header">
+                <div>
+                  <h2 className="settings__subsection-title">Theme</h2>
+                  <p className="settings__subsection-description">
+                    Choose your preferred color theme
+                  </p>
                 </div>
               </div>
 
+              <div className="settings__theme-options">
+                <button
+                  type="button"
+                  className={`settings__theme-option ${theme === "obsidian" ? "settings__theme-option--active" : ""}`}
+                  onClick={() => setTheme("obsidian")}
+                  aria-label="Obsidian theme"
+                >
+                  <div
+                    className="settings__theme-preview settings__theme-preview--obsidian"
+                    aria-hidden
+                  />
+                  <span className="settings__theme-label">Obsidian</span>
+                  {theme === "obsidian" && (
+                    <div className="settings__theme-check">
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="20 6 9 17 4 12"></polyline>
+                      </svg>
+                    </div>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  className={`settings__theme-option ${theme === "quartz" ? "settings__theme-option--active" : ""}`}
+                  onClick={() => setTheme("quartz")}
+                  aria-label="Quartz theme"
+                >
+                  <div
+                    className="settings__theme-preview settings__theme-preview--quartz"
+                    aria-hidden
+                  />
+                  <span className="settings__theme-label">Quartz</span>
+                  {theme === "quartz" && (
+                    <div className="settings__theme-check">
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="20 6 9 17 4 12"></polyline>
+                      </svg>
+                    </div>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  className={`settings__theme-option ${theme === "neon-dark" ? "settings__theme-option--active" : ""}`}
+                  onClick={() => setTheme("neon-dark")}
+                  aria-label="Neon dark theme"
+                >
+                  <div
+                    className="settings__theme-preview settings__theme-preview--neon-dark"
+                    aria-hidden
+                  >
+                    <div className="settings__theme-preview-bg-stripes" />
+                  </div>
+                  <span className="settings__theme-label">Neon Dark</span>
+                  {theme === "neon-dark" && (
+                    <div className="settings__theme-check">
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="20 6 9 17 4 12"></polyline>
+                      </svg>
+                    </div>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  className={`settings__theme-option ${theme === "neon-light" ? "settings__theme-option--active" : ""}`}
+                  onClick={() => setTheme("neon-light")}
+                  aria-label="Neon light theme"
+                >
+                  <div
+                    className="settings__theme-preview settings__theme-preview--neon-light"
+                    aria-hidden
+                  >
+                    <div className="settings__theme-preview-bg-stripes settings__theme-preview-bg-stripes--light" />
+                  </div>
+                  <span className="settings__theme-label">Neon Light</span>
+                  {theme === "neon-light" && (
+                    <div className="settings__theme-check">
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="20 6 9 17 4 12"></polyline>
+                      </svg>
+                    </div>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {showPreSplashSetting && (
               <div className="settings__subsection">
                 <div className="settings__subsection-header">
                   <div>
                     <h2 className="settings__subsection-title">Pre-splash Screen</h2>
                     <p className="settings__subsection-description">
-                      Animated loading screen on startup. Obsidian and Quartz turn this off when selected; Neon themes turn it on. You can override here
+                      Animated loading screen on startup for Neon themes.
                     </p>
                   </div>
                   <label className="settings__toggle">
@@ -293,212 +458,248 @@ export default function Settings() {
                   </label>
                 </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {activeSection === "tips" && (
-            <div className="settings__section">
-              <h1 className="settings__section-title">Tips</h1>
-              
-              <div className="settings__subsection">
-                <div className="settings__subsection-header">
-                  <div>
-                    <h2 className="settings__subsection-title">Enable Tips</h2>
-                    <p className="settings__subsection-description">
-                      Show contextual help tooltips throughout the application
-                    </p>
-                  </div>
-                  <label className="settings__toggle">
-                    <input
-                      type="checkbox"
-                      checked={preferences.tips?.enabled !== false}
-                      onChange={(e) => {
-                        const currentTips = preferences.tips || { enabled: true, categories: {} };
-                        const currentCategories = currentTips.categories || {};
-                        
-                        // When enabling/disabling tips, update all categories
-                        const updatedCategories: { [key: string]: boolean } = {};
-                        TIP_CATEGORIES.forEach((category) => {
-                          updatedCategories[category.id] = e.target.checked;
-                        });
-                        
-                        // Merge with existing categories to preserve any that aren't in TIP_CATEGORIES
-                        const allCategories = { ...currentCategories, ...updatedCategories };
-                        
-                        updatePreferences({
-                          tips: {
-                            ...currentTips,
-                            enabled: e.target.checked,
-                            categories: allCategories,
-                          },
-                        });
-                      }}
-                      className="settings__toggle-input"
-                    />
-                    <span className="settings__toggle-slider"></span>
-                  </label>
+            <div className="settings__subsection">
+              <div className="settings__subsection-header">
+                <div>
+                  <h2 className="settings__subsection-title">Enable Tips</h2>
+                  <p className="settings__subsection-description">
+                    Show contextual help tooltips throughout the application
+                  </p>
+                </div>
+                <label className="settings__toggle">
+                  <input
+                    type="checkbox"
+                    checked={preferences.tips?.enabled !== false}
+                    onChange={(e) => {
+                      const currentTips = preferences.tips || { enabled: true, categories: {} };
+                      const currentCategories = currentTips.categories || {};
+
+                      const updatedCategories: { [key: string]: boolean } = {};
+                      ALL_TIP_CATEGORY_IDS.forEach((categoryId) => {
+                        updatedCategories[categoryId] = e.target.checked;
+                      });
+
+                      updatePreferences({
+                        tips: {
+                          ...currentTips,
+                          enabled: e.target.checked,
+                          categories: { ...currentCategories, ...updatedCategories },
+                        },
+                      });
+                    }}
+                    className="settings__toggle-input"
+                  />
+                  <span className="settings__toggle-slider"></span>
+                </label>
+              </div>
+            </div>
+
+            <div className="settings__subsection">
+              <div className="settings__subsection-header">
+                <div>
+                  <h2 className="settings__subsection-title">Tip Categories</h2>
+                  <p className="settings__subsection-description">
+                    Control which categories of tips are shown. Dismissing a tip will also disable its category here.
+                  </p>
                 </div>
               </div>
 
-              <div className="settings__subsection">
-                <div className="settings__subsection-header">
-                  <div>
-                    <h2 className="settings__subsection-title">Tip Categories</h2>
-                    <p className="settings__subsection-description">
-                      Control which categories of tips are shown. Dismissing a tip will also disable its category here.
-                    </p>
-                  </div>
-                </div>
-                
-                <div className="settings__tip-categories">
-                  {TIP_CATEGORIES.map((category) => {
-                    const categoryEnabled = preferences.tips?.categories?.[category.id] !== false;
-                    return (
-                      <div key={category.id} className="settings__tip-category">
-                        <div className="settings__tip-category-info">
-                          <h3 className="settings__tip-category-name">{category.name}</h3>
-                        </div>
-                        <label className="settings__toggle">
-                          <input
-                            type="checkbox"
-                            checked={categoryEnabled}
-                            onChange={(e) => {
-                              const currentTips = preferences.tips || { enabled: true, categories: {} };
-                              const currentCategories = currentTips.categories || {};
-                              updatePreferences({
-                                tips: {
-                                  ...currentTips,
-                                  categories: {
-                                    ...currentCategories,
-                                    [category.id]: e.target.checked,
-                                  },
-                                },
-                              });
-                            }}
-                            className="settings__toggle-input"
-                          />
-                          <span className="settings__toggle-slider"></span>
-                        </label>
-                      </div>
-                    );
-                  })}
-                </div>
+              <div className="settings__tip-groups">
+                {TIP_GROUPS.map((group) => renderTipGroup(group))}
               </div>
             </div>
+          </div>
+
+          {user && (
+            <SettingsUsersSection
+              sectionId={SECTION_IDS.users}
+              currentUser={user}
+              isAdmin={user.role === "admin"}
+            />
           )}
 
-          {activeSection === "cloud" && user?.role === "admin" && (
-            <div className="settings__section">
+          {user && (
+            <div className="settings__section settings__page-section" id={SECTION_IDS.cloud}>
               <h1 className="settings__section-title">Cloud providers</h1>
               <p className="settings__subsection-description">
-                Configure OAuth app credentials for cloud storage. You can also set these up when
-                choosing a cloud service during migration.
+                {isAdmin
+                  ? "Configure OAuth app credentials for cloud storage. Sylos checks connection health on startup and can re-check on a schedule you choose."
+                  : "View cloud OAuth connection status. You can run a connection test; only admins can add or change credentials."}
               </p>
-              {cloudProviders.map((provider) => (
-                <CloudProviderOAuthSetup
-                  key={provider.providerId}
-                  providerId={provider.providerId}
-                  displayName={provider.displayName}
-                  className="settings__cloud-oauth"
-                />
-              ))}
-            </div>
-          )}
 
-          {activeSection === "developer" && (
-            <div className="settings__section">
-              <h1 className="settings__section-title">Developer</h1>
-              
-              <div className="settings__subsection">
-                <div className="settings__subsection-header">
-                  <div>
-                    <h2 className="settings__subsection-title">Enable Developer Mode</h2>
-                    <p className="settings__subsection-description">
-                      Enable developer features and experimental options
-                    </p>
+              {isAdmin && (
+                <div className="settings__subsection settings__cloud-health-scan">
+                  <div className="settings__subsection-header">
+                    <div>
+                      <h2 className="settings__subsection-title">Automatic health checks</h2>
+                      <p className="settings__subsection-description">
+                        Periodically test stored OAuth app credentials in the background. Providers
+                        in use by a live migration are skipped until that migration finishes.
+                      </p>
+                    </div>
                   </div>
-                  <label className="settings__toggle">
-                    <input
-                      type="checkbox"
-                      checked={preferences.developer?.enabled === true}
-                      onChange={(e) => {
-                        const currentDeveloper = preferences.developer || { enabled: false, showSpectraService: false };
-                        updatePreferences({
-                          developer: {
-                            ...currentDeveloper,
-                            enabled: e.target.checked,
-                            // When disabling developer mode, also disable all sub-options
-                            showSpectraService: e.target.checked ? currentDeveloper.showSpectraService : false,
-                          },
-                        });
-                      }}
-                      className="settings__toggle-input"
-                    />
-                    <span className="settings__toggle-slider"></span>
+                  <label>
+                    Scan interval
+                    <select
+                      value={oauthScanMinutes}
+                      disabled={oauthScanSaving}
+                      onChange={(e) => void handleOAuthScanChange(Number(e.target.value))}
+                    >
+                      {OAUTH_HEALTH_SCAN_OPTIONS.map((option) => (
+                        <option key={option.minutes} value={option.minutes}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
                   </label>
+                  {oauthScanError && (
+                    <p className="settings__message settings__message--error">{oauthScanError}</p>
+                  )}
                 </div>
-              </div>
-
-              <div className="settings__subsection">
-                <div className="settings__subsection-header">
-                  <div>
-                    <h2 className="settings__subsection-title">Show Spectra Test Service</h2>
-                    <p className="settings__subsection-description">
-                      Show the Spectra simulator service in the service selection pages
-                    </p>
-                  </div>
-                  <label className="settings__toggle">
-                    <input
-                      type="checkbox"
-                      checked={preferences.developer?.showSpectraService === true}
-                      disabled={preferences.developer?.enabled !== true}
-                      onChange={(e) => {
-                        const currentDeveloper = preferences.developer || { enabled: false, showSpectraService: false };
-                        updatePreferences({
-                          developer: {
-                            ...currentDeveloper,
-                            showSpectraService: e.target.checked,
-                          },
-                        });
-                      }}
-                      className="settings__toggle-input"
-                    />
-                    <span className="settings__toggle-slider"></span>
-                  </label>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeSection === "danger" && canCleanSlate && (
-            <div className="settings__section">
-              <h1 className="settings__section-title">Danger zone</h1>
-              <p className="settings__subsection-description">
-                Remove every migration folder, migration database, and registry entry from this
-                install. User accounts and cloud provider app settings are not removed. Running
-                migrations are stopped first. This cannot be undone.
-              </p>
-              {cleanSlateMessage && (
-                <p className="settings__subsection-description">{cleanSlateMessage}</p>
               )}
-              <button
-                type="button"
-                className="settings__danger-button"
-                onClick={() => setShowCleanSlateDialog(true)}
-                disabled={cleanSlateBusy}
-              >
-                Remove all migration data
-              </button>
+
+              <div className="settings__cloud-oauth-list">
+                {cloudProviders.map((provider) => (
+                  <CloudProviderOAuthSetup
+                    key={provider.providerId}
+                    providerId={provider.providerId}
+                    displayName={provider.displayName}
+                    variant="compact"
+                    canEdit={isAdmin}
+                  />
+                ))}
+              </div>
             </div>
           )}
+
+          {canCleanSlate && (
+            <div className="settings__section settings__page-section" id={SECTION_IDS.danger}>
+              <h1 className="settings__section-title">Danger zone</h1>
+              {dangerMessage && (
+                <p className="settings__subsection-description">{dangerMessage}</p>
+              )}
+
+              <div className="settings__subsection">
+                <h2 className="settings__subsection-title">Clear migration data</h2>
+                <p className="settings__subsection-description">
+                  Remove every migration folder, migration database, and registry entry. User
+                  accounts and cloud provider app settings are kept. Running migrations are stopped
+                  first.
+                </p>
+                <button
+                  type="button"
+                  className="settings__danger-button"
+                  onClick={() => setDangerDialog("clear-migrations")}
+                  disabled={dangerBusy}
+                >
+                  Clear all migration data
+                </button>
+              </div>
+
+              <div className="settings__subsection">
+                <h2 className="settings__subsection-title">Wipe install</h2>
+                <p className="settings__subsection-description">
+                  Remove all migration data plus every user account, cloud provider OAuth app, and
+                  saved install settings. You will need to complete initial setup again. The install
+                  encryption key is preserved so the database file can be reused.
+                </p>
+                <button
+                  type="button"
+                  className="settings__danger-button settings__danger-button--severe"
+                  onClick={() => setDangerDialog("wipe-install")}
+                  disabled={dangerBusy}
+                >
+                  Wipe all user data
+                </button>
+              </div>
+            </div>
+          )}
+
+          <div className="settings__section settings__page-section" id={SECTION_IDS.developer}>
+            <h1 className="settings__section-title">Developer</h1>
+
+            <div className="settings__subsection">
+              <div className="settings__subsection-header">
+                <div>
+                  <h2 className="settings__subsection-title">Enable Developer Mode</h2>
+                  <p className="settings__subsection-description">
+                    Enable developer features and experimental options
+                  </p>
+                </div>
+                <label className="settings__toggle">
+                  <input
+                    type="checkbox"
+                    checked={preferences.developer?.enabled === true}
+                    onChange={(e) => {
+                      const currentDeveloper = preferences.developer || { enabled: false, showSpectraService: false };
+                      updatePreferences({
+                        developer: {
+                          ...currentDeveloper,
+                          enabled: e.target.checked,
+                          showSpectraService: e.target.checked ? currentDeveloper.showSpectraService : false,
+                        },
+                      });
+                    }}
+                    className="settings__toggle-input"
+                  />
+                  <span className="settings__toggle-slider"></span>
+                </label>
+              </div>
+            </div>
+
+            <div className="settings__subsection">
+              <div className="settings__subsection-header">
+                <div>
+                  <h2 className="settings__subsection-title">Show Spectra Test Service</h2>
+                  <p className="settings__subsection-description">
+                    Show the Spectra simulator service in the service selection pages
+                  </p>
+                </div>
+                <label className="settings__toggle">
+                  <input
+                    type="checkbox"
+                    checked={preferences.developer?.showSpectraService === true}
+                    disabled={preferences.developer?.enabled !== true}
+                    onChange={(e) => {
+                      const currentDeveloper = preferences.developer || { enabled: false, showSpectraService: false };
+                      updatePreferences({
+                        developer: {
+                          ...currentDeveloper,
+                          showSpectraService: e.target.checked,
+                        },
+                      });
+                    }}
+                    className="settings__toggle-input"
+                  />
+                  <span className="settings__toggle-slider"></span>
+                </label>
+              </div>
+            </div>
+          </div>
         </div>
       </GlassSurfacePanel>
 
-      {showCleanSlateDialog && (
-        <CleanSlateDialog
-          busy={cleanSlateBusy}
-          onCancel={() => setShowCleanSlateDialog(false)}
-          onConfirm={() => void handleCleanSlate()}
+      {dangerDialog === "clear-migrations" && (
+        <DestructiveConfirmDialog
+          title="Clear all migration data?"
+          body="This permanently deletes every migration folder, migration database file, and migration registry entry on this Sylos install. User accounts, cloud provider app settings, and your login are kept. Running migrations are stopped first. This cannot be undone."
+          confirmLabel="Clear all migration data"
+          busy={dangerBusy}
+          onCancel={() => setDangerDialog(null)}
+          onConfirm={() => void handleClearMigrations()}
+        />
+      )}
+
+      {dangerDialog === "wipe-install" && (
+        <DestructiveConfirmDialog
+          title="Wipe all user data?"
+          body="This permanently deletes all migration data, every user account, cloud provider OAuth apps, and saved install settings. You will be signed out and must complete initial setup again. The install encryption key is preserved. This cannot be undone."
+          confirmLabel="Wipe all user data"
+          busy={dangerBusy}
+          onCancel={() => setDangerDialog(null)}
+          onConfirm={() => void handleWipeInstall()}
         />
       )}
     </section>

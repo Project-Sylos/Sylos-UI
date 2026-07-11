@@ -1,29 +1,124 @@
-.cloud-oauth-setup {
+.cloud-oauth-row {
   display: flex;
-  flex-direction: column;
-  gap: 0.85rem;
-  margin-top: 1rem;
-  padding: 1rem 1.1rem;
-  border-radius: 12px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.7rem 0.85rem;
+  border-radius: 10px;
   border: 1px solid rgba(255, 255, 255, 0.12);
   background: rgba(0, 0, 0, 0.18);
   text-align: left;
 }
 
-.cloud-oauth-setup--loading {
-  flex-direction: row;
-  align-items: center;
+.cloud-oauth-row--loading {
   justify-content: center;
 }
 
-.cloud-oauth-setup__title {
-  margin: 0;
-  font-size: 1.05rem;
+.cloud-oauth-row__main {
+  min-width: 0;
+  flex: 1;
 }
 
-.cloud-oauth-setup__lead,
+.cloud-oauth-row__title-line {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.cloud-oauth-row__name {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.cloud-oauth-row__badge {
+  font-size: 0.72rem;
+  padding: 0.12rem 0.45rem;
+  border-radius: 999px;
+  background: rgba(255, 196, 86, 0.18);
+  color: #ffd98a;
+}
+
+.cloud-oauth-row__meta {
+  margin: 0.2rem 0 0;
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.72);
+  line-height: 1.4;
+}
+
+.cloud-oauth-row__meta-sep {
+  margin: 0 0.25rem;
+}
+
+.cloud-oauth-row__status--healthy {
+  color: #8dffb2;
+}
+
+.cloud-oauth-row__status--unhealthy {
+  color: #ff8f8f;
+}
+
+.cloud-oauth-row__status--skipped {
+  color: #ffd98a;
+}
+
+.cloud-oauth-row__status--not-configured,
+.cloud-oauth-row__status--unknown {
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.cloud-oauth-row__test-ok {
+  margin: 0.25rem 0 0;
+  font-size: 0.78rem;
+  color: #8dffb2;
+}
+
+.cloud-oauth-row__error {
+  margin: 0.25rem 0 0;
+  font-size: 0.78rem;
+  color: #ff8f8f;
+}
+
+.cloud-oauth-row__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+.cloud-oauth-row__icon-button {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(0, 0, 0, 0.22);
+  color: inherit;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.cloud-oauth-row__icon-button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.24);
+}
+
+.cloud-oauth-row__icon-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.cloud-oauth-setup__lead--expanded {
+  margin: 0.35rem 0 0;
+  color: rgba(255, 255, 255, 0.82);
+  line-height: 1.45;
+  font-size: 0.9rem;
+}
+
 .cloud-oauth-setup__docs {
-  margin: 0;
+  margin: 0 0 0.75rem;
   color: rgba(255, 255, 255, 0.82);
   line-height: 1.45;
 }
@@ -33,7 +128,7 @@
 }
 
 .cloud-oauth-setup__redirect {
-  margin: 0;
+  margin: 0 0 0.85rem;
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
@@ -57,6 +152,7 @@
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
+  margin-bottom: 0.75rem;
 }
 
 .cloud-oauth-setup__field span {
@@ -71,23 +167,78 @@
   border: 1px solid rgba(255, 255, 255, 0.15);
   background: rgba(0, 0, 0, 0.25);
   color: inherit;
-}
-
-.cloud-oauth-setup__actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.65rem;
+  box-sizing: border-box;
 }
 
 .cloud-oauth-setup__error {
-  margin: 0;
+  margin: 0 0 0.75rem;
   color: #ff8f8f;
 }
 
-.cloud-oauth-setup__success {
-  margin: 0;
+.cloud-oauth-edit {
+  width: min(520px, 92vw);
+}
+
+.cloud-oauth-edit__form {
+  margin-top: 0.25rem;
+}
+
+.settings__cloud-oauth-list {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  gap: 0.55rem;
+  margin-top: 1rem;
+}
+
+.settings__cloud-health-scan {
+  margin-top: 0.5rem;
+}
+
+.settings__cloud-health-scan label {
+  display: flex;
+  flex-direction: column;
   gap: 0.4rem;
-  color: #8dffb2;
+  max-width: 320px;
+}
+
+.settings__cloud-health-scan select {
+  padding: 0.5rem 0.65rem;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(0, 0, 0, 0.25);
+  color: inherit;
+}
+
+.settings__nav-badge {
+  margin-left: auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ff5f5f;
+  box-shadow: 0 0 0 2px rgba(255, 95, 95, 0.25);
+  flex-shrink: 0;
+}
+
+.settings__nav-item {
+  position: relative;
+}
+
+.sidebar__button--with-badge {
+  position: relative;
+}
+
+.sidebar__settings-badge {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #ff5f5f;
+  box-shadow: 0 0 0 2px rgba(255, 95, 95, 0.3);
+}
+
+.sidebar--collapsed .sidebar__settings-badge {
+  top: 6px;
+  right: 6px;
 }

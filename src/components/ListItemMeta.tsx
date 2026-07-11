@@ -24,12 +24,11 @@ export default function ListItemMeta({
     parts.push(modified);
   }
 
-  if (parts.length === 0) {
-    return null;
-  }
-
   return (
-    <div className={`list-item-meta${className ? ` ${className}` : ""}`}>
+    <div
+      className={`list-item-meta${className ? ` ${className}` : ""}`}
+      aria-hidden={parts.length === 0 ? true : undefined}
+    >
       {parts.map((part, index) => (
         <span key={`${part}-${index}`} className="list-item-meta__part">
           {index > 0 && <span className="list-item-meta__sep" aria-hidden="true">·</span>}

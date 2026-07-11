@@ -49,11 +49,24 @@ export interface StartMigrationPayload {
 
 export interface MigrationResponse {
   id: string;
+  name?: string;
   sourceId: string;
   destinationId: string;
   startedAt: string;
   status: string;
   error?: string;
+}
+
+/** Persisted source/destination root, used to rehydrate setup without sessionStorage. */
+export interface RootInfo {
+  serviceId: string;
+  serviceName?: string;
+  serviceType?: string;
+  connectionId?: string;
+  name?: string;
+  locationPath?: string;
+  nativePath?: string;
+  type?: string;
 }
 
 /** Lifecycle phases (lowercase-with-hyphens). */
@@ -66,6 +79,9 @@ export type MigrationPhase =
   | "copy-in-progress"
   | "copy-suspended"
   | "awaiting-copy-review"
+  | "delete-in-progress"
+  | "delete-suspended"
+  | "awaiting-delete-review"
   | "failed";
 
 /** Normalize phase string for comparison: trim, lowercase, spaces to hyphens. */
@@ -99,6 +115,18 @@ export function isCopyReviewPhase(
     phase === "copy-in-progress" ||
     phase === "copy-suspended" ||
     phase === "awaiting-copy-review"
+  );
+}
+
+/** True when migration is in delete phase family. */
+export function isDeleteReviewPhase(
+  response: { phase?: string; status?: string } | null | undefined
+): boolean {
+  const phase = getMigrationPhase(response);
+  return (
+    phase === "delete-in-progress" ||
+    phase === "delete-suspended" ||
+    phase === "awaiting-delete-review"
   );
 }
 
@@ -146,11 +174,22 @@ export interface MigrationStatusResponse extends MigrationResponse {
   phase?: string;
   live?: boolean;
   completedAt?: string | null;
+  sourceRoot?: RootInfo;
+  destinationRoot?: RootInfo;
   /** Stop API: engine accepted soft suspend; poll until phase is *-suspended and not live. */
   softSuspendRequested?: boolean;
   SoftSuspendRequested?: boolean;
   stopped?: boolean;
   Stopped?: boolean;
+  /** Stop API: migration was not in a stoppable live phase. */
+  alreadyStopped?: boolean;
+  AlreadyStopped?: boolean;
+  /** Stop API: false when migration was already stopped. */
+  success?: boolean;
+  Success?: boolean;
+  /** True when a queue watchdog recently detected no progress while the migration was live. */
+  possibleStall?: boolean;
+  PossibleStall?: boolean;
   result?: {
     rootSummary?: {
       srcRoots?: number;
@@ -220,6 +259,7 @@ export interface MigrationWithStatus extends MigrationMetadata {
 export interface ListMigrationsResponse {
   migrations: Array<{
     id: string;
+    name?: string;
     sourceId: string;
     destinationId: string;
     startedAt: string;
@@ -227,6 +267,8 @@ export interface ListMigrationsResponse {
     completedAt: string | null;
     error: string;
     result?: MigrationStatusResponse["result"];
+    sourceRoot?: RootInfo;
+    destinationRoot?: RootInfo;
   }>;
   total: number;
   offset: number;
@@ -299,6 +341,7 @@ export interface QueueMetrics {
   bytes_per_sec?: number;
   copy_rate_bytes_per_sec?: number;
   bytes_copied_per_sec?: number;
+  possible_stall?: boolean;
 }
 
 export interface MigrationQueueMetricsResponse {
@@ -308,5 +351,7 @@ export interface MigrationQueueMetricsResponse {
   srcTraversal?: QueueMetrics | null;
   dstTraversal?: QueueMetrics | null;
   copy?: QueueMetrics | null;
+  delete?: QueueMetrics | null;
+  possibleStall?: boolean;
 }
 

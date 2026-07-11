@@ -1,0 +1,243 @@
+.settings-users__intro {
+  margin-bottom: 0.75rem;
+}
+
+.settings-users__title-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.settings-users__count {
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.72);
+  white-space: nowrap;
+}
+
+.settings-users__table {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.settings-users__table--admin .settings-users__table-head,
+.settings-users__table--admin .settings-users__table-row {
+  grid-template-columns: 36px 36px minmax(140px, 1.6fr) 88px minmax(120px, 1fr) minmax(120px, 1fr) auto;
+}
+
+.settings-users__table--self .settings-users__table-head,
+.settings-users__table--self .settings-users__table-row {
+  grid-template-columns: minmax(140px, 1.6fr) 88px minmax(120px, 1fr) minmax(120px, 1fr) auto;
+}
+
+.settings-users__table-head,
+.settings-users__table-row {
+  display: grid;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.65rem 0.85rem;
+}
+
+.settings-users__table-head {
+  background: rgba(0, 0, 0, 0.24);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.settings-users__table-row {
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.settings-users__table-row--self {
+  background: rgba(92, 225, 230, 0.04);
+}
+
+.settings-users__col-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.58);
+}
+
+.settings-users__col-label--actions {
+  text-align: right;
+}
+
+.settings-users__table-head-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.35rem;
+}
+
+.settings-users__table-spacer {
+  display: block;
+}
+
+.settings-users__select-all,
+.settings-users__row-select {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.settings-users__select-all input,
+.settings-users__row-select input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--accent-cyan, #5ce1e6);
+  cursor: pointer;
+}
+
+.settings-users__row-select input:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.settings-users__cell {
+  min-width: 0;
+  font-size: 0.88rem;
+}
+
+.settings-users__cell--time {
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 0.82rem;
+}
+
+.settings-users__title-line {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.settings-users__name {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.settings-users__badge {
+  font-size: 0.72rem;
+  padding: 0.12rem 0.45rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.settings-users__badge--admin {
+  background: rgba(92, 225, 230, 0.16);
+  color: #9ef0f3;
+}
+
+.settings-users__badge--disabled {
+  background: rgba(255, 95, 95, 0.16);
+  color: #ff9b9b;
+}
+
+.settings-users__badge--you {
+  background: rgba(141, 255, 178, 0.14);
+  color: #8dffb2;
+}
+
+.settings-users__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+.settings-users__icon-button {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(0, 0, 0, 0.22);
+  color: inherit;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.settings-users__icon-button--add {
+  border-color: rgba(92, 225, 230, 0.35);
+}
+
+.settings-users__icon-button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.24);
+}
+
+.settings-users__icon-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.settings-users__icon-button--danger:hover:not(:disabled) {
+  border-color: rgba(255, 120, 120, 0.45);
+  color: #ffb0b0;
+}
+
+.settings-users__attention {
+  width: 9px;
+  height: 9px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: #ff5f5f;
+  box-shadow: 0 0 0 2px rgba(255, 95, 95, 0.25);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.settings-users__attention:hover {
+  box-shadow: 0 0 0 2px rgba(255, 95, 95, 0.45);
+}
+
+.settings-users__spin {
+  animation: settings-users-spin 0.9s linear infinite;
+}
+
+@keyframes settings-users-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.settings-users__edit-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 0.75rem;
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.settings-users__edit-form input,
+.settings-users__edit-form select {
+  padding: 0.55rem 0.65rem;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(0, 0, 0, 0.25);
+  color: inherit;
+}
+
+@media (max-width: 900px) {
+  .settings-users__table--admin .settings-users__table-head,
+  .settings-users__table--admin .settings-users__table-row {
+    grid-template-columns: 36px 36px minmax(100px, 1.4fr) 72px 1fr auto;
+  }
+
+  .settings-users__table--self .settings-users__table-head,
+  .settings-users__table--self .settings-users__table-row {
+    grid-template-columns: minmax(100px, 1.4fr) 72px 1fr auto;
+  }
+
+  .settings-users__cell--time {
+    font-size: 0.76rem;
+  }
+}

@@ -2,6 +2,22 @@ import { MigrationRootRequestRoot } from "../types/migrations";
 import { BrowseTrailItem, Folder } from "../types/services";
 import { serviceIdToProviderId } from "./cloudProviders";
 
+/** Cloud provider folder IDs — not human-readable paths. */
+const CLOUD_PROVIDER_FOLDER_IDS = new Set([
+  "root",
+  "sharedWithMe",
+  "shared_with_me",
+]);
+
+export function isFilesystemNativePath(serviceId?: string): boolean {
+  const s = (serviceId ?? "").trim();
+  if (!s || s === "/") return false;
+  if (CLOUD_PROVIDER_FOLDER_IDS.has(s)) return false;
+  if (/^[A-Za-z]:/.test(s)) return true;
+  if (s.startsWith("/") || s.startsWith("\\\\")) return true;
+  return false;
+}
+
 export function folderToApiRoot(root: Folder): MigrationRootRequestRoot {
   return {
     id: root.ServiceID,
@@ -16,10 +32,38 @@ export function folderToApiRoot(root: Folder): MigrationRootRequestRoot {
 }
 
 export function formatMigrationPath(
-  root?: { name?: string; locationPath?: string }
+  root?: { name?: string; locationPath?: string; ServiceID?: string }
 ): string {
   if (!root) return "Not specified";
-  return root.locationPath || root.name || "Not specified";
+
+  const location = root.locationPath?.trim();
+  const name = root.name?.trim();
+  const serviceId = root.ServiceID?.trim();
+
+  const isAtServiceRoot = !location || location === "/";
+  if (isAtServiceRoot) {
+    if (isFilesystemNativePath(serviceId)) {
+      return serviceId!;
+    }
+    if (name) return name;
+    if (serviceId) return serviceId;
+    return "Not specified";
+  }
+
+  return location || name || serviceId || "Not specified";
+}
+
+/** Combined "{service} · {drive/path}" label for a selected endpoint. */
+export function formatServiceRootLabel(selected?: {
+  service?: { displayName?: string };
+  root?: { name?: string; locationPath?: string; ServiceID?: string };
+}): string {
+  const path = formatMigrationPath(selected?.root);
+  const service = selected?.service?.displayName?.trim();
+  if (service && path !== "Not specified") {
+    return `${service} · ${path}`;
+  }
+  return path;
 }
 
 export function getBrowseTrailFromFolder(

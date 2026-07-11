@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { CheckCircle2, Cloud, Loader2, LogIn, LogOut, Unplug, User, Users } from "lucide-react";
+import { CheckCircle2, Cloud, Loader2, LogIn, LogOut, Server, Unplug, User, Users } from "lucide-react";
 
 import "../App.css";
 import googleDriveLogo from "../assets/external/Google_Drive_Logo.svg";
@@ -21,6 +21,8 @@ import {
   saveOAuthPendingSession,
 } from "../utils/cloudOAuth";
 import CloudProviderOAuthSetup from "../components/CloudProviderOAuthSetup";
+import SftpCredentialsForm from "../components/SftpCredentialsForm";
+import "../components/SftpCredentialsForm.css";
 import { useAuth } from "../contexts/AuthContext";
 import { serviceIdToProviderId } from "../utils/cloudProviders";
 import {
@@ -61,6 +63,10 @@ function ProviderConnectIcon({ providerId }: { providerId: string }) {
     );
   }
 
+  if (providerId === "sftp") {
+    return <Server size={48} className="browse-cloud-connect__generic-cloud-icon" />;
+  }
+
   return <Cloud size={48} className="browse-cloud-connect__generic-cloud-icon" />;
 }
 
@@ -76,11 +82,11 @@ export default function ConnectCloudAccount() {
   const role = (searchParams.get("role") as "source" | "destination") || "source";
   const dropboxAccountType = parseDropboxAccountType(searchParams.get("accountType"));
   const shouldReconnect = searchParams.get("reconnect") === "1";
-  const queryConnectionId = searchParams.get("connectionId") ?? undefined;
   const migrationConnectionId =
     role === "source"
       ? migration.sourceConnectionId
       : migration.destinationConnectionId;
+  const queryConnectionId = searchParams.get("connectionId") ?? undefined;
   const existingConnectionId = queryConnectionId ?? migrationConnectionId;
 
   const [provider, setProvider] = useState<ProviderDescriptor | null>(null);
@@ -92,6 +98,7 @@ export default function ConnectCloudAccount() {
 
   const returnPath = role === "destination" ? "/destination" : "/connect";
   const oauthConfigured = isCloudProviderOAuthConfigured(provider?.oauthClientId);
+  const usesCredentialsForm = provider?.authType === "credentials_form";
   const signInBrand = getCloudProviderSignInBrand(providerId);
   const isAdmin = user?.role === "admin";
 
@@ -225,6 +232,27 @@ export default function ConnectCloudAccount() {
         role,
         serviceId,
         connectionId: existingConnectionId,
+        providerId,
+      })
+    );
+  };
+
+  const handleCredentialsConnected = (connectionId: string) => {
+    updateMigration(
+      role === "source"
+        ? { sourceConnectionId: connectionId }
+        : { destinationConnectionId: connectionId }
+    );
+    persistSelections(
+      role === "source"
+        ? { sourceConnectionId: connectionId }
+        : { destinationConnectionId: connectionId }
+    );
+    navigate(
+      buildCloudBrowsePath({
+        role,
+        serviceId,
+        connectionId,
         providerId,
       })
     );
@@ -456,6 +484,24 @@ export default function ConnectCloudAccount() {
 
             {error && <p className="browse-folder__error">{error}</p>}
           </div>
+        ) : usesCredentialsForm ? (
+          <div className="browse-cloud-connect browse-cloud-connect--form">
+            <div className="browse-cloud-connect__icon" aria-hidden="true">
+              <ProviderConnectIcon providerId={providerId} />
+            </div>
+            <h2 className="browse-cloud-connect__provider">{providerLabel}</h2>
+            <p className="browse-cloud-connect__summary">
+              Enter SFTP server credentials to browse folders and choose a migration root.
+            </p>
+            <SftpCredentialsForm
+              providerId={providerId}
+              serviceId={serviceId}
+              role={role}
+              migrationId={migration.migrationId}
+              onConnected={handleCredentialsConnected}
+              onCancel={() => navigate(returnPath)}
+            />
+          </div>
         ) : (
           <div className="browse-cloud-connect">
             <div className="browse-cloud-connect__icon" aria-hidden="true">
@@ -502,6 +548,7 @@ export default function ConnectCloudAccount() {
               <CloudProviderOAuthSetup
                 providerId={providerId}
                 displayName={providerLabel}
+                variant="expanded"
                 onConfigured={() => void reloadProvider()}
               />
             )}

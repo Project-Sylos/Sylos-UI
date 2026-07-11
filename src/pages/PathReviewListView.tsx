@@ -46,6 +46,8 @@ import "./PathReview.css";
 
 export interface PathReviewListViewProps {
   migrationId: string;
+  reviewView?: "default" | "source-cleanup";
+  onSkipDeleteClick?: (item: DiffItem) => void;
   /** Incremented from tree view after successful exclude/retry so list search results stay in sync. */
   treeListRefreshToken?: number;
   /** Called after list mutations that should refresh the tree view’s current folder. */
@@ -62,6 +64,8 @@ export interface PathReviewListViewProps {
 
 export default function PathReviewListView({
   migrationId,
+  reviewView = "default",
+  onSkipDeleteClick,
   treeListRefreshToken = 0,
   onListDataMutated,
   onItemUpdate,
@@ -114,9 +118,14 @@ export default function PathReviewListView({
   const isCopyPhase = (status: MigrationStatusResponse | null): boolean =>
     isCopyReviewPhase(status);
 
+  const isSourceCleanupView = reviewView === "source-cleanup";
+
   const getCurrentPhase = (): "traversal" | "copy" => {
     return isCopyPhase(migrationStatus) ? "copy" : "traversal";
   };
+
+  const getDisplayPhase = (): "traversal" | "copy" | "source-cleanup" =>
+    isSourceCleanupView ? "source-cleanup" : getCurrentPhase();
 
   // Fetch migration status
   const fetchMigrationStatus = async () => {
@@ -1495,7 +1504,7 @@ export default function PathReviewListView({
       {/* Status Legend with Pagination Arrows */}
       {!loading && items.length > 0 && (
         <div className="path-review-list__legend-wrapper">
-          <PathReviewLegend zoomLevel={1} className="path-review__legend--compact" phase={getCurrentPhase()} />
+          <PathReviewLegend zoomLevel={1} className="path-review__legend--compact" phase={getDisplayPhase()} />
           {pagination && (
             <ListViewPagination
               pagination={pagination}
@@ -1570,9 +1579,10 @@ export default function PathReviewListView({
                       zoomLevel={1}
                       size={16}
                       className="path-review-list__item-status-icon"
-                      phase={getCurrentPhase()}
+                      phase={getDisplayPhase()}
                       onRetryClick={handleRetryClick}
                       onExcludeClick={(item, currentChecked) => handleCheckboxChange(item, currentChecked)}
+                      onSkipDeleteClick={onSkipDeleteClick}
                     />
                   </div>
 

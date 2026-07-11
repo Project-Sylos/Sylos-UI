@@ -21,6 +21,9 @@ import {
   DiffItem,
   getPendingWork,
   changePhase,
+  getDeleteSummary,
+  prepareSourceCleanup,
+  DeleteSummaryResponse,
   PendingWorkResponse,
   getPathReviewStats,
   PathReviewStats,
@@ -57,6 +60,10 @@ import {
   hasTraversalFailure,
   isTraversalRetryPending,
 } from "../utils/pathReviewTraversalStatus";
+import {
+  applyDeleteStatusInItems,
+  toggleDeleteExclude,
+} from "../utils/pathReviewDeletePlan";
 import "../App.css";
 import "./PathReview.css";
 
@@ -130,17 +137,18 @@ function mergeDeltas(
   return out;
 }
 
-export default function PathReview() {
+export default function PathReview({ reviewView = "default" }: { reviewView?: "default" | "source-cleanup" }) {
   return (
     <ListDensityProvider storageKey={PATH_REVIEW_DENSITY_STORAGE_KEY}>
-      <PathReviewPage />
+      <PathReviewPage reviewView={reviewView} />
     </ListDensityProvider>
   );
 }
 
-function PathReviewPage() {
+function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanup" }) {
   const { migrationId } = useParams<{ migrationId: string }>();
   const navigate = useNavigate();
+  const isSourceCleanupView = reviewView === "source-cleanup";
   const { densityStyle, setListViewportElement } = useListDensity();
   const treeListRef = useRef<HTMLDivElement | null>(null);
   const [activeTab, setActiveTab] = useState<"tree" | "list">("tree");
@@ -160,7 +168,7 @@ function PathReviewPage() {
   const [hoverPosition, setHoverPosition] = useState<{ x: number; y: number } | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
-  const [confirmDialogType, setConfirmDialogType] = useState<"copy" | "retry">("copy");
+  const [confirmDialogType, setConfirmDialogType] = useState<"copy" | "retry" | "delete">("copy");
   const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const statsPollingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isPollingStatsRef = useRef<boolean>(false);
@@ -185,6 +193,8 @@ function PathReviewPage() {
   /** Bumped after successful exclude/retry in tree view so list search refetches (only when tree tab is active at completion). */
   const [treeListRefreshToken, setTreeListRefreshToken] = useState(0);
   const [highlightedItemId, setHighlightedItemId] = useState<string | null>(null);
+  const [deleteSummary, setDeleteSummary] = useState<DeleteSummaryResponse | null>(null);
+  const sourceCleanupPreparedRef = useRef(false);
   
   // Tree view pagination
   const [treeCurrentPage, setTreeCurrentPage] = useState(0);
@@ -321,6 +331,38 @@ function PathReviewPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [migrationId]);
+
+  useEffect(() => {
+    if (!migrationId || !isSourceCleanupView || sourceCleanupPreparedRef.current) return;
+    sourceCleanupPreparedRef.current = true;
+
+    (async () => {
+      try {
+        const result = await prepareSourceCleanup(migrationId, {});
+        if (!result.success) {
+          sourceCleanupPreparedRef.current = false;
+          setToast({
+            message: result.error || "Failed to prepare source removal plan",
+            type: "error",
+          });
+          return;
+        }
+        if (result.deltas) {
+          handleApplyStatsDeltas(result.deltas);
+        }
+        const pathKey = currentTreePathRef.current;
+        await loadItems(pathKey === "/" ? undefined : pathKey, undefined, { silent: true });
+        setTreeListRefreshToken((t) => t + 1);
+      } catch (err) {
+        sourceCleanupPreparedRef.current = false;
+        setToast({
+          message: err instanceof Error ? err.message : "Failed to prepare source removal plan",
+          type: "error",
+        });
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [migrationId, isSourceCleanupView]);
 
   // Poll stats based on background tasks - starts after status updates
   const startStatsPolling = async () => {
@@ -466,6 +508,12 @@ function PathReviewPage() {
 
   const getCurrentPhase = (): "traversal" | "copy" =>
     isCopyPhase(migrationStatus) ? "copy" : "traversal";
+
+  const getDisplayPhase = (): "traversal" | "copy" | "source-cleanup" =>
+    isSourceCleanupView ? "source-cleanup" : getCurrentPhase();
+
+  const isAwaitingCopyReview =
+    getMigrationPhase(migrationStatus) === "awaiting-copy-review";
 
   // Determine if we're in traversal review mode (for backwards compatibility)
   const isTraversalReviewMode = () => {
@@ -1315,6 +1363,81 @@ function PathReviewPage() {
     }
   };
 
+  const handleSkipDeleteClick = async (item: DiffItem) => {
+    if (!migrationId || !isSourceCleanupView) return;
+
+    const originalItems = items;
+    const deleteStatus = item.src?.deleteStatus || "";
+    const isExcluding = deleteStatus === "pending" || deleteStatus === "";
+    const nextStatus: "pending" | "skipped" = isExcluding ? "skipped" : "pending";
+
+    setItems((prev) => applyDeleteStatusInItems(prev, item, nextStatus));
+
+    const result = await toggleDeleteExclude(migrationId, item);
+    if (!result.success) {
+      setItems(originalItems);
+      setToast({
+        message: result.error || "Failed to update removal plan",
+        type: "error",
+      });
+      return;
+    }
+    if (result.deltas) {
+      handleApplyStatsDeltas(result.deltas);
+    }
+    setTreeListRefreshToken((t) => t + 1);
+  };
+
+  const handleBeginRemoval = async () => {
+    if (!migrationId) return;
+    try {
+      const summary = await getDeleteSummary(migrationId);
+      setDeleteSummary(summary);
+      setConfirmDialogType("delete");
+      setShowConfirmDialog(true);
+    } catch (err) {
+      setToast({
+        message: err instanceof Error ? err.message : "Failed to load delete summary",
+        type: "error",
+      });
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    setShowConfirmDialog(false);
+    if (!migrationId) return;
+
+    const hasRunning = await checkRunningTasks();
+    if (hasRunning) {
+      setToast({
+        message: "Cannot start removal: background tasks are running. Please wait.",
+        type: "error",
+      });
+      return;
+    }
+
+    setIsTriggeringSweep(true);
+    try {
+      const result = await changePhase(migrationId, "delete");
+      if (!result.success) {
+        setToast({
+          message: result.error || "Failed to start source removal",
+          type: "error",
+        });
+        setIsTriggeringSweep(false);
+        return;
+      }
+      setIsTriggeringSweep(false);
+      navigate(`/progress-monitor/${migrationId}?mode=delete`);
+    } catch (err) {
+      setToast({
+        message: err instanceof Error ? err.message : "Failed to start source removal",
+        type: "error",
+      });
+      setIsTriggeringSweep(false);
+    }
+  };
+
   const handleCancelCopy = () => {
     setShowConfirmDialog(false);
   };
@@ -1339,7 +1462,9 @@ function PathReviewPage() {
         />
         <header className="path-review__header">
           <h1>
-            {isCopyPhase(migrationStatus) ? (
+            {isSourceCleanupView ? (
+              <>Plan <span className="path-review__highlight">Source Removal</span></>
+            ) : isCopyPhase(migrationStatus) ? (
               <>Review <span className="path-review__highlight">Copy Results</span></>
             ) : (
               <>Review the <span className="path-review__highlight">Action Plan</span></>
@@ -1414,7 +1539,7 @@ function PathReviewPage() {
         {/* Status Legend with Pagination */}
         {!loading && items.length > 0 && (
           <div className="path-review-list__legend-wrapper">
-            <PathReviewLegend zoomLevel={1} className="path-review__legend--compact" phase={getCurrentPhase()} />
+            <PathReviewLegend zoomLevel={1} className="path-review__legend--compact" phase={getDisplayPhase()} />
             {pagination && (
               <div className="path-review-list__page-nav">
                 <div className="path-review-list__items-per-page-compact" ref={treeItemsPerPageDropdownRef}>
@@ -1549,9 +1674,10 @@ function PathReviewPage() {
                           isMarkedForRetry={isMarkedForRetry}
                           isLocked={isLocked}
                           zoomLevel={1}
-                          phase={getCurrentPhase()}
+                          phase={getDisplayPhase()}
                           onRetryClick={handleRetryClick}
                           onExcludeClick={handleCheckboxChange}
+                          onSkipDeleteClick={handleSkipDeleteClick}
                         />
                       </div>
 
@@ -1622,7 +1748,9 @@ function PathReviewPage() {
           >
             <PathReviewListView
               migrationId={migrationId}
+              reviewView={reviewView}
               isActive={activeTab === "list"}
+              onSkipDeleteClick={handleSkipDeleteClick}
               treeListRefreshToken={treeListRefreshToken}
               onListDataMutated={handleListDataMutated}
               onItemUpdate={() => {
@@ -1707,9 +1835,18 @@ function PathReviewPage() {
               </div>
             )}
             
-            {/* Retry Discovery, Retry Copying, or Start Copying Button */}
-            {isCopyPhase(migrationStatus) ? (
-              // Copy phase: show "Retry Copying of Failed Items" if pendingRetriesCount > 0
+            {/* Retry Copying, Review Deletion Plan, or Start Copying */}
+            {isSourceCleanupView ? (
+              <button
+                type="button"
+                className="glass-button glass-button--progress-cta glass-button--multiline"
+                onClick={handleBeginRemoval}
+                disabled={isTriggeringSweep || hasRunningTasks}
+                title="Start removing copied items from the source"
+              >
+                Begin Removal from Source
+              </button>
+            ) : isCopyPhase(migrationStatus) ? (
               (stats?.pendingRetriesCount ?? 0) > 0 ? (
                 <button
                   type="button"
@@ -1721,7 +1858,17 @@ function PathReviewPage() {
                   <RotateCw size={20} style={{ marginRight: "0.5rem" }} />
                   Retry Copying of Failed Items
                 </button>
-              ) : null // Hide button if there's nothing to retry
+              ) : isAwaitingCopyReview ? (
+                <button
+                  type="button"
+                  className="glass-button glass-button--progress-cta glass-button--multiline"
+                  onClick={() => navigate(`/path-review/${migrationId}/source-cleanup`)}
+                  disabled={isTriggeringSweep || hasRunningTasks}
+                  title="Review which copied items to remove from the source"
+                >
+                  Review Deletion Plan
+                </button>
+              ) : null
             ) : (
               // Traversal phase: show retry discovery or start copying
               (stats?.pendingRetriesCount ?? 0) > 0 ? (
@@ -1768,17 +1915,35 @@ function PathReviewPage() {
       {/* Confirmation Dialog */}
       {showConfirmDialog && (
         <ConfirmDialog
-          title={confirmDialogType === "retry" ? "Retry Discovery" : (isCopyPhase(migrationStatus) ? "Retry Copying" : "Confirm Copy")}
+          title={
+            confirmDialogType === "retry"
+              ? "Retry Discovery"
+              : confirmDialogType === "delete"
+              ? "Begin Source Removal"
+              : isCopyPhase(migrationStatus)
+              ? "Retry Copying"
+              : "Confirm Copy"
+          }
           message={
             confirmDialogType === "retry"
               ? "We'll try to discover what is in those folders that you marked to retry. We'll send you back here to review the results when the process is complete. Would you like to proceed?"
+              : confirmDialogType === "delete"
+              ? deleteSummary
+                ? `This will permanently remove ${deleteSummary.pending.toLocaleString()} item${deleteSummary.pending !== 1 ? "s" : ""} from ${deleteSummary.sourceHost ? `${deleteSummary.sourceHost}:` : ""}${deleteSummary.sourceRootPath}. Items you excluded from the plan will be kept. Would you like to proceed?`
+                : "This will permanently remove copied items from the source. Would you like to proceed?"
               : isCopyPhase(migrationStatus)
               ? "We'll retry copying the failed and pending items. We'll send you back here to review the results when the process is complete. Would you like to proceed?"
               : "Are you sure you'd like to copy over these selected items?"
           }
           confirmLabel="Yes"
           cancelLabel="No"
-          onConfirm={confirmDialogType === "retry" ? handleConfirmRetry : handleConfirmCopy}
+          onConfirm={
+            confirmDialogType === "retry"
+              ? handleConfirmRetry
+              : confirmDialogType === "delete"
+              ? handleConfirmDelete
+              : handleConfirmCopy
+          }
           onCancel={() => setShowConfirmDialog(false)}
         />
       )}

@@ -5,7 +5,7 @@ import HelpTooltip from "./HelpTooltip";
 export interface PathReviewLegendProps {
   zoomLevel?: number;
   className?: string;
-  phase?: "traversal" | "copy";
+  phase?: "traversal" | "copy" | "source-cleanup";
 }
 
 export default function PathReviewLegend({
@@ -14,6 +14,38 @@ export default function PathReviewLegend({
   phase = "traversal",
 }: PathReviewLegendProps) {
   const isCopyPhase = phase === "copy";
+  const isSourceCleanup = phase === "source-cleanup";
+
+  if (isSourceCleanup) {
+    return (
+      <div className={`path-review__legend ${className}`}>
+        <div className="path-review__legend-item">
+          <Clock size={14 * zoomLevel} className="path-review__legend-icon path-review__legend-icon--pending" />
+          <span className="path-review__legend-label">Pending Removal</span>
+          <HelpTooltip
+            tipId="delete-pending-icon-tip"
+            category="path-review-delete-pending"
+            position="above"
+            content={
+              <p>These items were copied successfully and are scheduled for removal from the source. Click to exclude an item from removal.</p>
+            }
+          />
+        </div>
+        <div className="path-review__legend-item">
+          <X size={14 * zoomLevel} className="path-review__legend-icon path-review__legend-icon--excluded" />
+          <span className="path-review__legend-label">Excluded from Removal</span>
+          <HelpTooltip
+            tipId="delete-skipped-icon-tip"
+            category="path-review-delete-skipped"
+            position="above"
+            content={
+              <p>These items will be kept on the source. Click to include them in the removal plan again.</p>
+            }
+          />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`path-review__legend ${className}`}>
@@ -90,4 +122,3 @@ export default function PathReviewLegend({
     </div>
   );
 }
-

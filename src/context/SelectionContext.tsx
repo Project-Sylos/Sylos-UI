@@ -11,6 +11,7 @@ import {
 
 import { fetchServices } from "../api/services";
 import { getPresetRootForServiceType } from "../data/presetRoots";
+import { RootInfo } from "../types/migrations";
 import { Folder, ServiceDescriptor } from "../types/services";
 import { loadOAuthPendingSession } from "../utils/cloudOAuth";
 import {
@@ -46,6 +47,8 @@ type SelectionContextValue = {
   selectSource: (service: ServiceDescriptor, root?: Folder) => void;
   selectDestination: (service: ServiceDescriptor, root?: Folder) => void;
   updateMigration: (update: Partial<MigrationState>) => void;
+  /** Rehydrate source/destination from server-persisted roots (used on resume when sessionStorage is empty). */
+  applyServerRoots: (source?: RootInfo, destination?: RootInfo) => void;
   clearSelections: () => void;
   /** Flush current setup to sessionStorage (e.g. before OAuth full-page redirect). */
   persistSelections: (migrationPatch?: Partial<MigrationState>) => void;
@@ -79,6 +82,29 @@ function getInitialMigrationState(): MigrationState {
   const stored = loadMigrationSetup()?.migration;
   const base: MigrationState = stored ?? { ready: false };
   return mergeOAuthPendingMigration(base);
+}
+
+function endpointFromRootInfo(
+  info: RootInfo | undefined
+): SelectedService | undefined {
+  if (!info || !info.serviceId) {
+    return undefined;
+  }
+  const service: ServiceDescriptor = {
+    id: info.serviceId,
+    displayName: info.serviceName || info.serviceId,
+    type: info.serviceType || "local",
+  };
+  const nativeId = info.nativePath || info.serviceId;
+  const root: Folder = {
+    ServiceID: nativeId,
+    Id: nativeId,
+    name: info.name || nativeId,
+    locationPath: info.locationPath || "/",
+    type: info.type || "folder",
+    depthLevel: 0,
+  };
+  return { service, root };
 }
 
 function endpointFromStorage(
@@ -226,6 +252,20 @@ export function SelectionProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const applyServerRoots = useCallback(
+    (sourceRoot?: RootInfo, destinationRoot?: RootInfo) => {
+      const nextSource = endpointFromRootInfo(sourceRoot);
+      const nextDestination = endpointFromRootInfo(destinationRoot);
+      if (nextSource) {
+        setSource((current) => (current?.root ? current : nextSource));
+      }
+      if (nextDestination) {
+        setDestination((current) => (current?.root ? current : nextDestination));
+      }
+    },
+    []
+  );
+
   const clearSelections = useCallback(() => {
     setSource(undefined);
     setDestination(undefined);
@@ -245,6 +285,7 @@ export function SelectionProvider({ children }: { children: ReactNode }) {
       selectSource,
       selectDestination,
       updateMigration,
+      applyServerRoots,
       clearSelections,
       persistSelections,
     }),
@@ -259,6 +300,7 @@ export function SelectionProvider({ children }: { children: ReactNode }) {
       selectSource,
       selectDestination,
       updateMigration,
+      applyServerRoots,
       clearSelections,
       persistSelections,
     ]

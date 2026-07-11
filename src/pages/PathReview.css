@@ -51,6 +51,15 @@
   margin: 0.25rem 0 0;
 }
 
+.path-review__subheader {
+  margin: 0.5rem auto 0;
+  font-size: 0.95rem;
+  color: var(--text-secondary, rgba(255, 255, 255, 0.72));
+  max-width: 52rem;
+  line-height: 1.45;
+  text-align: center;
+}
+
 .path-review__highlight {
   color: var(--accent-cyan);
 }
@@ -672,6 +681,14 @@
 
 .path-review__item-status-icon--exists-on-both {
   color: var(--accent-magenta);
+}
+
+.path-review__item-status-icon--removal-deselected {
+  opacity: 0.35;
+}
+
+.path-review__item-status-icon--removal-selected {
+  opacity: 1;
 }
 
 .path-review__item-status-icon--exists-only-dst {

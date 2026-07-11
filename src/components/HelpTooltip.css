@@ -3,7 +3,7 @@
   display: inline-flex;
   align-items: center;
   vertical-align: middle;
-  z-index: 9999;
+  z-index: 1;
   isolation: isolate;
 }
 
@@ -97,7 +97,6 @@
     var(--glass-bg-base-b),
     var(--glass-shadow-opacity-md)
   );
-  animation: helpTooltipFadeIn 0.2s ease-out;
   word-wrap: break-word;
   overflow-wrap: break-word;
   box-sizing: border-box;

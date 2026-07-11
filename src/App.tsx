@@ -10,6 +10,7 @@ import { SelectionProvider } from "./context/SelectionContext";
 import { ZoomProvider } from "./contexts/ZoomContext";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { AuthProvider } from "./contexts/AuthContext";
+import { RecoveryCodeProvider } from "./contexts/RecoveryCodeContext";
 import AnimatedBackground from "./components/AnimatedBackground";
 import BackgroundCredit from "./components/BackgroundCredit";
 import PreSplash from "./components/PreSplash";
@@ -30,7 +31,6 @@ import Settings from "./pages/Settings";
 import SpectraConfigPage from "./pages/SpectraConfig";
 import Setup from "./pages/Setup";
 import Login from "./pages/Login";
-import Users from "./pages/Users";
 
 function AppShell() {
   return (
@@ -96,6 +96,14 @@ function AppShell() {
           }
         />
         <Route
+          path="/path-review/:migrationId/source-cleanup"
+          element={
+            <ProtectedRoute>
+              <PathReview reviewView="source-cleanup" />
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="/path-review/:migrationId"
           element={
             <ProtectedRoute>
@@ -151,14 +159,6 @@ function AppShell() {
             </ProtectedRoute>
           }
         />
-        <Route
-          path="/settings/users"
-          element={
-            <ProtectedRoute>
-              <Users />
-            </ProtectedRoute>
-          }
-        />
       </Routes>
     </>
   );
@@ -168,6 +168,7 @@ export default function App() {
   return (
     <HashRouter>
       <AuthProvider>
+        <RecoveryCodeProvider>
         <PreferencesProvider>
           <ThemeProvider>
             <AnimatedBackground />
@@ -198,6 +199,7 @@ export default function App() {
             </SelectionProvider>
           </ThemeProvider>
         </PreferencesProvider>
+        </RecoveryCodeProvider>
       </AuthProvider>
     </HashRouter>
   );

@@ -15,7 +15,7 @@ import {
   ListMigrationsResponse,
 } from "../types/migrations";
 import { ServiceDescriptor, Drive, ChildrenResponse, Folder } from "../types/services";
-import { UserPreferences, DEFAULT_PREFERENCES } from "../types/preferences";
+import { UserPreferences, DEFAULT_PREFERENCES, themeSupportsPreSplash } from "../types/preferences";
 import { apiFetch, getAuthToken, readErrorMessage } from "./client";
 
 const fallbackServices: ServiceDescriptor[] = [
@@ -150,6 +150,27 @@ export async function getMigrationStatus(
     const message = await response.text();
     throw new Error(
       `Failed to get migration status (${response.status}): ${
+        message || "Unknown error"
+      }`
+    );
+  }
+
+  return (await response.json()) as MigrationStatusResponse;
+}
+
+export async function renameMigration(
+  migrationId: string,
+  name: string
+): Promise<MigrationStatusResponse> {
+  const response = await apiFetch(`/api/migrations/${migrationId}/rename`, {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  });
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(
+      `Failed to rename migration (${response.status}): ${
         message || "Unknown error"
       }`
     );
@@ -608,6 +629,7 @@ export interface PathNodeItem {
   size?: number;              // File size in bytes (only present for files)
   traversalStatus: "pending" | "successful" | "failed" | "excluded" | "not_on_src";
   copyStatus?: string;        // "pending", "successful", or "failed" (for future copy phase)
+  deleteStatus?: string;      // delete phase: pending, deleted, failed
   failureLogId?: string;
   failureMessage?: string;
 }
@@ -1106,7 +1128,7 @@ export interface PhaseChangeResponse {
  */
 export async function changePhase(
   migrationId: string,
-  phase: "traversal" | "copy",
+  phase: "traversal" | "copy" | "delete",
   options?: PhaseChangeRequest["options"]
 ): Promise<PhaseChangeResponse> {
 
@@ -1140,6 +1162,105 @@ export async function changePhase(
 
   const data = await response.json();
   return data;
+}
+
+export interface DeleteSummaryResponse {
+  sourceRootPath: string;
+  sourceHost?: string;
+  pending: number;
+  failed: number;
+  deleted: number;
+}
+
+export async function getDeleteSummary(migrationId: string): Promise<DeleteSummaryResponse> {
+  const response = await apiFetch(`/api/migrations/${migrationId}/delete-summary`);
+  if (!response.ok) {
+    throw new Error(`Failed to load delete summary (${response.status})`);
+  }
+  return response.json();
+}
+
+export async function markNodeForRetryDelete(
+  migrationId: string,
+  nodeId: string
+): Promise<ExclusionResponse> {
+  const response = await apiFetch(
+    `/api/migrations/${migrationId}/node/${encodeURIComponent(nodeId)}/mark-retry-delete`,
+    { method: "POST" }
+  );
+  if (!response.ok) {
+    return { success: false, error: `HTTP ${response.status}` };
+  }
+  return response.json();
+}
+
+export async function unmarkNodeForRetryDelete(
+  migrationId: string,
+  nodeId: string
+): Promise<ExclusionResponse> {
+  const response = await apiFetch(
+    `/api/migrations/${migrationId}/node/${encodeURIComponent(nodeId)}/unmark-retry-delete`,
+    { method: "POST" }
+  );
+  if (!response.ok) {
+    return { success: false, error: `HTTP ${response.status}` };
+  }
+  return response.json();
+}
+
+export interface PrepareSourceCleanupRequest {
+  nodeIds?: string[];
+  deselectedNodeIds?: string[];
+}
+
+export async function prepareSourceCleanup(
+  migrationId: string,
+  payload: PrepareSourceCleanupRequest
+): Promise<ExclusionResponse> {
+  const response = await apiFetch(
+    `/api/migrations/${migrationId}/prepare-source-cleanup`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }
+  );
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    return {
+      success: false,
+      error: (body as { error?: string }).error || `HTTP ${response.status}`,
+    };
+  }
+  return response.json();
+}
+
+export async function skipNodeDelete(
+  migrationId: string,
+  nodeId: string
+): Promise<ExclusionResponse> {
+  const response = await apiFetch(
+    `/api/migrations/${migrationId}/node/${encodeURIComponent(nodeId)}/skip-delete`,
+    { method: "POST" }
+  );
+  if (!response.ok) {
+    return { success: false, error: `HTTP ${response.status}` };
+  }
+  return response.json();
+}
+
+export async function unskipNodeDelete(
+  migrationId: string,
+  nodeId: string
+): Promise<ExclusionResponse> {
+  const response = await apiFetch(
+    `/api/migrations/${migrationId}/node/${encodeURIComponent(nodeId)}/unskip-delete`,
+    { method: "POST" }
+  );
+  if (!response.ok) {
+    return { success: false, error: `HTTP ${response.status}` };
+  }
+  return response.json();
 }
 
 // Pending work API types and functions
@@ -1210,6 +1331,7 @@ export interface PathReviewStats {
   failedCount: number;
   excludedCount: number;
   pendingRetriesCount: number;
+  successfulCount?: number;
   foldersCount: number;
   filesCount: number;
   foldersRatio: number;
@@ -1234,6 +1356,7 @@ function normalizePathReviewStats(
       failedCount: flat.failedCount,
       excludedCount: flat.excludedCount,
       pendingRetriesCount: flat.pendingRetriesCount ?? 0,
+      successfulCount: flat.successfulCount ?? 0,
       foldersCount: flat.foldersCount ?? 0,
       filesCount: flat.filesCount ?? 0,
       foldersRatio: flat.foldersRatio ?? 0,
@@ -1254,6 +1377,7 @@ function normalizePathReviewStats(
       failedCount: legacy.copyStatusCounts?.failed ?? 0,
       excludedCount: excluded,
       pendingRetriesCount: legacy.copyStatusCounts?.pending ?? 0,
+      successfulCount: legacy.copyStatusCounts?.successful ?? 0,
       foldersCount: legacy.foldersCount ?? 0,
       filesCount: legacy.filesCount ?? 0,
       foldersRatio: legacy.foldersRatio ?? 0,
@@ -1333,7 +1457,8 @@ export interface SearchOptions {
   sizeOperator?: "equals" | "gt" | "gte" | "lt" | "lte"; // Size operator - defaults to "equals"
   traversalStatusFilter?: string | null; // Traversal status filter (pending, failed, etc.)
   copyStatusFilter?: string | null; // Copy status filter (exclusion_explicit, exclusion_inherited, pending, successful, failed)
-  statusSearchType?: "traversal" | "copy" | "both"; // Controls which status conditions are processed
+  deleteStatusFilter?: string | null; // Delete status filter (pending, skipped, failed, deleted)
+  statusSearchType?: "traversal" | "copy" | "delete" | "both"; // Controls which status conditions are processed
   phase?: "traversal" | "copy"; // Phase to determine which status counts to use in stats transformation
 }
 
@@ -1419,6 +1544,7 @@ export async function searchPathReviewItems(
   let statusSearchType: "traversal" | "copy" | "both" | undefined = undefined;
   const hasTraversalFilter = options?.traversalStatusFilter !== undefined && options.traversalStatusFilter !== null && options.traversalStatusFilter !== "";
   const hasCopyFilter = options?.copyStatusFilter !== undefined && options.copyStatusFilter !== null && options.copyStatusFilter !== "";
+  const hasDeleteFilter = options?.deleteStatusFilter !== undefined && options?.deleteStatusFilter !== null && options.deleteStatusFilter !== "";
   
   if (hasTraversalFilter && hasCopyFilter) {
     statusSearchType = options?.statusSearchType || "both";
@@ -1426,6 +1552,8 @@ export async function searchPathReviewItems(
     statusSearchType = options?.statusSearchType || "traversal";
   } else if (hasCopyFilter) {
     statusSearchType = options?.statusSearchType || "copy";
+  } else if (hasDeleteFilter) {
+    statusSearchType = options?.statusSearchType || "delete";
   } else if (options?.statusSearchType) {
     statusSearchType = options.statusSearchType;
   }
@@ -1447,6 +1575,13 @@ export async function searchPathReviewItems(
       field: "copyStatus",
       value: options.copyStatusFilter!,
       // operator is optional for copyStatus field - always uses exact match (case-insensitive)
+    });
+  }
+
+  if (hasDeleteFilter) {
+    requestBody.conditions!.push({
+      field: "deleteStatus",
+      value: options.deleteStatusFilter!,
     });
   }
 
@@ -1759,6 +1894,27 @@ export interface RetrySweepResponse {
   error?: string;
 }
 
+export async function resumeMigration(
+  migrationId: string,
+  config?: RetrySweepRequest
+): Promise<RetrySweepResponse> {
+  const response = await apiFetch(`/api/migrations/${migrationId}/resume`, {
+    method: "POST",
+    body: JSON.stringify(config || {}),
+  });
+
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    return {
+      success: false,
+      error: data.error || `Failed to resume migration (${response.status})`,
+    };
+  }
+
+  const data = await response.json();
+  return data as RetrySweepResponse;
+}
+
 /**
  * Trigger retry sweep for a migration
  * @param migrationId The ID of the migration
@@ -1824,10 +1980,14 @@ export async function getPreferences(): Promise<UserPreferences> {
     };
 
     // Validate and merge with defaults to ensure all fields are present
+    const theme = normalizeTheme(data.theme);
+    const preSplashEnabled =
+      typeof data.preSplashEnabled === "boolean" ? data.preSplashEnabled : DEFAULT_PREFERENCES.preSplashEnabled;
+
     return {
-      theme: normalizeTheme(data.theme),
+      theme,
       sidebarCollapsed: typeof data.sidebarCollapsed === "boolean" ? data.sidebarCollapsed : DEFAULT_PREFERENCES.sidebarCollapsed,
-      preSplashEnabled: typeof data.preSplashEnabled === "boolean" ? data.preSplashEnabled : DEFAULT_PREFERENCES.preSplashEnabled,
+      preSplashEnabled: themeSupportsPreSplash(theme) ? preSplashEnabled : false,
       tips: data.tips && typeof data.tips === "object" ? {
         enabled: typeof data.tips.enabled === "boolean" ? data.tips.enabled : DEFAULT_PREFERENCES.tips!.enabled,
         categories: typeof data.tips.categories === "object" && data.tips.categories !== null ? data.tips.categories : DEFAULT_PREFERENCES.tips!.categories,
@@ -1849,10 +2009,14 @@ export async function getPreferences(): Promise<UserPreferences> {
  * @returns Promise resolving when save completes, rejects on error
  */
 export async function savePreferences(prefs: UserPreferences): Promise<void> {
+  const payload: UserPreferences = {
+    ...prefs,
+    preSplashEnabled: themeSupportsPreSplash(prefs.theme) ? prefs.preSplashEnabled : false,
+  };
 
   const response = await apiFetch(`/api/preferences`, {
     method: "PUT",
-    body: JSON.stringify(prefs),
+    body: JSON.stringify(payload),
   });
 
   if (!response.ok) {

@@ -538,6 +538,10 @@
   accent-color: var(--accent-cyan);
 }
 
+.browse-folder__item-main.browse-folder__item-grid {
+  display: grid;
+}
+
 .browse-folder__item-main {
   display: flex;
   align-items: center;
@@ -1032,6 +1036,14 @@
   padding: 1rem 0 0.5rem;
   flex: 1;
   justify-content: center;
+}
+
+.browse-cloud-connect--form {
+  justify-content: flex-start;
+  overflow-y: auto;
+  min-height: 0;
+  width: 100%;
+  padding-bottom: 0.25rem;
 }
 
 .browse-cloud-connect__icon {

@@ -13,9 +13,10 @@ export interface PathReviewStatusIconProps {
   zoomLevel?: number;
   size?: number;
   className?: string;
-  phase?: "traversal" | "copy"; // Current phase - determines which status fields to use
+  phase?: "traversal" | "copy" | "source-cleanup"; // Current phase - determines which status fields to use
   onRetryClick?: (item: DiffItem) => void;
   onExcludeClick?: (item: DiffItem, currentChecked: boolean) => void;
+  onSkipDeleteClick?: (item: DiffItem) => void;
 }
 
 export default function PathReviewStatusIcon({
@@ -28,8 +29,10 @@ export default function PathReviewStatusIcon({
   phase = "traversal", // Default to traversal phase for backwards compatibility
   onRetryClick,
   onExcludeClick,
+  onSkipDeleteClick,
 }: PathReviewStatusIconProps) {
   const iconSize = size || 20 * zoomLevel;
+  const isSourceCleanup = phase === "source-cleanup";
   const isCopy = phase === "copy";
   
   // Use phase-appropriate status fields
@@ -40,6 +43,32 @@ export default function PathReviewStatusIcon({
   
   // Use provided className or default to tree view class
   const baseClass = className || 'path-review__item-status-icon';
+
+  if (isSourceCleanup) {
+    const copyStatus = item.src?.copyStatus || item.copyStatus || "";
+    if (copyStatus !== "successful" || !item.src) {
+      return null;
+    }
+    const deleteStatus = item.src?.deleteStatus || "";
+    if (deleteStatus === "skipped") {
+      return (
+        <X
+          size={iconSize}
+          className={`${baseClass} ${baseClass}--excluded`}
+          onClick={() => onSkipDeleteClick?.(item)}
+          style={{ cursor: "pointer" }}
+        />
+      );
+    }
+    return (
+      <Clock
+        size={iconSize}
+        className={`${baseClass} ${baseClass}--pending`}
+        onClick={() => onSkipDeleteClick?.(item)}
+        style={{ cursor: "pointer" }}
+      />
+    );
+  }
   
   if (isCopy) {
     // Copy phase: prioritize copyStatus, but still check traversalStatus for failed/pending retry

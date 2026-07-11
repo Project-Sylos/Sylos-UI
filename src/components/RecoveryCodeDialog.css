@@ -1,0 +1,89 @@
+.recovery-code-dialog__overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
+}
+
+.recovery-code-dialog {
+  width: min(480px, 100%);
+  padding: 1.5rem;
+  border-radius: 16px;
+  background: rgba(
+    var(--color-base-dark-r),
+    var(--color-base-dark-g),
+    var(--color-base-dark-b),
+    0.96
+  );
+  border: 1px solid rgba(
+    var(--color-base-slate-r),
+    var(--color-base-slate-g),
+    var(--color-base-slate-b),
+    0.35
+  );
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.4);
+}
+
+.recovery-code-dialog__title {
+  margin: 0 0 0.75rem;
+  font-size: 1.25rem;
+}
+
+.recovery-code-dialog__body {
+  margin: 0 0 1rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+  font-size: 0.95rem;
+}
+
+.recovery-code-dialog__code {
+  display: block;
+  width: 100%;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 1.1rem;
+  letter-spacing: 0.06em;
+  text-align: center;
+  padding: 1rem;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px dashed rgba(148, 163, 184, 0.35);
+  word-break: break-all;
+  color: inherit;
+  cursor: pointer;
+}
+
+.recovery-code-dialog__code--revealed {
+  cursor: text;
+}
+
+.recovery-code-dialog__actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
+  margin-top: 1.25rem;
+}
+
+.recovery-code-dialog__copy,
+.recovery-code-dialog__close {
+  padding: 0.65rem 1rem;
+  border-radius: 10px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.recovery-code-dialog__copy {
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: transparent;
+  color: var(--text-primary);
+}
+
+.recovery-code-dialog__close {
+  border: none;
+  background: rgba(59, 130, 246, 0.25);
+  color: #dbeafe;
+}

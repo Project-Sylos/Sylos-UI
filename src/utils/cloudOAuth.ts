@@ -114,7 +114,7 @@ export function formatOAuthExchangeError(raw: string, brand: string): string {
       return `${brand} sign-in failed (${parsed.error}).`;
     }
   } catch {
-    // Not JSON — fall through to raw message.
+    // Not JSON - fall through to raw message.
   }
 
   return raw.trim() || `${brand} sign-in failed.`;

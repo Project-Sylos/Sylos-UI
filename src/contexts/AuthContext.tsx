@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 
 import {
   SylosUser,
+  RecoveryCodeOffer,
   fetchCurrentUser,
   fetchSetupStatus,
   login as loginRequest,
@@ -15,6 +16,8 @@ interface AuthContextValue {
   user: SylosUser | null;
   isLoading: boolean;
   needsSetup: boolean;
+  recoveryOffer: RecoveryCodeOffer | null;
+  clearRecoveryOffer: () => void;
   login: (username: string, password: string, remember?: boolean) => Promise<void>;
   setup: (username: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -29,6 +32,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<SylosUser | null>(null);
   const [needsSetup, setNeedsSetup] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [recoveryOffer, setRecoveryOffer] = useState<RecoveryCodeOffer | null>(null);
+
+  const clearRecoveryOffer = useCallback(() => {
+    setRecoveryOffer(null);
+  }, []);
 
   const handleUnauthorized = useCallback(() => {
     clearAuthToken();
@@ -101,15 +109,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [isLoading, needsSetup, user, location.pathname, navigate]);
 
   const login = useCallback(async (username: string, password: string, remember = false) => {
-    await loginRequest(username, password, remember);
+    const data = await loginRequest(username, password, remember);
     await refresh();
     setNeedsSetup(false);
+    if (data.recoveryCode) {
+      setRecoveryOffer({
+        code: data.recoveryCode,
+        title: "Your new recovery code",
+        description:
+          "You used a recovery code to reset your password. Save this new code somewhere safe. It replaces the old one and will not be shown again.",
+      });
+    }
   }, [refresh]);
 
   const setup = useCallback(async (username: string, password: string) => {
-    await setupAdmin(username, password);
+    const data = await setupAdmin(username, password);
     await refresh();
     setNeedsSetup(false);
+    if (data.recoveryCode) {
+      setRecoveryOffer({
+        code: data.recoveryCode,
+        title: "Save your recovery code",
+        description:
+          "Store this code somewhere safe. You will need it to recover your account if you are locked out.",
+      });
+    }
   }, [refresh]);
 
   const logout = useCallback(async () => {
@@ -123,8 +147,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [navigate]);
 
   const value = useMemo(
-    () => ({ user, isLoading, needsSetup, login, setup, logout, refresh }),
-    [user, isLoading, needsSetup, login, setup, logout, refresh]
+    () => ({
+      user,
+      isLoading,
+      needsSetup,
+      recoveryOffer,
+      clearRecoveryOffer,
+      login,
+      setup,
+      logout,
+      refresh,
+    }),
+    [user, isLoading, needsSetup, recoveryOffer, clearRecoveryOffer, login, setup, logout, refresh]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

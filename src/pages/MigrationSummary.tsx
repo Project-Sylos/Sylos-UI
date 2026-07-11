@@ -1,11 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Search, CheckCircle2, Circle, ChevronRight, Pencil } from "lucide-react";
 
 import PageContainer from "../components/PageContainer";
 import CloudConnectionIssues from "../components/CloudConnectionIssues";
 import { useSelection } from "../context/SelectionContext";
-import { startMigration } from "../api/services";
+import { getMigrationStatus, renameMigration, startMigration } from "../api/services";
 import { ServiceDescriptor, Folder } from "../types/services";
 import {
   CloudConnectionCheckResult,
@@ -17,9 +17,20 @@ import {
 } from "../utils/cloudConnections";
 import {
   formatMigrationPath,
+  formatServiceRootLabel,
   getEndpointEditNavigation,
 } from "../utils/migrationRoots";
 import "./MigrationSummary.css";
+
+function computeDefaultName(
+  source?: { service?: { displayName?: string }; root?: Folder },
+  destination?: { service?: { displayName?: string }; root?: Folder }
+): string {
+  const src = source ? formatServiceRootLabel(source) : "";
+  const dst = destination ? formatServiceRootLabel(destination) : "";
+  if (src && dst) return `${src} \u2192 ${dst}`;
+  return src || dst || "";
+}
 
 export default function MigrationSummary() {
   const navigate = useNavigate();
@@ -28,6 +39,15 @@ export default function MigrationSummary() {
   const [checkingConnections, setCheckingConnections] = useState(false);
   const [connectionIssues, setConnectionIssues] = useState<CloudConnectionCheckResult[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [nameInput, setNameInput] = useState("");
+  const [nameDirty, setNameDirty] = useState(false);
+  const [nameSaving, setNameSaving] = useState(false);
+  const [serverName, setServerName] = useState<string | undefined>(undefined);
+
+  const computedDefaultName = useMemo(
+    () => computeDefaultName(source, destination),
+    [source, destination]
+  );
 
   const sourceConfigured = Boolean(source?.root);
   const destinationConfigured = Boolean(destination?.root);
@@ -85,6 +105,55 @@ export default function MigrationSummary() {
       cancelled = true;
     };
   }, [source, destination, migration, sourceConfigured, destinationConfigured]);
+
+  // Load the persisted name for this migration (present when resuming/editing).
+  useEffect(() => {
+    const migrationId = migration.migrationId;
+    if (!migrationId) {
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const status = await getMigrationStatus(migrationId);
+        if (!cancelled && status.name) {
+          setServerName(status.name);
+        }
+      } catch {
+        // Non-fatal: fall back to the computed default name.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [migration.migrationId]);
+
+  // Keep the input showing the server/default name until the user edits it.
+  useEffect(() => {
+    if (!nameDirty) {
+      setNameInput(serverName ?? computedDefaultName);
+    }
+  }, [serverName, computedDefaultName, nameDirty]);
+
+  const handleSaveName = async () => {
+    const migrationId = migration.migrationId;
+    const trimmed = nameInput.trim();
+    if (!migrationId || !trimmed || trimmed === (serverName ?? computedDefaultName)) {
+      setNameDirty(false);
+      setNameInput(trimmed || serverName || computedDefaultName);
+      return;
+    }
+    try {
+      setNameSaving(true);
+      const status = await renameMigration(migrationId, trimmed);
+      setServerName(status.name ?? trimmed);
+      setNameDirty(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to rename migration.");
+    } finally {
+      setNameSaving(false);
+    }
+  };
 
   const handleStartDiscovery = async () => {
     if (!migration.migrationId) {
@@ -157,6 +226,37 @@ export default function MigrationSummary() {
           start discovery to map differences and build a migration plan.
         </p>
       </header>
+
+      {migration.migrationId && (sourceConfigured || destinationConfigured) && (
+        <div className="migration-summary__name">
+          <label className="migration-summary__name-label" htmlFor="migration-name">
+            Migration name
+          </label>
+          <div className="migration-summary__name-row">
+            <input
+              id="migration-name"
+              className="migration-summary__name-input"
+              type="text"
+              value={nameInput}
+              placeholder={computedDefaultName || "Name this migration"}
+              onChange={(event) => {
+                setNameDirty(true);
+                setNameInput(event.target.value);
+              }}
+              onBlur={() => void handleSaveName()}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.currentTarget.blur();
+                }
+              }}
+              disabled={nameSaving}
+            />
+            {nameSaving && (
+              <span className="migration-summary__name-status">Saving…</span>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="migration-summary__checklist">
         <SetupEndpointCard

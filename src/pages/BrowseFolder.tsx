@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useRef } from "react";
 import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
-import { ChevronRight, ArrowLeft, HardDrive, Loader2, CircleAlert, Copy, Check, FolderPlus, Trash2 } from "lucide-react";
+import { ChevronRight, ArrowLeft, HardDrive, Network, Loader2, CircleAlert, Copy, Check, FolderPlus, Trash2 } from "lucide-react";
 
 import "../App.css";
 import { listDrives, listChildren, mountDrive as mountDriveApi, createBrowseFolder, deleteBrowseNodes } from "../api/services";
@@ -29,6 +29,13 @@ import "./BrowseFolder.css";
 interface BreadcrumbItem {
   path: string;
   name: string;
+}
+
+function DriveTypeIcon({ driveType }: { driveType?: string }) {
+  if (driveType === "network") {
+    return <Network size={32} />;
+  }
+  return <HardDrive size={32} />;
 }
 
 function isDriveMounted(drive: Drive): boolean {
@@ -714,7 +721,7 @@ function BrowseFolderPage() {
                         onClick={() => handleDriveSelect(drive)}
                       >
                         <div className="browse-folder__item-icon">
-                          <HardDrive size={32} />
+                          <DriveTypeIcon driveType={drive.type} />
                         </div>
                         <div className="browse-folder__item-info">
                           <div className="browse-folder__item-name">{getDriveDisplayName(drive)}</div>
@@ -745,7 +752,7 @@ function BrowseFolderPage() {
                         <CircleAlert size={18} strokeWidth={2.25} />
                       </span>
                       <div className="browse-folder__item-icon">
-                        <HardDrive size={32} />
+                        <DriveTypeIcon driveType={drive.type} />
                       </div>
                       <div className="browse-folder__item-info">
                         <div className="browse-folder__item-name">{getDriveDisplayName(drive)}</div>

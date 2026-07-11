@@ -211,10 +211,27 @@ export default function ConnectSource() {
     if (isCloudServiceType(selected.type)) {
       setIsPicking(true);
       try {
+        const selectedProviderId = serviceIdToProviderId(selected.id);
+        let connectionId = migration.sourceConnectionId;
+        if (connectionId) {
+          try {
+            const status = await checkCloudConnection(
+              selectedProviderId,
+              connectionId
+            );
+            if (!status.valid) {
+              connectionId = undefined;
+              updateMigration({ sourceConnectionId: undefined });
+            }
+          } catch {
+            connectionId = undefined;
+            updateMigration({ sourceConnectionId: undefined });
+          }
+        }
         const navigation = await resolveCloudNavigation({
           role: "source",
           serviceId: selected.id,
-          connectionId: migration.sourceConnectionId,
+          connectionId,
         });
         navigate(navigation.path);
       } finally {

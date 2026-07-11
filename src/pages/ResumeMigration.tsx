@@ -11,8 +11,8 @@ import {
   getMigrationStatus,
   uploadMigrationDB,
 } from "../api/services";
-import { cleanSlate } from "../api/admin";
-import CleanSlateDialog from "../components/CleanSlateDialog";
+import { clearAllMigrations } from "../api/admin";
+import DestructiveConfirmDialog from "../components/CleanSlateDialog";
 import "../components/CleanSlateDialog.css";
 import {
   MigrationWithStatus,
@@ -25,7 +25,7 @@ import "./ResumeMigration.css";
 
 export default function ResumeMigration() {
   const navigate = useNavigate();
-  const { updateMigration } = useSelection();
+  const { updateMigration, applyServerRoots } = useSelection();
   const [migrations, setMigrations] = useState<MigrationWithStatus[]>([]);
   const [selectedMigrationId, setSelectedMigrationId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -60,7 +60,7 @@ export default function ResumeMigration() {
       const migrationsWithStatus: MigrationWithStatus[] = response.migrations.map((migration) => {
         return {
           id: migration.id,
-          name: migration.id, // Use ID as name since API doesn't return name
+          name: migration.name || migration.id, // Fall back to ID when unnamed
           configPath: "", // API doesn't return configPath
           createdAt: migration.startedAt || new Date().toISOString(),
           status: migration.status,
@@ -213,7 +213,11 @@ export default function ResumeMigration() {
         migrationId: statusData.id,
         ready: statusData.result?.rootSummary !== undefined,
       });
-      
+
+      // Rehydrate source/destination from the server so the summary repopulates
+      // even when browser sessionStorage was cleared (e.g. resuming in a fresh session).
+      applyServerRoots(statusData.sourceRoot, statusData.destinationRoot);
+
       // Determine the appropriate page to navigate to
       const targetPath = determineNavigationTarget(statusData);
       
@@ -285,16 +289,16 @@ export default function ResumeMigration() {
     }
   };
 
-  const handleCleanSlate = async () => {
+  const handleClearMigrations = async () => {
     setCleanSlateBusy(true);
     setCleanSlateMessage(null);
     try {
-      const result = await cleanSlate();
+      const result = await clearAllMigrations();
       setCleanSlateMessage(result.message);
       setShowCleanSlateDialog(false);
       await loadMigrations();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to remove migration data.");
+      setError(err instanceof Error ? err.message : "Failed to clear migration data.");
       setShowCleanSlateDialog(false);
     } finally {
       setCleanSlateBusy(false);
@@ -437,9 +441,10 @@ export default function ResumeMigration() {
           <div className="resume-migration__danger">
             <h2 className="resume-migration__danger-title">Danger zone</h2>
             <p className="resume-migration__danger-text">
-              Remove every migration folder, migration database, and registry entry from this
+              Clear every migration folder, migration database, and registry entry from this
               install. User accounts and cloud provider app settings are not removed. Running
-              migrations are stopped first. This cannot be undone.
+              migrations are stopped first. For a full install reset including users, use Settings
+              → Danger zone.
             </p>
             {cleanSlateMessage && (
               <p className="resume-migration__danger-text">{cleanSlateMessage}</p>
@@ -450,17 +455,20 @@ export default function ResumeMigration() {
               onClick={() => setShowCleanSlateDialog(true)}
               disabled={cleanSlateBusy || uploading || resuming || stopping}
             >
-              Remove all migration data
+              Clear all migration data
             </button>
           </div>
         )}
       </PageContainer>
 
       {showCleanSlateDialog && (
-        <CleanSlateDialog
+        <DestructiveConfirmDialog
+          title="Clear all migration data?"
+          body="This permanently deletes every migration folder, migration database file, and migration registry entry on this Sylos install. User accounts, cloud provider app settings, and your login are kept. Running migrations are stopped first. This cannot be undone."
+          confirmLabel="Clear all migration data"
           busy={cleanSlateBusy}
           onCancel={() => setShowCleanSlateDialog(false)}
-          onConfirm={() => void handleCleanSlate()}
+          onConfirm={() => void handleClearMigrations()}
         />
       )}
 

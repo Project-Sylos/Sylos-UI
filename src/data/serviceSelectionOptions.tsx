@@ -64,5 +64,11 @@ export const serviceSelectionOptions: Record<string, ServiceSelectionVisual> = {
     description:
       "Sign in with Dropbox to browse My Dropbox, team folders, and shared folders.",
   },
+  sftp: {
+    icon: <Server size={40} />,
+    description:
+      "Connect to a remote SFTP server with host and credentials, then browse folders to choose a root.",
+    iconAccent: "b",
+  },
 };
 

@@ -59,6 +59,16 @@ export default function CloudProviderOAuthSetup({
   const [testMessage, setTestMessage] = useState<string | null>(null);
   const [removing, setRemoving] = useState(false);
 
+  // Labels per provider
+  const clientIdLabel =
+    providerId === "dropbox" ? "App Key" : "Client ID";
+  const clientSecretLabel =
+    providerId === "dropbox" ? "App Secret" : "Client secret";
+  const providerCredentialText =
+    providerId === "dropbox"
+      ? "App Key and App Secret"
+      : "Client ID and Client Secret";
+
   const refreshApp = useCallback(async () => {
     const apps = await listOAuthApps();
     const match = apps.find((item) => item.providerId === providerId) ?? null;
@@ -243,8 +253,7 @@ export default function CloudProviderOAuthSetup({
 
       {variant === "expanded" && (
         <p className="cloud-oauth-setup__lead cloud-oauth-setup__lead--expanded">
-          Sylos does not ship cloud OAuth credentials. Create your own developer app, then store
-          the Client ID and Client Secret here.
+          Sylos does not ship cloud OAuth credentials. Create your own developer app, then store the {providerCredentialText} here.
         </p>
       )}
 
@@ -273,7 +282,7 @@ export default function CloudProviderOAuthSetup({
 
             <form className="cloud-oauth-edit__form" onSubmit={(e) => void handleSave(e)}>
               <label className="cloud-oauth-setup__field">
-                <span>Client ID</span>
+                <span>{clientIdLabel}</span>
                 <input
                   type="text"
                   value={clientId}
@@ -284,7 +293,7 @@ export default function CloudProviderOAuthSetup({
               </label>
 
               <label className="cloud-oauth-setup__field">
-                <span>Client secret</span>
+                <span>{clientSecretLabel}</span>
                 <input
                   type="password"
                   value={clientSecret}
@@ -304,7 +313,7 @@ export default function CloudProviderOAuthSetup({
                     onClick={() => void handleRemove()}
                     disabled={saving || removing}
                   >
-                    {removing ? "Removing…" : "Remove credentials"}
+                    {removing ? "Removing…" : `Remove credentials`}
                   </button>
                 )}
                 <button

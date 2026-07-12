@@ -21,6 +21,8 @@ import {
   unmarkNodeForRetryDiscovery,
   markNodeForRetryCopy,
   unmarkNodeForRetryCopy,
+  markNodeForRetryDelete,
+  unmarkNodeForRetryDelete,
   bulkExcludeNodes,
   bulkUnexcludeNodes,
   getBackgroundTasks,
@@ -31,7 +33,12 @@ import {
 import {
   MigrationStatusResponse,
   isCopyReviewPhase,
+  isDeleteReviewPhase,
 } from "../types/migrations";
+import {
+  getPathReviewDisplayPhase,
+  getPathReviewUIPhase,
+} from "../utils/pathReviewPhase";
 import { useListDensity } from "../contexts/ListDensityContext";
 import PathReviewStatusIcon from "../components/PathReviewStatusIcon";
 import PathReviewLegend from "../components/PathReviewLegend";
@@ -118,14 +125,15 @@ export default function PathReviewListView({
   const isCopyPhase = (status: MigrationStatusResponse | null): boolean =>
     isCopyReviewPhase(status);
 
+  const isDeletePhase = (status: MigrationStatusResponse | null): boolean =>
+    isDeleteReviewPhase(status);
+
   const isSourceCleanupView = reviewView === "source-cleanup";
 
-  const getCurrentPhase = (): "traversal" | "copy" => {
-    return isCopyPhase(migrationStatus) ? "copy" : "traversal";
-  };
+  const getCurrentPhase = () => getPathReviewUIPhase(migrationStatus);
 
-  const getDisplayPhase = (): "traversal" | "copy" | "source-cleanup" =>
-    isSourceCleanupView ? "source-cleanup" : getCurrentPhase();
+  const getDisplayPhase = () =>
+    getPathReviewDisplayPhase(migrationStatus, reviewView);
 
   // Fetch migration status
   const fetchMigrationStatus = async () => {
@@ -765,6 +773,7 @@ export default function PathReviewListView({
 
     const currentPhase = getCurrentPhase();
     const isCopy = currentPhase === "copy";
+    const isDelete = currentPhase === "delete";
     const srcNodeId = item.src?.id;
     const dstNodeId = item.dst?.id;
     
@@ -772,7 +781,13 @@ export default function PathReviewListView({
     let nodeIdToUpdate: string | null = null;
     let isMarkedForRetry = false;
     
-    if (isCopy) {
+    if (isDelete) {
+      const deleteStatus = item.src?.deleteStatus || "";
+      if ((deleteStatus === "failed" || deleteStatus === "pending") && srcNodeId) {
+        nodeIdToUpdate = srcNodeId;
+        isMarkedForRetry = deleteStatus === "pending";
+      }
+    } else if (isCopy) {
       // Copy phase: check copyStatus (only on src nodes)
       const copyStatus = item.src?.copyStatus || item.copyStatus || "";
       
@@ -808,7 +823,12 @@ export default function PathReviewListView({
           // Update the node we're modifying
           const updatedItem = { ...i };
           if (nodeIdToUpdate === srcNodeId && i.src) {
-            if (isCopy) {
+            if (isDelete) {
+              updatedItem.src = {
+                ...i.src,
+                deleteStatus: isMarkedForRetry ? "failed" : "pending",
+              };
+            } else if (isCopy) {
               // Copy phase: update copyStatus
               updatedItem.src = {
                 ...i.src,
@@ -845,10 +865,14 @@ export default function PathReviewListView({
       // Mark or unmark for retry based on current state and phase
       // Use phase-specific endpoints: discovery retry for traversal phase, copy retry for copy phase
       const result = isMarkedForRetry
-        ? (isCopy
+        ? (isDelete
+            ? await unmarkNodeForRetryDelete(migrationId, nodeIdToUpdate)
+            : isCopy
             ? await unmarkNodeForRetryCopy(migrationId, nodeIdToUpdate)
             : await unmarkNodeForRetryDiscovery(migrationId, nodeIdToUpdate))
-        : (isCopy
+        : (isDelete
+            ? await markNodeForRetryDelete(migrationId, nodeIdToUpdate)
+            : isCopy
             ? await markNodeForRetryCopy(migrationId, nodeIdToUpdate)
             : await markNodeForRetryDiscovery(migrationId, nodeIdToUpdate));
       
@@ -891,6 +915,23 @@ export default function PathReviewListView({
   // Uses phase-appropriate status fields: copyStatus in copy phase, traversalStatus in traversal phase
   const getItemStatus = (item: DiffItem) => {
     const currentPhase = getCurrentPhase();
+
+    if (currentPhase === "delete") {
+      const deleteStatus = item.src?.deleteStatus || "";
+      const isDeleted = deleteStatus === "deleted";
+      const isFailed = deleteStatus === "failed";
+      const isPendingRetry = deleteStatus === "pending";
+      return {
+        isExcluded: false,
+        isPending: isPendingRetry,
+        isSuccessful: isDeleted,
+        isDeleted,
+        existsOnBoth: false,
+        existsOnlyOnDst: false,
+        isFailed,
+      };
+    }
+
     const isCopy = currentPhase === "copy";
     
     if (isCopy) {
@@ -1362,10 +1403,16 @@ export default function PathReviewListView({
             <button
               type="button"
               className="glass-button glass-button--small"
-              disabled={isCopyPhase(migrationStatus) || bulkLoading}
-              title={isCopyPhase(migrationStatus) ? "Exclusion is only available during traversal review" : ""}
+              disabled={isCopyPhase(migrationStatus) || isDeletePhase(migrationStatus) || bulkLoading}
+              title={
+                isCopyPhase(migrationStatus)
+                  ? "Exclusion is only available during traversal review"
+                  : isDeletePhase(migrationStatus)
+                  ? "Exclusion is not available during removal review"
+                  : ""
+              }
               onClick={async () => {
-                if (!migrationId || explicitSelected.size === 0 || bulkLoading || isCopyPhase(migrationStatus)) return;
+                if (!migrationId || explicitSelected.size === 0 || bulkLoading || isCopyPhase(migrationStatus) || isDeletePhase(migrationStatus)) return;
                 
                 setBulkLoading(true);
                 try {
@@ -1425,10 +1472,16 @@ export default function PathReviewListView({
             <button
               type="button"
               className="glass-button glass-button--small"
-              disabled={isCopyPhase(migrationStatus) || bulkLoading}
-              title={isCopyPhase(migrationStatus) ? "Exclusion is only available during traversal review" : ""}
+              disabled={isCopyPhase(migrationStatus) || isDeletePhase(migrationStatus) || bulkLoading}
+              title={
+                isCopyPhase(migrationStatus)
+                  ? "Exclusion is only available during traversal review"
+                  : isDeletePhase(migrationStatus)
+                  ? "Exclusion is not available during removal review"
+                  : ""
+              }
               onClick={async () => {
-                if (!migrationId || explicitSelected.size === 0 || bulkLoading || isCopyPhase(migrationStatus)) return;
+                if (!migrationId || explicitSelected.size === 0 || bulkLoading || isCopyPhase(migrationStatus) || isDeletePhase(migrationStatus)) return;
                 
                 setBulkLoading(true);
                 try {
@@ -1545,14 +1598,19 @@ export default function PathReviewListView({
               const isLocked = isFolder && (status.existsOnBoth || status.existsOnlyOnDst);
               const failureMessage = getDiffItemFailureMessage(item);
 
+              const isMarkedForRetry =
+                getCurrentPhase() === "delete"
+                  ? (item.src?.deleteStatus || "") === "pending"
+                  : isTraversalRetryPending(item);
+
               return (
                 <div
                   key={item.id}
                   className={`path-review-list__item ${
                     status.isExcluded ? "path-review-list__item--excluded" : ""
-                  } ${isExplicit ? "path-review-list__item--selected" : ""} ${
-                    isInherited ? "path-review-list__item--inherited" : ""
-                  }`}
+                  } ${status.isDeleted ? "path-review-list__item--deleted" : ""} ${
+                    isExplicit ? "path-review-list__item--selected" : ""
+                  } ${isInherited ? "path-review-list__item--inherited" : ""}`}
                 >
                   {/* Checkbox */}
                   <div className="path-review-list__item-checkbox">
@@ -1574,7 +1632,7 @@ export default function PathReviewListView({
                   <div className="path-review-list__item-status-icon-container">
                     <PathReviewStatusIcon
                       item={item}
-                      isMarkedForRetry={isTraversalRetryPending(item)}
+                      isMarkedForRetry={isMarkedForRetry}
                       isLocked={isLocked}
                       zoomLevel={1}
                       size={16}

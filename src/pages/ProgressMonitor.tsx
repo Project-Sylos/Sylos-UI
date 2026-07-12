@@ -159,7 +159,9 @@ export default function ProgressMonitor() {
         const prevPhase = prevPhaseRef.current;
         if (prevPhase !== "") {
           const inReview = (p: string) =>
-            p === "awaiting-traversal-review" || p === "awaiting-copy-review";
+            p === "awaiting-traversal-review" ||
+            p === "awaiting-copy-review" ||
+            p === "awaiting-delete-review";
           if (inReview(prevPhase) && !inReview(phase) && phase) {
             hasSeenActiveRunRef.current = true;
           }
@@ -203,7 +205,9 @@ export default function ProgressMonitor() {
       // clear completedAt or move startedAt forward on retry).
       if (isRetryRunRef.current && !isMigrationLive(statusData)) {
         const inReview =
-          phase === "awaiting-traversal-review" || phase === "awaiting-copy-review";
+          phase === "awaiting-traversal-review" ||
+          phase === "awaiting-copy-review" ||
+          phase === "awaiting-delete-review";
         if (inReview && statusData.startedAt && statusData.completedAt) {
           const sa = Date.parse(statusData.startedAt);
           const cd = Date.parse(String(statusData.completedAt));

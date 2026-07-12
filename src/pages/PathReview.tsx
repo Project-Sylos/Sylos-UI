@@ -18,6 +18,8 @@ import {
   unmarkNodeForRetryDiscovery,
   markNodeForRetryCopy,
   unmarkNodeForRetryCopy,
+  markNodeForRetryDelete,
+  unmarkNodeForRetryDelete,
   DiffItem,
   getPendingWork,
   changePhase,
@@ -30,12 +32,14 @@ import {
   PaginationInfo,
   getRunningBackgroundTasks,
   triggerRetrySweep,
+  resumeMigration,
   getMigrationStatus,
 } from "../api/services";
 import {
   MigrationStatusResponse,
   isTraversalReviewPhase,
   isCopyReviewPhase,
+  isDeleteReviewPhase,
   getMigrationPhase,
 } from "../types/migrations";
 import ItemHoverCard from "../components/ItemHoverCard";
@@ -64,6 +68,11 @@ import {
   applyDeleteStatusInItems,
   toggleDeleteExclude,
 } from "../utils/pathReviewDeletePlan";
+import {
+  getPathReviewDisplayPhase,
+  getPathReviewUIPhase,
+  isSourceCleanupPlanPhase,
+} from "../utils/pathReviewPhase";
 import "../App.css";
 import "./PathReview.css";
 
@@ -168,7 +177,7 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
   const [hoverPosition, setHoverPosition] = useState<{ x: number; y: number } | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
-  const [confirmDialogType, setConfirmDialogType] = useState<"copy" | "retry" | "delete">("copy");
+  const [confirmDialogType, setConfirmDialogType] = useState<"copy" | "retry" | "delete" | "delete-retry">("copy");
   const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const statsPollingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isPollingStatsRef = useRef<boolean>(false);
@@ -334,6 +343,14 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
 
   useEffect(() => {
     if (!migrationId || !isSourceCleanupView || sourceCleanupPreparedRef.current) return;
+    // Wait for phase before deciding: prepareSourceCleanup rebuilds the removal plan and
+    // requires awaiting-copy-review. When we enter source-cleanup to view removal *results*
+    // (delete-in-progress/suspended/awaiting-delete-review), skip prep and just show results.
+    if (!migrationStatus) return;
+    if (!isSourceCleanupPlanPhase(migrationStatus)) {
+      sourceCleanupPreparedRef.current = true;
+      return;
+    }
     sourceCleanupPreparedRef.current = true;
 
     (async () => {
@@ -362,7 +379,7 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [migrationId, isSourceCleanupView]);
+  }, [migrationId, isSourceCleanupView, migrationStatus]);
 
   // Poll stats based on background tasks - starts after status updates
   const startStatsPolling = async () => {
@@ -503,14 +520,16 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
   const isCopyPhase = (status: MigrationStatusResponse | null): boolean =>
     isCopyReviewPhase(status);
 
+  const isDeletePhase = (status: MigrationStatusResponse | null): boolean =>
+    isDeleteReviewPhase(status);
+
   const isTraversalPhase = (status: MigrationStatusResponse | null): boolean =>
     isTraversalReviewPhase(status);
 
-  const getCurrentPhase = (): "traversal" | "copy" =>
-    isCopyPhase(migrationStatus) ? "copy" : "traversal";
+  const getCurrentPhase = () => getPathReviewUIPhase(migrationStatus);
 
-  const getDisplayPhase = (): "traversal" | "copy" | "source-cleanup" =>
-    isSourceCleanupView ? "source-cleanup" : getCurrentPhase();
+  const getDisplayPhase = () =>
+    getPathReviewDisplayPhase(migrationStatus, reviewView);
 
   const isAwaitingCopyReview =
     getMigrationPhase(migrationStatus) === "awaiting-copy-review";
@@ -524,6 +543,23 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
   // Uses phase-appropriate status fields: copyStatus in copy phase, traversalStatus in traversal phase
   const getItemStatus = (item: DiffItem) => {
     const currentPhase = getCurrentPhase();
+
+    if (currentPhase === "delete") {
+      const deleteStatus = item.src?.deleteStatus || "";
+      const isDeleted = deleteStatus === "deleted";
+      const isFailed = deleteStatus === "failed";
+      const isPendingRetry = deleteStatus === "pending";
+      return {
+        isExcluded: false,
+        isPending: isPendingRetry,
+        isSuccessful: isDeleted,
+        isDeleted,
+        existsOnBoth: false,
+        existsOnlyOnDst: false,
+        isFailed,
+      };
+    }
+
     const isCopy = currentPhase === "copy";
     
     if (isCopy) {
@@ -647,6 +683,13 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
       if (currentPhase === "traversal") {
         filteredItems.forEach((item) => {
           if (isTraversalRetryPending(item)) {
+            initialRetry.add(item.id);
+          }
+        });
+        setRetryItems(initialRetry);
+      } else if (currentPhase === "delete") {
+        filteredItems.forEach((item) => {
+          if ((item.src?.deleteStatus || "") === "pending") {
             initialRetry.add(item.id);
           }
         });
@@ -831,6 +874,7 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
     
     const currentPhase = getCurrentPhase();
     const isCopy = currentPhase === "copy";
+    const isDelete = currentPhase === "delete";
     const srcNodeId = item.src?.id;
     const dstNodeId = item.dst?.id;
     
@@ -838,7 +882,13 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
     let nodeIdToUpdate: string | null = null;
     let isMarkedForRetry = false;
     
-    if (isCopy) {
+    if (isDelete) {
+      const deleteStatus = item.src?.deleteStatus || "";
+      if ((deleteStatus === "failed" || deleteStatus === "pending") && srcNodeId) {
+        nodeIdToUpdate = srcNodeId;
+        isMarkedForRetry = deleteStatus === "pending" || retryItems.has(item.id);
+      }
+    } else if (isCopy) {
       // Copy phase: check copyStatus (only on src nodes)
       const copyStatus = item.src?.copyStatus || item.copyStatus || "";
       
@@ -891,7 +941,12 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
           const updatedItem = { ...i };
           // Update the node we're modifying
           if (nodeIdToUpdate === srcNodeId && i.src) {
-            if (isCopy) {
+            if (isDelete) {
+              updatedItem.src = {
+                ...i.src,
+                deleteStatus: isMarkedForRetry ? "failed" : "pending",
+              };
+            } else if (isCopy) {
               // Copy phase: update copyStatus
               updatedItem.src = {
                 ...i.src,
@@ -930,10 +985,14 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
       // Mark or unmark for retry based on current state and phase
       // Use phase-specific endpoints: discovery retry for traversal phase, copy retry for copy phase
       const result = isMarkedForRetry
-        ? (isCopy
+        ? (isDelete
+            ? await unmarkNodeForRetryDelete(migrationId, nodeIdToUpdate)
+            : isCopy
             ? await unmarkNodeForRetryCopy(migrationId, nodeIdToUpdate)
             : await unmarkNodeForRetryDiscovery(migrationId, nodeIdToUpdate))
-        : (isCopy
+        : (isDelete
+            ? await markNodeForRetryDelete(migrationId, nodeIdToUpdate)
+            : isCopy
             ? await markNodeForRetryCopy(migrationId, nodeIdToUpdate)
             : await markNodeForRetryDiscovery(migrationId, nodeIdToUpdate));
       
@@ -1013,8 +1072,8 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
     item: DiffItem,
     currentChecked: boolean
   ) => {
-    // In copy phase, exclusion/inclusion are read-only (no actions allowed)
-    if (isCopyPhase(migrationStatus)) {
+    // In copy/delete review, exclusion/inclusion are read-only (no actions allowed)
+    if (isCopyPhase(migrationStatus) || isDeletePhase(migrationStatus)) {
       return;
     }
 
@@ -1240,6 +1299,47 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
 
   // Items are now white by default, no color coding needed
 
+  const handleStartDeleteRetry = () => {
+    setConfirmDialogType("delete-retry");
+    setShowConfirmDialog(true);
+  };
+
+  const handleConfirmDeleteRetry = async () => {
+    setShowConfirmDialog(false);
+    if (!migrationId) return;
+
+    const hasRunning = await checkRunningTasks();
+    if (hasRunning) {
+      setToast({
+        message: "Cannot start removal retry: background tasks are running. Please wait.",
+        type: "error",
+      });
+      return;
+    }
+
+    setIsTriggeringSweep(true);
+    try {
+      const result = await resumeMigration(migrationId);
+      if (!result.success) {
+        setToast({
+          message: result.error || "Failed to retry source removal",
+          type: "error",
+        });
+        setIsTriggeringSweep(false);
+        return;
+      }
+
+      setIsTriggeringSweep(false);
+      navigate(`/progress-monitor/${migrationId}?mode=delete&retry=1`);
+    } catch (err) {
+      setToast({
+        message: err instanceof Error ? err.message : "Failed to retry source removal",
+        type: "error",
+      });
+      setIsTriggeringSweep(false);
+    }
+  };
+
   const handleStartCopying = () => {
     // In copy phase, this is a retry operation
     if (isCopyPhase(migrationStatus)) {
@@ -1464,6 +1564,8 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
           <h1>
             {isSourceCleanupView ? (
               <>Plan <span className="path-review__highlight">Source Removal</span></>
+            ) : isDeletePhase(migrationStatus) ? (
+              <>Review <span className="path-review__highlight">Removal Results</span></>
             ) : isCopyPhase(migrationStatus) ? (
               <>Review <span className="path-review__highlight">Copy Results</span></>
             ) : (
@@ -1654,17 +1756,26 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
                   // But if traversalStatus is "failed", it's not marked for retry (even if in retryItems set)
                   // Check both src and dst nodes - failed overrides pending
                   const isMarkedForRetry =
-                    isTraversalRetryPending(item) ||
-                    (retryItems.has(item.id) && !hasTraversalFailure(item));
+                    getCurrentPhase() === "delete"
+                      ? (item.src?.deleteStatus || "") === "pending" ||
+                        (retryItems.has(item.id) && (item.src?.deleteStatus || "") !== "deleted")
+                      : isTraversalRetryPending(item) ||
+                        (retryItems.has(item.id) && !hasTraversalFailure(item));
                   const isHighlighted = highlightedItemId === item.id;
                   // isChecked is based on copyStatus: not excluded and not successful
                   const isChecked = !status.isExcluded && !status.isSuccessful;
                   const failureMessage = getDiffItemFailureMessage(item);
+                  const isDeleteReview = getCurrentPhase() === "delete";
+                  const canOpenFolder = isFolder && (
+                    isDeleteReview
+                      ? !status.isFailed && !isMarkedForRetry
+                      : !status.isExcluded && !status.isFailed && !isMarkedForRetry && !status.existsOnlyOnDst
+                  );
 
                   return (
                     <div
                       key={item.id}
-                      className={`path-review__item ${status.isExcluded ? "path-review__item--excluded" : ""} ${isHighlighted ? "path-review__item--highlighted" : ""}`}
+                      className={`path-review__item ${status.isExcluded ? "path-review__item--excluded" : ""} ${status.isDeleted ? "path-review__item--deleted" : ""} ${isHighlighted ? "path-review__item--highlighted" : ""}`}
                       onMouseEnter={(e) => handleItemHover(item.id, e)}
                       onMouseLeave={handleItemLeave}
                     >
@@ -1692,16 +1803,12 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
                       <div
                         className={`path-review__item-name-col ${isFolder ? "path-review__item-name--folder" : ""}`}
                         onClick={() => {
-                          if (isFolder && !status.isExcluded && !status.isFailed && !isMarkedForRetry && !status.existsOnlyOnDst) {
+                          if (canOpenFolder) {
                             handleFolderClick(item);
                           }
                         }}
                         style={{
-                          cursor: isFolder && !status.isExcluded && !status.isFailed && !isMarkedForRetry && !status.existsOnlyOnDst
-                            ? "pointer"
-                            : (status.isExcluded || status.isFailed || isMarkedForRetry || status.existsOnlyOnDst)
-                            ? "not-allowed"
-                            : "default",
+                          cursor: canOpenFolder ? "pointer" : "default",
                         }}
                       >
                         <div className="path-review__item-name">{item.name}</div>
@@ -1846,6 +1953,19 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
               >
                 Begin Removal from Source
               </button>
+            ) : isDeletePhase(migrationStatus) ? (
+              (stats?.pendingRetriesCount ?? 0) > 0 ? (
+                <button
+                  type="button"
+                  className="glass-button glass-button--progress-cta"
+                  onClick={handleStartDeleteRetry}
+                  disabled={isTriggeringSweep || hasRunningTasks}
+                  title="Retry removing failed items from the source"
+                >
+                  <RotateCw size={20} style={{ marginRight: "0.5rem" }} />
+                  Retry Removal of Failed Items
+                </button>
+              ) : null
             ) : isCopyPhase(migrationStatus) ? (
               (stats?.pendingRetriesCount ?? 0) > 0 ? (
                 <button
@@ -1918,6 +2038,8 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
           title={
             confirmDialogType === "retry"
               ? "Retry Discovery"
+              : confirmDialogType === "delete-retry"
+              ? "Retry Source Removal"
               : confirmDialogType === "delete"
               ? "Begin Source Removal"
               : isCopyPhase(migrationStatus)
@@ -1927,6 +2049,8 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
           message={
             confirmDialogType === "retry"
               ? "We'll try to discover what is in those folders that you marked to retry. We'll send you back here to review the results when the process is complete. Would you like to proceed?"
+              : confirmDialogType === "delete-retry"
+              ? "We'll retry removing the failed items you marked from the source. We'll send you back here to review the results when the process is complete. Would you like to proceed?"
               : confirmDialogType === "delete"
               ? deleteSummary
                 ? `This will permanently remove ${deleteSummary.pending.toLocaleString()} item${deleteSummary.pending !== 1 ? "s" : ""} from ${deleteSummary.sourceHost ? `${deleteSummary.sourceHost}:` : ""}${deleteSummary.sourceRootPath}. Items you excluded from the plan will be kept. Would you like to proceed?`
@@ -1940,6 +2064,8 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
           onConfirm={
             confirmDialogType === "retry"
               ? handleConfirmRetry
+              : confirmDialogType === "delete-retry"
+              ? handleConfirmDeleteRetry
               : confirmDialogType === "delete"
               ? handleConfirmDelete
               : handleConfirmCopy

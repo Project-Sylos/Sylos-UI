@@ -622,6 +622,20 @@
   box-shadow: none;
 }
 
+.path-review__item--deleted {
+  opacity: 0.55;
+}
+
+.path-review__item--deleted .path-review__item-name,
+.path-review__item--deleted .path-review__item-meta,
+.path-review__item--deleted .path-review__item-path-col {
+  color: var(--text-muted);
+}
+
+.path-review__item--deleted:hover {
+  opacity: 0.72;
+}
+
 .path-review__item--highlighted {
   animation: highlightPulse 2s ease-in-out;
   border-color: var(--accent-cyan-opacity-20) !important;
@@ -673,6 +687,11 @@
 
 .path-review__item-status-icon--excluded {
   color: rgba(239, 68, 68, 0.9);
+}
+
+.path-review__legend-icon--deleted,
+.path-review__item-status-icon--deleted {
+  color: rgba(160, 160, 160, 0.85);
 }
 
 .path-review__item-status-icon--exists {
@@ -1943,6 +1962,10 @@
   opacity: 0.5;
 }
 
+.path-review-list__item--deleted {
+  opacity: 0.55;
+}
+
 .path-review-list__item--selected {
   border-color: var(--accent-cyan-opacity-20);
   background: color-mix(in srgb, var(--accent-cyan) 12%, transparent);
@@ -1999,6 +2022,10 @@
 
 .path-review-list__item-status-icon--excluded {
   color: rgba(239, 68, 68, 0.9);
+}
+
+.path-review-list__item-status-icon--deleted {
+  color: rgba(160, 160, 160, 0.85);
 }
 
 .path-review-list__item-status-icon--exists-on-both {

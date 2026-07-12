@@ -5,7 +5,7 @@ import HelpTooltip from "./HelpTooltip";
 export interface PathReviewLegendProps {
   zoomLevel?: number;
   className?: string;
-  phase?: "traversal" | "copy" | "source-cleanup";
+  phase?: "traversal" | "copy" | "source-cleanup" | "delete";
 }
 
 export default function PathReviewLegend({
@@ -15,6 +15,50 @@ export default function PathReviewLegend({
 }: PathReviewLegendProps) {
   const isCopyPhase = phase === "copy";
   const isSourceCleanup = phase === "source-cleanup";
+  const isDeleteReview = phase === "delete";
+
+  if (isDeleteReview) {
+    return (
+      <div className={`path-review__legend ${className}`}>
+        <div className="path-review__legend-item">
+          <Check size={14 * zoomLevel} className="path-review__legend-icon path-review__legend-icon--deleted" />
+          <span className="path-review__legend-label">Removed</span>
+          <HelpTooltip
+            tipId="delete-removed-icon-tip"
+            category="path-review-delete-removed"
+            position="above"
+            content={
+              <p>These items were removed from the source successfully.</p>
+            }
+          />
+        </div>
+        <div className="path-review__legend-item">
+          <AlertCircle size={14 * zoomLevel} className="path-review__legend-icon path-review__legend-icon--failed" />
+          <span className="path-review__legend-label">Failed</span>
+          <HelpTooltip
+            tipId="delete-failed-icon-tip"
+            category="path-review-delete-failed"
+            position="above"
+            content={
+              <p>Removal failed for these items. Click to mark them for retry.</p>
+            }
+          />
+        </div>
+        <div className="path-review__legend-item">
+          <RotateCw size={14 * zoomLevel} className="path-review__legend-icon path-review__legend-icon--retry" />
+          <span className="path-review__legend-label">Retry</span>
+          <HelpTooltip
+            tipId="delete-retry-icon-tip"
+            category="path-review-delete-retry"
+            position="above"
+            content={
+              <p>Items marked for removal retry. Click again to undo.</p>
+            }
+          />
+        </div>
+      </div>
+    );
+  }
 
   if (isSourceCleanup) {
     return (

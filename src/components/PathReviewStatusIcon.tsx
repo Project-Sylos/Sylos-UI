@@ -13,7 +13,7 @@ export interface PathReviewStatusIconProps {
   zoomLevel?: number;
   size?: number;
   className?: string;
-  phase?: "traversal" | "copy" | "source-cleanup"; // Current phase - determines which status fields to use
+  phase?: "traversal" | "copy" | "source-cleanup" | "delete"; // Current phase - determines which status fields to use
   onRetryClick?: (item: DiffItem) => void;
   onExcludeClick?: (item: DiffItem, currentChecked: boolean) => void;
   onSkipDeleteClick?: (item: DiffItem) => void;
@@ -33,6 +33,7 @@ export default function PathReviewStatusIcon({
 }: PathReviewStatusIconProps) {
   const iconSize = size || 20 * zoomLevel;
   const isSourceCleanup = phase === "source-cleanup";
+  const isDeleteReview = phase === "delete";
   const isCopy = phase === "copy";
   
   // Use phase-appropriate status fields
@@ -68,6 +69,43 @@ export default function PathReviewStatusIcon({
         style={{ cursor: "pointer" }}
       />
     );
+  }
+
+  if (isDeleteReview) {
+    if (!item.src) {
+      return null;
+    }
+    const deleteStatus = item.src?.deleteStatus || "";
+    if (deleteStatus === "deleted") {
+      return (
+        <Check
+          size={iconSize}
+          className={`${baseClass} ${baseClass}--deleted`}
+          style={{ cursor: "default" }}
+        />
+      );
+    }
+    if (deleteStatus === "failed") {
+      return (
+        <AlertCircle
+          size={iconSize}
+          className={`${baseClass} ${baseClass}--failed`}
+          onClick={() => onRetryClick?.(item)}
+          style={{ cursor: "pointer" }}
+        />
+      );
+    }
+    if (deleteStatus === "pending") {
+      return (
+        <RotateCw
+          size={iconSize}
+          className={`${baseClass} ${baseClass}--retry`}
+          onClick={() => onRetryClick?.(item)}
+          style={{ cursor: "pointer" }}
+        />
+      );
+    }
+    return null;
   }
   
   if (isCopy) {

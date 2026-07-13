@@ -76,11 +76,12 @@ export function readOAuthCallbackParams(): URLSearchParams {
 /** React Strict Mode runs effects twice in dev; OAuth codes are single-use. */
 const inFlightExchanges = new Map<string, Promise<OAuthTokenResponse>>();
 
-export function dedupeOAuthCodeExchange(
+// Make dedupeOAuthCodeExchange generic, so it works with any promise type.
+export function dedupeOAuthCodeExchange<T>(
   code: string,
-  exchange: () => Promise<OAuthTokenResponse>
-): Promise<OAuthTokenResponse> {
-  const existing = inFlightExchanges.get(code);
+  exchange: () => Promise<T>
+): Promise<T> {
+  const existing = inFlightExchanges.get(code) as Promise<T> | undefined;
   if (existing) {
     return existing;
   }
@@ -88,7 +89,7 @@ export function dedupeOAuthCodeExchange(
   const pending = exchange().finally(() => {
     inFlightExchanges.delete(code);
   });
-  inFlightExchanges.set(code, pending);
+  inFlightExchanges.set(code, pending as Promise<OAuthTokenResponse>);
   return pending;
 }
 

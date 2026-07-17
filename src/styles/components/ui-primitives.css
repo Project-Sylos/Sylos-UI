@@ -1,0 +1,296 @@
+/* Shared UI primitives — structure here; colors from theme tokens */
+
+/* ——— Fields ——— */
+.ui-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.88rem;
+  color: var(--text-secondary);
+  min-width: 0;
+}
+
+.ui-field__label {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.ui-field__input,
+.ui-field input,
+.ui-field select,
+.ui-field textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.55rem 0.65rem;
+  border-radius: 8px;
+  border: 1px solid var(--ui-field-border);
+  background: var(--ui-field-bg);
+  color: var(--text-primary);
+  font: inherit;
+  transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.ui-field__input:focus,
+.ui-field input:focus,
+.ui-field select:focus,
+.ui-field textarea:focus {
+  outline: none;
+  border-color: var(--accent-cyan);
+  background: var(--ui-field-bg-focus);
+  box-shadow: 0 0 0 2px var(--accent-cyan-opacity-20);
+}
+
+.ui-field__input:disabled,
+.ui-field input:disabled,
+.ui-field select:disabled,
+.ui-field textarea:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ui-field__input::placeholder,
+.ui-field input::placeholder,
+.ui-field textarea::placeholder {
+  color: var(--ui-field-placeholder);
+}
+
+.ui-field__code {
+  display: block;
+  padding: 0.45rem 0.55rem;
+  border-radius: 8px;
+  background: var(--ui-inset-bg-strong);
+  border: 1px solid var(--ui-inset-border);
+  font-size: 0.8rem;
+  word-break: break-all;
+  color: var(--text-primary);
+}
+
+/* ——— Alerts / notices ——— */
+.ui-alert {
+  padding: 1rem;
+  border-radius: 12px;
+  border: 1px solid var(--ui-alert-info-border);
+  background: var(--ui-alert-info-bg);
+  color: var(--ui-alert-info-fg);
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.ui-alert--danger {
+  border-color: var(--ui-alert-danger-border);
+  background: var(--ui-alert-danger-bg);
+  color: var(--ui-alert-danger-fg);
+}
+
+.ui-alert--success {
+  border-color: var(--ui-alert-success-border);
+  background: var(--ui-alert-success-bg);
+  color: var(--ui-alert-success-fg);
+}
+
+.ui-alert--warning {
+  border-color: var(--ui-alert-warning-border);
+  background: var(--ui-alert-warning-bg);
+  color: var(--ui-alert-warning-fg);
+}
+
+.ui-alert--info {
+  border-color: var(--ui-alert-info-border);
+  background: var(--ui-alert-info-bg);
+  color: var(--ui-alert-info-fg);
+}
+
+/* ——— Badges ——— */
+.ui-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.72rem;
+  padding: 0.12rem 0.45rem;
+  border-radius: 999px;
+  background: var(--ui-badge-neutral-bg);
+  color: var(--ui-badge-neutral-fg);
+  font-weight: 500;
+}
+
+.ui-badge--admin {
+  background: var(--ui-badge-admin-bg);
+  color: var(--ui-badge-admin-fg);
+}
+
+.ui-badge--danger {
+  background: var(--ui-badge-danger-bg);
+  color: var(--ui-badge-danger-fg);
+}
+
+.ui-badge--success,
+.ui-badge--you {
+  background: var(--ui-badge-success-bg);
+  color: var(--ui-badge-success-fg);
+}
+
+.ui-badge--warning {
+  background: var(--ui-badge-warning-bg);
+  color: var(--ui-badge-warning-fg);
+}
+
+/* ——— Intent buttons ——— */
+.ui-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.55rem 1rem;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+  font-family: inherit;
+}
+
+.ui-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ui-button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--accent-cyan-opacity-20);
+  border-color: var(--accent-cyan);
+}
+
+.ui-button--danger {
+  background: var(--ui-button-danger-bg);
+  border-color: var(--ui-button-danger-border);
+  color: var(--ui-button-danger-fg);
+}
+
+.ui-button--danger:hover:not(:disabled) {
+  background: var(--ui-button-danger-bg-hover);
+  border-color: var(--ui-button-danger-border-hover);
+  color: var(--ui-button-danger-fg-hover);
+}
+
+.ui-button--danger-solid {
+  background: var(--ui-button-danger-solid-bg);
+  border-color: var(--ui-button-danger-solid-bg);
+  color: var(--ui-button-danger-solid-fg);
+}
+
+.ui-button--primary {
+  background: var(--ui-button-primary-bg);
+  border-color: var(--ui-button-primary-border);
+  color: var(--ui-button-primary-fg);
+}
+
+.ui-button--primary:hover:not(:disabled) {
+  background: var(--ui-button-primary-bg-hover);
+}
+
+.ui-button--secondary {
+  background: var(--ui-button-secondary-bg);
+  border-color: var(--ui-button-secondary-border);
+  color: var(--ui-button-secondary-fg);
+}
+
+.ui-button--secondary:hover:not(:disabled) {
+  background: var(--ui-button-secondary-bg-hover);
+}
+
+.ui-button--ghost {
+  background: transparent;
+  border-color: var(--ui-border-strong);
+  color: var(--text-primary);
+}
+
+.ui-button--ghost:hover:not(:disabled) {
+  background: var(--ui-overlay-20);
+}
+
+.ui-icon-button {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  border: 1px solid var(--ui-icon-button-border);
+  background: var(--ui-icon-button-bg);
+  color: inherit;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+  padding: 0;
+}
+
+.ui-icon-button:hover:not(:disabled) {
+  background: var(--ui-icon-button-bg-hover);
+  border-color: var(--ui-icon-button-border-hover);
+}
+
+.ui-icon-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.ui-icon-button--danger:hover:not(:disabled) {
+  border-color: var(--ui-button-danger-border-hover);
+  color: var(--ui-button-danger-fg-hover);
+}
+
+.ui-icon-button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--accent-cyan-opacity-20);
+}
+
+/* ——— Inset panels / tables ——— */
+.ui-inset {
+  border: 1px solid var(--ui-inset-border);
+  border-radius: 10px;
+  background: var(--ui-inset-bg);
+}
+
+.ui-table {
+  border: 1px solid var(--ui-inset-border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--ui-inset-bg);
+}
+
+.ui-table__head {
+  background: var(--ui-table-head-bg);
+  border-bottom: 1px solid var(--ui-inset-border);
+}
+
+.ui-table__row {
+  border-top: 1px solid var(--ui-table-row-border);
+}
+
+/* ——— Status text ——— */
+.ui-status--danger {
+  color: var(--ui-status-danger);
+}
+
+.ui-status--success,
+.ui-status--healthy {
+  color: var(--ui-status-healthy);
+}
+
+.ui-status--warning,
+.ui-status--suspended,
+.ui-status--partial {
+  color: var(--ui-status-warning);
+}
+
+.ui-status--info,
+.ui-status--running {
+  color: var(--ui-status-running);
+}
+
+.ui-status--unhealthy {
+  color: var(--ui-status-unhealthy);
+}
+
+.ui-status--muted {
+  color: var(--text-tertiary);
+}

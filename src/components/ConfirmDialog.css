@@ -113,7 +113,7 @@
     var(--accent-cyan-opacity-20) 100%
   );
   border-color: var(--accent-magenta);
-  color: #ffffff;
+  color: var(--text-primary);
   box-shadow: 0 var(--glass-shadow-spread-sm) var(--glass-shadow-blur-sm) var(--accent-magenta-opacity-20);
 }
 

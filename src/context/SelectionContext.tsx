@@ -10,6 +10,7 @@ import {
 } from "react";
 
 import { fetchServices } from "../api/services";
+import { usePreferences } from "../contexts/PreferencesContext";
 import { getPresetRootForServiceType } from "../data/presetRoots";
 import { RootInfo } from "../types/migrations";
 import { Folder, ServiceDescriptor } from "../types/services";
@@ -141,6 +142,7 @@ function buildPersistedSetup(
 }
 
 export function SelectionProvider({ children }: { children: ReactNode }) {
+  const { isLoading: prefsLoading, preferencesRevision } = usePreferences();
   const [services, setServices] = useState<ServiceDescriptor[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -160,8 +162,14 @@ export function SelectionProvider({ children }: { children: ReactNode }) {
     buildPersistedSetup(merged, src, dst);
   }, []);
 
+  const servicesRef = useRef(services);
+  servicesRef.current = services;
+
   const loadServices = useCallback(async () => {
-    setLoading(true);
+    const isInitialLoad = servicesRef.current.length === 0;
+    if (isInitialLoad) {
+      setLoading(true);
+    }
     setError(null);
     try {
       const list = await fetchServices();
@@ -176,9 +184,13 @@ export function SelectionProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  // Refetch after prefs are loaded/saved so Spectra gating on the API stays in sync.
   useEffect(() => {
+    if (prefsLoading) {
+      return;
+    }
     void loadServices();
-  }, [loadServices]);
+  }, [prefsLoading, preferencesRevision, loadServices]);
 
   useEffect(() => {
     if (hydratedRef.current || loading) {

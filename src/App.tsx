@@ -11,9 +11,7 @@ import { ZoomProvider } from "./contexts/ZoomContext";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { AuthProvider } from "./contexts/AuthContext";
 import { RecoveryCodeProvider } from "./contexts/RecoveryCodeContext";
-import AnimatedBackground from "./components/AnimatedBackground";
-import BackgroundCredit from "./components/BackgroundCredit";
-import PreSplash from "./components/PreSplash";
+import ThemeBackground from "./components/ThemeBackground";
 import Sidebar from "./components/Sidebar";
 import ConnectSource from "./pages/ConnectSource";
 import Destination from "./pages/Destination";
@@ -35,8 +33,6 @@ import Login from "./pages/Login";
 function AppShell() {
   return (
     <>
-      <PreSplash />
-      <BackgroundCredit />
       <Sidebar />
       <Routes>
         <Route
@@ -171,7 +167,7 @@ export default function App() {
         <RecoveryCodeProvider>
         <PreferencesProvider>
           <ThemeProvider>
-            <AnimatedBackground />
+            <ThemeBackground />
             <SelectionProvider>
               <ZoomProvider>
                 <HelpModalProvider>

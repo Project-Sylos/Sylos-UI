@@ -7,7 +7,7 @@
   justify-content: center;
   padding: clamp(2rem, 4vw, 4rem);
   box-sizing: border-box;
-  color: #f8fafc;
+  color: var(--text-primary);
   font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
 }
 
@@ -29,7 +29,7 @@
   flex-direction: column;
   align-items: center;
   gap: 2rem;
-  color: #f8fafc;
+  color: var(--text-primary);
   font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
   text-align: center;
   backdrop-filter: none;
@@ -64,9 +64,16 @@
 .auth-form select {
   padding: 0.65rem 0.75rem;
   border-radius: 0.5rem;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  background: rgba(15, 23, 42, 0.45);
-  color: inherit;
+  border: 1px solid var(--ui-field-border);
+  background: var(--ui-field-bg);
+  color: var(--text-primary);
+}
+
+.auth-form input:focus,
+.auth-form select:focus {
+  outline: none;
+  border-color: var(--accent-cyan);
+  box-shadow: 0 0 0 2px var(--accent-cyan-opacity-20);
 }
 
 .auth-form__checkbox {
@@ -76,12 +83,12 @@
 }
 
 .auth-form__error {
-  color: #fca5a5;
+  color: var(--ui-status-danger);
   margin: 0;
 }
 
 .auth-form__success {
-  color: #86efac;
+  color: var(--ui-status-success);
   margin: 0;
 }
 
@@ -92,7 +99,7 @@
 
 .auth-form__hint {
   margin: 0 0 1rem;
-  color: rgba(255, 255, 255, 0.72);
+  color: var(--text-secondary);
   font-size: 0.92rem;
   line-height: 1.45;
 }
@@ -102,7 +109,7 @@
   padding: 0;
   border: none;
   background: none;
-  color: #93c5fd;
+  color: var(--ui-status-info);
   cursor: pointer;
   font-size: 0.92rem;
   text-decoration: underline;

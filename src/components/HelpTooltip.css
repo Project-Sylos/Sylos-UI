@@ -275,7 +275,7 @@
   border-radius: 4px;
   background: transparent;
   border: none;
-  color: #f87171;
+  color: var(--ui-status-danger);
   cursor: pointer;
   transition: all 0.2s ease;
   padding: 0;

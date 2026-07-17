@@ -1,14 +1,14 @@
 .cloud-connection-issues {
   padding: 0.85rem 1rem;
   border-radius: 12px;
-  border: 1px solid rgba(239, 68, 68, 0.35);
-  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid var(--ui-alert-danger-border);
+  background: var(--ui-alert-danger-bg);
   color: var(--text-primary);
 }
 
 .cloud-connection-issues__message {
   margin: 0 0 0.65rem;
-  color: #fca5a5;
+  color: var(--ui-alert-danger-fg);
   font-size: 0.92rem;
 }
 
@@ -62,15 +62,15 @@
 }
 
 .cloud-connection-status__badge--valid {
-  color: #86efac;
-  background: rgba(34, 197, 94, 0.15);
-  border: 1px solid rgba(34, 197, 94, 0.35);
+  color: var(--ui-badge-success-fg);
+  background: var(--ui-badge-success-bg);
+  border: 1px solid var(--ui-alert-success-border);
 }
 
 .cloud-connection-status__badge--invalid {
-  color: #fca5a5;
-  background: rgba(239, 68, 68, 0.12);
-  border: 1px solid rgba(239, 68, 68, 0.35);
+  color: var(--ui-badge-danger-fg);
+  background: var(--ui-badge-danger-bg);
+  border: 1px solid var(--ui-alert-danger-border);
 }
 
 .cloud-connection-status__actions {
@@ -86,25 +86,4 @@
   color: var(--text-secondary);
   font-size: 0.88rem;
   line-height: 1.45;
-}
-
-:root[data-theme="quartz"] .cloud-connection-issues {
-  border-color: rgba(220, 38, 38, 0.22);
-  background: rgba(254, 242, 242, 0.92);
-}
-
-:root[data-theme="quartz"] .cloud-connection-issues__message {
-  color: #b91c1c;
-}
-
-:root[data-theme="quartz"] .cloud-connection-status__badge--valid {
-  color: #15803d;
-  background: rgba(220, 252, 231, 0.95);
-  border-color: rgba(34, 197, 94, 0.28);
-}
-
-:root[data-theme="quartz"] .cloud-connection-status__badge--invalid {
-  color: #b91c1c;
-  background: rgba(254, 242, 242, 0.95);
-  border-color: rgba(239, 68, 68, 0.28);
 }

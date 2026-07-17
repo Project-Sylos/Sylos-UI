@@ -48,10 +48,10 @@
   margin: 0.75rem auto 0;
   max-width: 520px;
   padding: 0.75rem 1rem;
-  background: rgba(239, 68, 68, 0.15);
-  border: 1px solid rgba(239, 68, 68, 0.3);
+  background: var(--ui-alert-danger-bg);
+  border: 1px solid var(--ui-alert-danger-border);
   border-radius: 12px;
-  color: #fca5a5;
+  color: var(--ui-alert-danger-fg);
   font-size: 0.95rem;
   line-height: 1.5;
 }

@@ -31,11 +31,16 @@ export default function ConnectSource() {
     selectSource,
     migration,
     updateMigration,
+    refreshServices,
   } = useSelection();
   const { preferences } = usePreferences();
   const [isPicking, setIsPicking] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const processedStateRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    void refreshServices();
+  }, [refreshServices]);
 
   const spectraEligible = isSpectraEligible(
     source?.root,

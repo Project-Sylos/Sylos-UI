@@ -2,8 +2,7 @@
 @import "./styles/tokens.css";
 @import "./styles/themes/obsidian-theme.css";
 @import "./styles/themes/quartz-theme.css";
-@import "./styles/themes/neon-dark-theme.css";
-@import "./styles/themes/neon-light-theme.css";
+@import "./styles/components/ui-primitives.css";
 
 :root {
   color-scheme: light dark;
@@ -16,23 +15,6 @@ body {
   min-height: 100vh;
   font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
   overflow: hidden;
-}
-
-body::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  background-image: url("./assets/backgrounds/static-background.png");
-  background-size: cover;
-  background-position: center;
-  background-repeat: no-repeat;
-  z-index: -1;
-}
-
-/* Obsidian / Quartz use CSS gradient backdrop only (see AnimatedBackground) */
-html[data-theme="obsidian"] body::before,
-html[data-theme="quartz"] body::before {
-  display: none;
 }
 
 #root {

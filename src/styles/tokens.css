@@ -186,4 +186,76 @@
   --sidebar-button-primary-bg-hover: rgba(15, 23, 42, 0.3);
   --sidebar-button-primary-border: rgba(148, 163, 184, 0.25);
   --sidebar-button-primary-border-hover: rgba(148, 163, 184, 0.35);
+
+  /*
+   * Shared UI primitives (fields, alerts, badges, intent buttons, tables)
+   * Theme packs override colors/opacity only — structure lives in ui-primitives.css
+   */
+  --ui-border: rgba(148, 163, 184, 0.22);
+  --ui-border-strong: rgba(148, 163, 184, 0.35);
+  --ui-field-bg: rgba(15, 23, 42, 0.45);
+  --ui-field-bg-focus: rgba(15, 23, 42, 0.55);
+  --ui-field-border: rgba(148, 163, 184, 0.25);
+  --ui-field-placeholder: var(--text-tertiary);
+  --ui-inset-bg: rgba(0, 0, 0, 0.18);
+  --ui-inset-bg-strong: rgba(0, 0, 0, 0.24);
+  --ui-inset-border: rgba(255, 255, 255, 0.12);
+  --ui-table-head-bg: rgba(0, 0, 0, 0.24);
+  --ui-table-row-border: rgba(255, 255, 255, 0.08);
+  --ui-icon-button-bg: rgba(0, 0, 0, 0.22);
+  --ui-icon-button-bg-hover: rgba(255, 255, 255, 0.08);
+  --ui-icon-button-border: rgba(255, 255, 255, 0.14);
+  --ui-icon-button-border-hover: rgba(255, 255, 255, 0.24);
+
+  --ui-alert-danger-fg: #fca5a5;
+  --ui-alert-danger-bg: rgba(239, 68, 68, 0.15);
+  --ui-alert-danger-border: rgba(239, 68, 68, 0.3);
+  --ui-alert-success-fg: #86efac;
+  --ui-alert-success-bg: rgba(34, 197, 94, 0.15);
+  --ui-alert-success-border: rgba(34, 197, 94, 0.3);
+  --ui-alert-warning-fg: #fbbf24;
+  --ui-alert-warning-bg: rgba(251, 191, 36, 0.12);
+  --ui-alert-warning-border: rgba(251, 191, 36, 0.35);
+  --ui-alert-info-fg: #93c5fd;
+  --ui-alert-info-bg: rgba(59, 130, 246, 0.15);
+  --ui-alert-info-border: rgba(59, 130, 246, 0.35);
+
+  --ui-badge-neutral-fg: rgba(255, 255, 255, 0.82);
+  --ui-badge-neutral-bg: rgba(255, 255, 255, 0.1);
+  --ui-badge-admin-fg: #9ef0f3;
+  --ui-badge-admin-bg: rgba(92, 225, 230, 0.16);
+  --ui-badge-danger-fg: #ff9b9b;
+  --ui-badge-danger-bg: rgba(255, 95, 95, 0.16);
+  --ui-badge-success-fg: #8dffb2;
+  --ui-badge-success-bg: rgba(141, 255, 178, 0.14);
+  --ui-badge-warning-fg: #ffd98a;
+  --ui-badge-warning-bg: rgba(255, 196, 86, 0.18);
+
+  --ui-button-danger-fg: #fecaca;
+  --ui-button-danger-bg: rgba(220, 38, 38, 0.22);
+  --ui-button-danger-border: rgba(220, 38, 38, 0.55);
+  --ui-button-danger-fg-hover: #ffffff;
+  --ui-button-danger-bg-hover: rgba(220, 38, 38, 0.32);
+  --ui-button-danger-border-hover: rgba(248, 113, 113, 0.65);
+  --ui-button-danger-solid-bg: #b91c1c;
+  --ui-button-danger-solid-fg: #ffffff;
+
+  --ui-button-primary-fg: var(--text-primary);
+  --ui-button-primary-bg: rgba(59, 130, 246, 0.2);
+  --ui-button-primary-border: rgba(59, 130, 246, 0.45);
+  --ui-button-primary-bg-hover: rgba(59, 130, 246, 0.3);
+
+  --ui-button-secondary-fg: var(--text-primary);
+  --ui-button-secondary-bg: rgba(148, 163, 184, 0.15);
+  --ui-button-secondary-border: rgba(148, 163, 184, 0.35);
+  --ui-button-secondary-bg-hover: rgba(148, 163, 184, 0.25);
+
+  --ui-status-danger: #f87171;
+  --ui-status-success: #34d399;
+  --ui-status-warning: #fbbf24;
+  --ui-status-info: #60a5fa;
+  --ui-status-running: #60a5fa;
+  --ui-status-suspended: #fbbf24;
+  --ui-status-healthy: #8dffb2;
+  --ui-status-unhealthy: #ff8f8f;
 }

@@ -31,10 +31,15 @@ export default function Destination() {
     selectDestination,
     migration,
     updateMigration,
+    refreshServices,
   } = useSelection();
   const { preferences } = usePreferences();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const processedStateRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    void refreshServices();
+  }, [refreshServices]);
 
   const spectraEligible = isSpectraEligible(
     source?.root,

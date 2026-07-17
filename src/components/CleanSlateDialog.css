@@ -13,8 +13,8 @@
   width: min(520px, 100%);
   padding: 1.5rem;
   border-radius: 12px;
-  background: rgba(var(--color-base-dark-r), var(--color-base-dark-g), var(--color-base-dark-b), 0.95);
-  border: 1px solid rgba(248, 113, 113, 0.35);
+  background: var(--ui-overlay-95);
+  border: 1px solid var(--ui-alert-danger-border);
   color: var(--text-primary);
 }
 
@@ -41,8 +41,8 @@
 .clean-slate-dialog__input {
   padding: 0.5rem 0.75rem;
   border-radius: 8px;
-  border: 1px solid rgba(var(--color-base-slate-r), var(--color-base-slate-g), var(--color-base-slate-b), 0.3);
-  background: rgba(var(--color-base-dark-r), var(--color-base-dark-g), var(--color-base-dark-b), 0.5);
+  border: 1px solid var(--ui-field-border);
+  background: var(--ui-field-bg);
   color: var(--text-primary);
 }
 
@@ -63,13 +63,13 @@
 
 .clean-slate-dialog__cancel {
   background: transparent;
-  border-color: rgba(var(--color-base-slate-r), var(--color-base-slate-g), var(--color-base-slate-b), 0.35);
+  border-color: var(--ui-border-strong);
   color: var(--text-primary);
 }
 
 .clean-slate-dialog__confirm {
-  background: #b91c1c;
-  color: #fff;
+  background: var(--ui-button-danger-solid-bg);
+  color: var(--ui-button-danger-solid-fg);
 }
 
 .clean-slate-dialog__confirm:disabled,
@@ -81,12 +81,12 @@
 .settings__danger-zone {
   margin-top: 2rem;
   padding-top: 1.5rem;
-  border-top: 1px solid rgba(248, 113, 113, 0.25);
+  border-top: 1px solid var(--ui-alert-danger-border);
 }
 
 .settings__danger-title {
   margin: 0 0 0.5rem;
-  color: #f87171;
+  color: var(--ui-status-danger);
   font-size: 1.1rem;
 }
 
@@ -94,10 +94,16 @@
   margin-top: 0.75rem;
   padding: 0.6rem 1rem;
   border-radius: 8px;
-  border: 1px solid rgba(248, 113, 113, 0.45);
-  background: rgba(185, 28, 28, 0.15);
-  color: #fecaca;
+  border: 1px solid var(--ui-button-danger-border);
+  background: var(--ui-button-danger-bg);
+  color: var(--ui-button-danger-fg);
   cursor: pointer;
+}
+
+.settings__danger-button:hover:not(:disabled) {
+  background: var(--ui-button-danger-bg-hover);
+  border-color: var(--ui-button-danger-border-hover);
+  color: var(--ui-button-danger-fg-hover);
 }
 
 .settings__danger-button:disabled {
@@ -106,21 +112,21 @@
 }
 
 .settings__danger-button--severe {
-  background: rgba(185, 28, 28, 0.28);
-  border-color: rgba(248, 113, 113, 0.65);
+  background: var(--ui-button-danger-bg-hover);
+  border-color: var(--ui-button-danger-border-hover);
 }
 
 .resume-migration__danger {
   margin-top: 2rem;
   padding: 1rem 1.25rem;
   border-radius: 10px;
-  border: 1px solid rgba(248, 113, 113, 0.3);
-  background: rgba(185, 28, 28, 0.08);
+  border: 1px solid var(--ui-alert-danger-border);
+  background: var(--ui-alert-danger-bg);
 }
 
 .resume-migration__danger-title {
   margin: 0 0 0.5rem;
-  color: #f87171;
+  color: var(--ui-status-danger);
   font-size: 1rem;
 }
 
@@ -134,10 +140,15 @@
 .resume-migration__danger-button {
   padding: 0.5rem 0.9rem;
   border-radius: 8px;
-  border: 1px solid rgba(248, 113, 113, 0.45);
-  background: rgba(185, 28, 28, 0.15);
-  color: #fecaca;
+  border: 1px solid var(--ui-button-danger-border);
+  background: var(--ui-button-danger-bg);
+  color: var(--ui-button-danger-fg);
   cursor: pointer;
+}
+
+.resume-migration__danger-button:hover:not(:disabled) {
+  background: var(--ui-button-danger-bg-hover);
+  color: var(--ui-button-danger-fg-hover);
 }
 
 .resume-migration__danger-button:disabled {

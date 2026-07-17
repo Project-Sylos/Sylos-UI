@@ -75,10 +75,10 @@
 
 .path-review__error {
   padding: 1rem 1.5rem;
-  background: rgba(239, 68, 68, 0.15);
-  border: 1px solid rgba(239, 68, 68, 0.3);
+  background: var(--ui-alert-danger-bg);
+  border: 1px solid var(--ui-alert-danger-border);
   border-radius: 12px;
-  color: #fca5a5;
+  color: var(--ui-alert-danger-fg);
   font-size: 0.95rem;
   flex-shrink: 0;
 }
@@ -1602,7 +1602,7 @@
     color-mix(in srgb, var(--accent-cyan) 42%, transparent) 100%
   );
   border-color: color-mix(in srgb, var(--accent-magenta) 72%, transparent);
-  color: #ffffff;
+  color: var(--text-primary);
   box-shadow: 0 4px 16px var(--accent-magenta-opacity-20);
 }
 
@@ -1917,9 +1917,9 @@
 }
 
 .path-review-list__error {
-  color: #fca5a5;
-  background: rgba(239, 68, 68, 0.15);
-  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: var(--ui-alert-danger-fg);
+  background: var(--ui-alert-danger-bg);
+  border: 1px solid var(--ui-alert-danger-border);
   border-radius: 12px;
 }
 

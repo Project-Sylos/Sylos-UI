@@ -104,11 +104,11 @@
   --elevation-contact-rest: 0 1px 3px rgba(0, 0, 0, 0.06);
   --elevation-contact-hover: 0 1px 3px rgba(0, 0, 0, 0.07);
 
-  --chrome-icon-fill-r: 255;
-  --chrome-icon-fill-g: 255;
-  --chrome-icon-fill-b: 255;
-  --chrome-icon-fill-alpha: 0.48;
-  --chrome-icon-fill-alpha-hover: 0.88;
+  --chrome-icon-fill-r: 100;
+  --chrome-icon-fill-g: 116;
+  --chrome-icon-fill-b: 139;
+  --chrome-icon-fill-alpha: 0.12;
+  --chrome-icon-fill-alpha-hover: 0.2;
   --chrome-icon-border-r: 100;
   --chrome-icon-border-g: 116;
   --chrome-icon-border-b: 139;
@@ -172,6 +172,75 @@
   --sidebar-button-primary-bg-hover: rgba(255, 255, 255, 0.72);
   --sidebar-button-primary-border: rgba(100, 116, 139, 0.18);
   --sidebar-button-primary-border-hover: rgba(100, 116, 139, 0.26);
+
+  /* Shared UI primitives — light readable stack */
+  --ui-border: rgba(100, 116, 139, 0.16);
+  --ui-border-strong: rgba(100, 116, 139, 0.28);
+  --ui-field-bg: rgba(255, 255, 255, 0.95);
+  --ui-field-bg-focus: rgba(255, 255, 255, 1);
+  --ui-field-border: rgba(100, 116, 139, 0.25);
+  --ui-field-placeholder: var(--text-tertiary);
+  --ui-inset-bg: var(--ui-overlay-40);
+  --ui-inset-bg-strong: rgba(248, 250, 252, 0.92);
+  --ui-inset-border: rgba(100, 116, 139, 0.16);
+  --ui-table-head-bg: rgba(248, 250, 252, 0.92);
+  --ui-table-row-border: rgba(100, 116, 139, 0.1);
+  --ui-icon-button-bg: rgba(255, 255, 255, 0.72);
+  --ui-icon-button-bg-hover: rgba(255, 255, 255, 0.92);
+  --ui-icon-button-border: rgba(100, 116, 139, 0.18);
+  --ui-icon-button-border-hover: rgba(100, 116, 139, 0.28);
+
+  --ui-alert-danger-fg: #991b1b;
+  --ui-alert-danger-bg: rgba(254, 242, 242, 0.92);
+  --ui-alert-danger-border: rgba(220, 38, 38, 0.22);
+  --ui-alert-success-fg: #15803d;
+  --ui-alert-success-bg: rgba(220, 252, 231, 0.95);
+  --ui-alert-success-border: rgba(34, 197, 94, 0.28);
+  --ui-alert-warning-fg: #b45309;
+  --ui-alert-warning-bg: rgba(254, 243, 199, 0.95);
+  --ui-alert-warning-border: rgba(245, 158, 11, 0.35);
+  --ui-alert-info-fg: #1d4ed8;
+  --ui-alert-info-bg: rgba(219, 234, 254, 0.95);
+  --ui-alert-info-border: rgba(37, 99, 235, 0.28);
+
+  --ui-badge-neutral-fg: var(--text-secondary);
+  --ui-badge-neutral-bg: rgba(100, 116, 139, 0.1);
+  --ui-badge-admin-fg: #0e7490;
+  --ui-badge-admin-bg: rgba(47, 215, 233, 0.14);
+  --ui-badge-danger-fg: #b91c1c;
+  --ui-badge-danger-bg: rgba(254, 242, 242, 0.95);
+  --ui-badge-success-fg: #15803d;
+  --ui-badge-success-bg: rgba(220, 252, 231, 0.95);
+  --ui-badge-warning-fg: #b45309;
+  --ui-badge-warning-bg: rgba(254, 243, 199, 0.95);
+
+  --ui-button-danger-fg: #b91c1c;
+  --ui-button-danger-bg: rgba(220, 38, 38, 0.1);
+  --ui-button-danger-border: rgba(185, 28, 28, 0.38);
+  --ui-button-danger-fg-hover: #991b1b;
+  --ui-button-danger-bg-hover: rgba(220, 38, 38, 0.16);
+  --ui-button-danger-border-hover: rgba(185, 28, 28, 0.52);
+  --ui-button-danger-solid-bg: #b91c1c;
+  --ui-button-danger-solid-fg: #ffffff;
+
+  --ui-button-primary-fg: #1d4ed8;
+  --ui-button-primary-bg: rgba(219, 234, 254, 0.95);
+  --ui-button-primary-border: rgba(37, 99, 235, 0.35);
+  --ui-button-primary-bg-hover: rgba(191, 219, 254, 0.98);
+
+  --ui-button-secondary-fg: var(--text-primary);
+  --ui-button-secondary-bg: rgba(255, 255, 255, 0.72);
+  --ui-button-secondary-border: rgba(100, 116, 139, 0.22);
+  --ui-button-secondary-bg-hover: rgba(255, 255, 255, 0.92);
+
+  --ui-status-danger: #b91c1c;
+  --ui-status-success: #047857;
+  --ui-status-warning: #b45309;
+  --ui-status-info: #1d4ed8;
+  --ui-status-running: #1d4ed8;
+  --ui-status-suspended: #b45309;
+  --ui-status-healthy: #15803d;
+  --ui-status-unhealthy: #b91c1c;
 }
 
 /* Selection / summary cards: contact lift + frosted depth */

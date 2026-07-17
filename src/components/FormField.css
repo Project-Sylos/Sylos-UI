@@ -27,18 +27,8 @@
 
 .form-field__input {
   padding: 0.45rem 0.65rem;
-  background: rgba(
-    var(--glass-bg-base-r),
-    var(--glass-bg-base-g),
-    var(--glass-bg-base-b),
-    0.3
-  );
-  border: 1px solid rgba(
-    var(--color-base-slate-r),
-    var(--color-base-slate-g),
-    var(--color-base-slate-b),
-    var(--glass-border-opacity-default)
-  );
+  background: var(--ui-field-bg);
+  border: 1px solid var(--ui-field-border);
   border-radius: 8px;
   color: var(--text-primary);
   font-size: 0.875rem;
@@ -49,12 +39,7 @@
 .form-field__input:focus {
   outline: none;
   border-color: var(--accent-magenta);
-  background: rgba(
-    var(--glass-bg-base-r),
-    var(--glass-bg-base-g),
-    var(--glass-bg-base-b),
-    0.4
-  );
+  background: var(--ui-field-bg-focus);
   box-shadow: 0 0 0 3px var(--accent-magenta-opacity-10);
 }
 

@@ -5,7 +5,6 @@ import "./Settings.css";
 import { GlassSurfacePanel } from "../components/GlassSurfacePanel";
 import { useTheme } from "../contexts/ThemeContext";
 import { usePreferences } from "../contexts/PreferencesContext";
-import { themeSupportsPreSplash } from "../types/preferences";
 import { useAuth } from "../contexts/AuthContext";
 import CloudProviderOAuthSetup from "../components/CloudProviderOAuthSetup";
 import "../components/CloudProviderOAuthSetup.css";
@@ -101,7 +100,6 @@ export default function Settings() {
   };
 
   const canCleanSlate = user?.capabilities?.cleanSlate === true;
-  const showPreSplashSetting = themeSupportsPreSplash(theme);
   const isAdmin = user?.role === "admin";
 
   useEffect(() => {
@@ -391,74 +389,8 @@ export default function Settings() {
                     </div>
                   )}
                 </button>
-
-                <button
-                  type="button"
-                  className={`settings__theme-option ${theme === "neon-dark" ? "settings__theme-option--active" : ""}`}
-                  onClick={() => setTheme("neon-dark")}
-                  aria-label="Neon dark theme"
-                >
-                  <div
-                    className="settings__theme-preview settings__theme-preview--neon-dark"
-                    aria-hidden
-                  >
-                    <div className="settings__theme-preview-bg-stripes" />
-                  </div>
-                  <span className="settings__theme-label">Neon Dark</span>
-                  {theme === "neon-dark" && (
-                    <div className="settings__theme-check">
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                        <polyline points="20 6 9 17 4 12"></polyline>
-                      </svg>
-                    </div>
-                  )}
-                </button>
-
-                <button
-                  type="button"
-                  className={`settings__theme-option ${theme === "neon-light" ? "settings__theme-option--active" : ""}`}
-                  onClick={() => setTheme("neon-light")}
-                  aria-label="Neon light theme"
-                >
-                  <div
-                    className="settings__theme-preview settings__theme-preview--neon-light"
-                    aria-hidden
-                  >
-                    <div className="settings__theme-preview-bg-stripes settings__theme-preview-bg-stripes--light" />
-                  </div>
-                  <span className="settings__theme-label">Neon Light</span>
-                  {theme === "neon-light" && (
-                    <div className="settings__theme-check">
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                        <polyline points="20 6 9 17 4 12"></polyline>
-                      </svg>
-                    </div>
-                  )}
-                </button>
               </div>
             </div>
-
-            {showPreSplashSetting && (
-              <div className="settings__subsection">
-                <div className="settings__subsection-header">
-                  <div>
-                    <h2 className="settings__subsection-title">Pre-splash Screen</h2>
-                    <p className="settings__subsection-description">
-                      Animated loading screen on startup for Neon themes.
-                    </p>
-                  </div>
-                  <label className="settings__toggle">
-                    <input
-                      type="checkbox"
-                      checked={preferences.preSplashEnabled}
-                      onChange={(e) => updatePreferences({ preSplashEnabled: e.target.checked })}
-                      className="settings__toggle-input"
-                    />
-                    <span className="settings__toggle-slider"></span>
-                  </label>
-                </div>
-              </div>
-            )}
 
             <div className="settings__subsection">
               <div className="settings__subsection-header">

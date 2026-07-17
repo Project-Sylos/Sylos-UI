@@ -28,10 +28,10 @@
 
 .spectra-config__error {
   padding: 0.75rem 1rem;
-  background: rgba(239, 68, 68, 0.15);
-  border: 1px solid rgba(239, 68, 68, 0.3);
+  background: var(--ui-alert-danger-bg);
+  border: 1px solid var(--ui-alert-danger-border);
   border-radius: 10px;
-  color: #fca5a5;
+  color: var(--ui-alert-danger-fg);
   font-size: 0.875rem;
   text-align: center;
 }
@@ -67,17 +67,32 @@
 }
 
 .spectra-config__content::-webkit-scrollbar-track {
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(
+    var(--color-base-slate-r),
+    var(--color-base-slate-g),
+    var(--color-base-slate-b),
+    0.08
+  );
   border-radius: 4px;
 }
 
 .spectra-config__content::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(
+    var(--color-base-slate-r),
+    var(--color-base-slate-g),
+    var(--color-base-slate-b),
+    0.28
+  );
   border-radius: 4px;
 }
 
 .spectra-config__content::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.3);
+  background: rgba(
+    var(--color-base-slate-r),
+    var(--color-base-slate-g),
+    var(--color-base-slate-b),
+    0.4
+  );
 }
 
 .spectra-config__form .glass-button {

@@ -15,7 +15,7 @@ import {
   ListMigrationsResponse,
 } from "../types/migrations";
 import { ServiceDescriptor, Drive, ChildrenResponse, Folder } from "../types/services";
-import { UserPreferences, DEFAULT_PREFERENCES, themeSupportsPreSplash } from "../types/preferences";
+import { UserPreferences, DEFAULT_PREFERENCES, normalizeAppTheme } from "../types/preferences";
 import { apiFetch, getAuthToken, readErrorMessage } from "./client";
 
 const fallbackServices: ServiceDescriptor[] = [
@@ -1965,29 +1965,11 @@ export async function getPreferences(): Promise<UserPreferences> {
 
     const data = await response.json();
 
-    const normalizeTheme = (raw: unknown): UserPreferences["theme"] => {
-      if (
-        raw === "obsidian" ||
-        raw === "quartz" ||
-        raw === "neon-dark" ||
-        raw === "neon-light"
-      ) {
-        return raw;
-      }
-      if (raw === "dark") return "neon-dark";
-      if (raw === "light") return "neon-light";
-      return DEFAULT_PREFERENCES.theme;
-    };
-
-    // Validate and merge with defaults to ensure all fields are present
-    const theme = normalizeTheme(data.theme);
-    const preSplashEnabled =
-      typeof data.preSplashEnabled === "boolean" ? data.preSplashEnabled : DEFAULT_PREFERENCES.preSplashEnabled;
+    const theme = normalizeAppTheme(data.theme);
 
     return {
       theme,
       sidebarCollapsed: typeof data.sidebarCollapsed === "boolean" ? data.sidebarCollapsed : DEFAULT_PREFERENCES.sidebarCollapsed,
-      preSplashEnabled: themeSupportsPreSplash(theme) ? preSplashEnabled : false,
       tips: data.tips && typeof data.tips === "object" ? {
         enabled: typeof data.tips.enabled === "boolean" ? data.tips.enabled : DEFAULT_PREFERENCES.tips!.enabled,
         categories: typeof data.tips.categories === "object" && data.tips.categories !== null ? data.tips.categories : DEFAULT_PREFERENCES.tips!.categories,
@@ -2011,7 +1993,7 @@ export async function getPreferences(): Promise<UserPreferences> {
 export async function savePreferences(prefs: UserPreferences): Promise<void> {
   const payload: UserPreferences = {
     ...prefs,
-    preSplashEnabled: themeSupportsPreSplash(prefs.theme) ? prefs.preSplashEnabled : false,
+    theme: normalizeAppTheme(prefs.theme),
   };
 
   const response = await apiFetch(`/api/preferences`, {

@@ -120,7 +120,7 @@
 .item-hover-card__side-label {
   font-size: 0.9rem;
   font-weight: 600;
-  color: #f8fafc;
+  color: var(--text-primary);
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }

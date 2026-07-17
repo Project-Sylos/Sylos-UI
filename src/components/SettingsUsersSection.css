@@ -11,15 +11,15 @@
 
 .settings-users__count {
   font-size: 0.85rem;
-  color: rgba(255, 255, 255, 0.72);
+  color: var(--text-secondary);
   white-space: nowrap;
 }
 
 .settings-users__table {
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid var(--ui-inset-border);
   border-radius: 10px;
   overflow: hidden;
-  background: rgba(0, 0, 0, 0.18);
+  background: var(--ui-inset-bg);
 }
 
 .settings-users__table--admin .settings-users__table-head,
@@ -41,16 +41,16 @@
 }
 
 .settings-users__table-head {
-  background: rgba(0, 0, 0, 0.24);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--ui-table-head-bg);
+  border-bottom: 1px solid var(--ui-inset-border);
 }
 
 .settings-users__table-row {
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: 1px solid var(--ui-table-row-border);
 }
 
 .settings-users__table-row--self {
-  background: rgba(92, 225, 230, 0.04);
+  background: var(--accent-cyan-opacity-10);
 }
 
 .settings-users__col-label {
@@ -58,7 +58,7 @@
   font-weight: 600;
   letter-spacing: 0.02em;
   text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.58);
+  color: var(--text-tertiary);
 }
 
 .settings-users__col-label--actions {
@@ -87,7 +87,7 @@
 .settings-users__row-select input {
   width: 15px;
   height: 15px;
-  accent-color: var(--accent-cyan, #5ce1e6);
+  accent-color: var(--accent-cyan);
   cursor: pointer;
 }
 
@@ -102,7 +102,7 @@
 }
 
 .settings-users__cell--time {
-  color: rgba(255, 255, 255, 0.78);
+  color: var(--text-secondary);
   font-size: 0.82rem;
 }
 
@@ -122,23 +122,23 @@
   font-size: 0.72rem;
   padding: 0.12rem 0.45rem;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.1);
-  color: rgba(255, 255, 255, 0.82);
+  background: var(--ui-badge-neutral-bg);
+  color: var(--ui-badge-neutral-fg);
 }
 
 .settings-users__badge--admin {
-  background: rgba(92, 225, 230, 0.16);
-  color: #9ef0f3;
+  background: var(--ui-badge-admin-bg);
+  color: var(--ui-badge-admin-fg);
 }
 
 .settings-users__badge--disabled {
-  background: rgba(255, 95, 95, 0.16);
-  color: #ff9b9b;
+  background: var(--ui-badge-danger-bg);
+  color: var(--ui-badge-danger-fg);
 }
 
 .settings-users__badge--you {
-  background: rgba(141, 255, 178, 0.14);
-  color: #8dffb2;
+  background: var(--ui-badge-success-bg);
+  color: var(--ui-badge-success-fg);
 }
 
 .settings-users__actions {
@@ -156,20 +156,20 @@
   align-items: center;
   justify-content: center;
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  background: rgba(0, 0, 0, 0.22);
+  border: 1px solid var(--ui-icon-button-border);
+  background: var(--ui-icon-button-bg);
   color: inherit;
   cursor: pointer;
-  transition: background 0.2s ease, border-color 0.2s ease;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
 }
 
 .settings-users__icon-button--add {
-  border-color: rgba(92, 225, 230, 0.35);
+  border-color: color-mix(in srgb, var(--accent-cyan) 35%, var(--ui-icon-button-border));
 }
 
 .settings-users__icon-button:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.24);
+  background: var(--ui-icon-button-bg-hover);
+  border-color: var(--ui-icon-button-border-hover);
 }
 
 .settings-users__icon-button:disabled {
@@ -178,8 +178,8 @@
 }
 
 .settings-users__icon-button--danger:hover:not(:disabled) {
-  border-color: rgba(255, 120, 120, 0.45);
-  color: #ffb0b0;
+  border-color: var(--ui-button-danger-border-hover);
+  color: var(--ui-button-danger-fg-hover);
 }
 
 .settings-users__attention {
@@ -188,14 +188,14 @@
   padding: 0;
   border: none;
   border-radius: 50%;
-  background: #ff5f5f;
-  box-shadow: 0 0 0 2px rgba(255, 95, 95, 0.25);
+  background: var(--ui-status-danger);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ui-status-danger) 25%, transparent);
   cursor: pointer;
   flex-shrink: 0;
 }
 
 .settings-users__attention:hover {
-  box-shadow: 0 0 0 2px rgba(255, 95, 95, 0.45);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ui-status-danger) 45%, transparent);
 }
 
 .settings-users__spin {
@@ -214,16 +214,23 @@
   gap: 0.35rem;
   margin-bottom: 0.75rem;
   font-size: 0.85rem;
-  color: rgba(255, 255, 255, 0.75);
+  color: var(--text-secondary);
 }
 
 .settings-users__edit-form input,
 .settings-users__edit-form select {
   padding: 0.55rem 0.65rem;
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  background: rgba(0, 0, 0, 0.25);
-  color: inherit;
+  border: 1px solid var(--ui-field-border);
+  background: var(--ui-field-bg);
+  color: var(--text-primary);
+}
+
+.settings-users__edit-form input:focus,
+.settings-users__edit-form select:focus {
+  outline: none;
+  border-color: var(--accent-cyan);
+  box-shadow: 0 0 0 2px var(--accent-cyan-opacity-20);
 }
 
 @media (max-width: 900px) {

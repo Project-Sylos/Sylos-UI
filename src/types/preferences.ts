@@ -1,14 +1,9 @@
-/** App visual theme: obsidian/quartz (static glass) or neon video backdrops */
-export type AppTheme = "obsidian" | "quartz" | "neon-dark" | "neon-light";
-
-export function themeSupportsPreSplash(theme: AppTheme): boolean {
-  return theme === "neon-dark" || theme === "neon-light";
-}
+/** App visual theme: static glass themes only */
+export type AppTheme = "obsidian" | "quartz";
 
 export interface UserPreferences {
   theme: AppTheme;
   sidebarCollapsed: boolean;
-  preSplashEnabled: boolean;
   tips?: {
     enabled: boolean;
     categories: {
@@ -24,7 +19,6 @@ export interface UserPreferences {
 export const DEFAULT_PREFERENCES: UserPreferences = {
   theme: "obsidian",
   sidebarCollapsed: true,
-  preSplashEnabled: false,
   tips: {
     enabled: true,
     categories: {},
@@ -34,3 +28,11 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
     showSpectraService: false,
   },
 };
+
+/** Accept supported API theme values and reject everything else. */
+export function normalizeAppTheme(raw: unknown): AppTheme {
+  if (raw === "obsidian" || raw === "quartz") {
+    return raw;
+  }
+  return DEFAULT_PREFERENCES.theme;
+}

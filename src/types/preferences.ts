@@ -4,6 +4,8 @@ export type AppTheme = "obsidian" | "quartz";
 export interface UserPreferences {
   theme: AppTheme;
   sidebarCollapsed: boolean;
+  /** When true, hide cloud services whose OAuth apps are not configured yet. */
+  hideUnsetServices?: boolean;
   tips?: {
     enabled: boolean;
     categories: {
@@ -19,6 +21,7 @@ export interface UserPreferences {
 export const DEFAULT_PREFERENCES: UserPreferences = {
   theme: "obsidian",
   sidebarCollapsed: true,
+  hideUnsetServices: false,
   tips: {
     enabled: true,
     categories: {},

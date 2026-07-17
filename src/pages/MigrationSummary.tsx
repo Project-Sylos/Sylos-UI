@@ -16,6 +16,10 @@ import {
   verifyConfiguredMigrationCloudConnections,
 } from "../utils/cloudConnections";
 import {
+  accountLabelForRole,
+} from "../utils/cloudAccountLabel";
+import { isCloudServiceType } from "../utils/cloudProviders";
+import {
   formatMigrationPath,
   formatServiceRootLabel,
   getEndpointEditNavigation,
@@ -266,6 +270,11 @@ export default function MigrationSummary() {
           locked={spectraLocked && spectraPrimaryRole !== "source"}
           lockTitle={spectraLocked && spectraPrimaryRole !== "source" ? spectraLockTitle : undefined}
           serviceName={source?.service.displayName}
+          accountLabel={
+            isCloudServiceType(source?.service.type)
+              ? accountLabelForRole("source", migration)
+              : undefined
+          }
           rootPath={formatMigrationPath(source?.root)}
           onSelect={() => void navigateToEndpoint("source", source)}
         />
@@ -285,6 +294,11 @@ export default function MigrationSummary() {
               : undefined
           }
           serviceName={destination?.service.displayName}
+          accountLabel={
+            isCloudServiceType(destination?.service.type)
+              ? accountLabelForRole("destination", migration)
+              : undefined
+          }
           rootPath={formatMigrationPath(destination?.root)}
           onSelect={() => void navigateToEndpoint("destination", destination)}
         />
@@ -317,6 +331,7 @@ type SetupEndpointCardProps = {
   locked: boolean;
   lockTitle?: string;
   serviceName?: string;
+  accountLabel?: string;
   rootPath: string;
   onSelect: () => void;
 };
@@ -328,6 +343,7 @@ function SetupEndpointCard({
   locked,
   lockTitle,
   serviceName,
+  accountLabel,
   rootPath,
   onSelect,
 }: SetupEndpointCardProps) {
@@ -374,6 +390,12 @@ function SetupEndpointCard({
             <span className="migration-summary__info-label">Service</span>
             <span className="migration-summary__info-value">{serviceName}</span>
           </div>
+          {accountLabel ? (
+            <div className="migration-summary__info-row">
+              <span className="migration-summary__info-label">Account</span>
+              <span className="migration-summary__info-value">{accountLabel}</span>
+            </div>
+          ) : null}
           <div className="migration-summary__info-row">
             <span className="migration-summary__info-label">Root Path</span>
             <span className="migration-summary__info-value">{rootPath}</span>

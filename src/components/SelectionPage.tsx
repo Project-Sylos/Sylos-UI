@@ -46,49 +46,51 @@ export default function SelectionPage({
             className="selection-page__back"
           />
         ) : null}
-        <header className="selection-page__header">
-          <h1>{title}</h1>
-          {error ? (
-            <div className="selection-page__error">{error}</div>
-          ) : null}
-        </header>
+        <div className="selection-page__scroll scroll-region">
+          <header className="selection-page__header">
+            <h1>{title}</h1>
+            {error ? (
+              <div className="selection-page__error">{error}</div>
+            ) : null}
+          </header>
 
-        <div className="selection-page__grid">
-          {options.length > 0 ? (
-            options.map((option) => (
-              <button
-                key={option.id}
-                type="button"
-                className={`selection-page__card${
-                  isBusy ? " selection-page__card--disabled" : ""
-                }`}
-                onClick={() => onSelect(option.id)}
-                disabled={isBusy}
-              >
-                <span
-                  className={[
-                    "selection-page__icon",
-                    option.iconAccent === "a" && "selection-page__icon--accent-a",
-                    option.iconAccent === "b" && "selection-page__icon--accent-b",
-                  ]
-                    .filter(Boolean)
-                    .join(" ")}
+          <div className="selection-page__grid">
+            {options.length > 0 ? (
+              options.map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  className={`selection-page__card${
+                    isBusy ? " selection-page__card--disabled" : ""
+                  }`}
+                  onClick={() => onSelect(option.id)}
+                  disabled={isBusy}
                 >
-                  {option.icon}
-                </span>
-                <span className="selection-page__name">{option.name}</span>
-                {option.description ? (
-                  <span className="selection-page__description">
-                    {option.description}
+                  <span
+                    className={[
+                      "selection-page__icon",
+                      option.iconAccent === "a" && "selection-page__icon--accent-a",
+                      option.iconAccent === "b" && "selection-page__icon--accent-b",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
+                  >
+                    {option.icon}
                   </span>
-                ) : null}
-              </button>
-            ))
-          ) : (
-            <div className="selection-page__empty">
-              {emptyMessage ?? "No services available."}
-            </div>
-          )}
+                  <span className="selection-page__name">{option.name}</span>
+                  {option.description ? (
+                    <span className="selection-page__description">
+                      {option.description}
+                    </span>
+                  ) : null}
+                </button>
+              ))
+            ) : (
+              <div className="selection-page__empty">
+                {emptyMessage ?? "No services available."}
+              </div>
+            )}
+          </div>
         </div>
       </GlassSurfacePanel>
     </section>

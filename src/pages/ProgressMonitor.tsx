@@ -38,6 +38,14 @@ import "./ProgressMonitor.css";
 const STATUS_POLL_INTERVAL = 1000;
 const SOFT_SUSPEND_POLL_TIMEOUT_MS = 120_000;
 
+/** Clamp engine-reported progress percent for display. */
+function clampProgressPercent(raw: unknown): number {
+  const n = typeof raw === "number" ? raw : Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  if (n >= 100) return 100;
+  return n;
+}
+
 /** Stop response: engine accepted soft suspend; UI should poll until *-suspended and not live. */
 function softSuspendRequestedPayload(data: unknown): boolean {
   if (!data || typeof data !== "object") return false;
@@ -362,6 +370,15 @@ export default function ProgressMonitor() {
       (status as { PossibleStall?: boolean } | null)?.PossibleStall ||
       queueMetrics?.possibleStall
   );
+
+  const phaseProgressPercent = showDeleteUI
+    ? clampProgressPercent(queueMetrics?.delete?.progress_percent)
+    : showCopyUI
+      ? clampProgressPercent(queueMetrics?.copy?.progress_percent)
+      : 0;
+  const showPhaseProgressBar = showCopyUI || showDeleteUI;
+  const phaseProgressLabel = showDeleteUI ? "Source removal progress" : "Copy progress";
+  const phaseProgressDisplay = Math.round(phaseProgressPercent);
 
   const failureErrorText =
     (status?.error && String(status.error).trim()) || "Unknown error";
@@ -843,6 +860,29 @@ export default function ProgressMonitor() {
                 ) : (
                   <div className="progress-monitor__metric-empty">Not started</div>
                 )
+              )}
+              {showPhaseProgressBar && (
+                <div className="progress-monitor__progress">
+                  <div className="progress-monitor__progress-header">
+                    <span className="progress-monitor__progress-label">{phaseProgressLabel}</span>
+                    <span className="progress-monitor__progress-value">{phaseProgressDisplay}%</span>
+                  </div>
+                  <div
+                    className="progress-monitor__progress-track"
+                    role="progressbar"
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={phaseProgressDisplay}
+                    aria-label={phaseProgressLabel}
+                  >
+                    <div
+                      className="progress-monitor__progress-fill"
+                      style={{
+                        clipPath: `inset(0 ${100 - phaseProgressPercent}% 0 0)`,
+                      }}
+                    />
+                  </div>
+                </div>
               )}
             </div>
 

@@ -85,8 +85,10 @@
   display: flex;
   flex-direction: column;
   overflow-y: auto;
-  /* Apply glass-sidebar base styles */
-  backdrop-filter: blur(var(--glass-blur-secondary));
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  /* Nested backdrop-filter on a scrolling pane is a common WebKit jank source;
+     the parent glass panel already provides the frosted look. */
   background: rgba(
     var(--color-base-dark-r),
     var(--color-base-dark-g),
@@ -189,8 +191,14 @@
   display: flex;
   flex-direction: column;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
   padding: 2rem 2.5rem;
   min-height: 0;
+  scrollbar-gutter: stable;
+  /* Composite the scroller independently of the frosted panel behind it. */
+  contain: paint;
+  transform: translateZ(0);
 }
 
 .settings__section {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, startTransition, type ReactNode } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { Palette, X, Code, Cloud, Users, AlertTriangle, ChevronDown } from "lucide-react";
 import "./Settings.css";
@@ -62,7 +62,9 @@ export default function Settings() {
 
   const scrollToSection = useCallback((section: SettingsSection) => {
     setActiveSection(section);
-    document.getElementById(SECTION_IDS[section])?.scrollIntoView({ behavior: "smooth", block: "start" });
+    document
+      .getElementById(SECTION_IDS[section])
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, []);
 
   const toggleTipGroup = (groupId: string) => {
@@ -177,7 +179,12 @@ export default function Settings() {
         const top = intersecting[0]?.target.id;
         if (!top) return;
         const section = top.replace("settings-", "") as SettingsSection;
-        if (SECTION_IDS[section]) setActiveSection(section);
+        if (!SECTION_IDS[section]) return;
+        // Defer so crossing a section boundary never competes with the
+        // compositor-driven scroll frame.
+        startTransition(() => {
+          setActiveSection((current) => (current === section ? current : section));
+        });
       },
       { root, rootMargin: "-15% 0px -55% 0px", threshold: [0, 0.15, 0.4] }
     );
@@ -460,6 +467,29 @@ export default function Settings() {
                   ? "Configure OAuth app credentials for cloud storage. Sylos checks connection health on startup and can re-check on a schedule you choose."
                   : "View cloud OAuth connection status. You can run a connection test; only admins can add or change credentials."}
               </p>
+
+              <div className="settings__subsection">
+                <div className="settings__subsection-header">
+                  <div>
+                    <h2 className="settings__subsection-title">Hide unset services</h2>
+                    <p className="settings__subsection-description">
+                      Hide cloud services from source/destination pickers until their OAuth app
+                      credentials are configured. Local and credential-based services stay visible.
+                    </p>
+                  </div>
+                  <label className="settings__toggle">
+                    <input
+                      type="checkbox"
+                      checked={preferences.hideUnsetServices === true}
+                      onChange={(e) => {
+                        updatePreferences({ hideUnsetServices: e.target.checked });
+                      }}
+                      className="settings__toggle-input"
+                    />
+                    <span className="settings__toggle-slider"></span>
+                  </label>
+                </div>
+              </div>
 
               {isAdmin && (
                 <div className="settings__subsection settings__cloud-health-scan">

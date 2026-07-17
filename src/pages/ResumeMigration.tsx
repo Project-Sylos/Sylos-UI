@@ -382,7 +382,11 @@ export default function ResumeMigration() {
                 </div>
                 <div className="resume-migration__file-info">
                   <div className="resume-migration__file-name">
-                    <span>{migration.name || migration.id}</span>
+                    <span className="resume-migration__file-title">
+                      {migration.name && migration.name !== migration.id
+                        ? migration.name
+                        : migration.id}
+                    </span>
                     {selectedMigrationId === migration.id && (
                       <CheckCircle2
                         size={16}
@@ -391,6 +395,11 @@ export default function ResumeMigration() {
                       />
                     )}
                   </div>
+                  {migration.name && migration.name !== migration.id && (
+                    <div className="resume-migration__file-id" title={migration.id}>
+                      {migration.id}
+                    </div>
+                  )}
                   <div className="resume-migration__file-meta">
                     {migration.status && (
                       <span className={`resume-migration__status resume-migration__status--${(migration.status || '').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')}`}>{migration.status}</span>

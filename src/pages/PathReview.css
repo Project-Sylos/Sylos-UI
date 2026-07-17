@@ -198,6 +198,8 @@
   gap: var(--browse-list-gap, 0.25rem);
   overflow-y: auto;
   overflow-x: hidden;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
   padding: calc(0.25rem * var(--zoom, 1)) 0;
   padding-right: calc(0.75rem * var(--zoom, 1));
   min-height: 0;
@@ -910,6 +912,26 @@
   box-shadow: none;
   position: relative;
   z-index: 1;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.path-review__destination-only-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-left: auto;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.path-review__destination-only-toggle input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
 }
 
 .path-review__tab {

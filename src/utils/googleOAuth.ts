@@ -14,7 +14,7 @@ export function buildGoogleAuthUrl(params: {
     response_type: "code",
     scope: params.scopes.join(" "),
     access_type: "offline",
-    prompt: "consent",
+    prompt: "select_account consent",
     state: params.state,
   });
   return `${GOOGLE_AUTH_URL}?${search.toString()}`;

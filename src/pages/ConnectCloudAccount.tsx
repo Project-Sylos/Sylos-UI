@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { CheckCircle2, Cloud, Loader2, LogIn, LogOut, Server, Unplug, User, Users } from "lucide-react";
+import { CheckCircle2, Cloud, Loader2, LogIn, LogOut, Pencil, Server, Unplug, User, Users } from "lucide-react";
 
 import "../App.css";
 import googleDriveLogo from "../assets/external/Google_Drive_Logo.svg";
@@ -10,11 +10,16 @@ import { GlassSurfacePanel } from "../components/GlassSurfacePanel";
 import PageBackButton from "../components/PageBackButton";
 import { useSelection } from "../context/SelectionContext";
 import { useCloudConnectionGuard } from "../hooks/useCloudConnectionGuard";
-import { ProviderDescriptor } from "../types/providers";
+import { ConnectionTokenResponse, ProviderDescriptor } from "../types/providers";
 import {
   buildCloudBrowsePath,
   disconnectCloudConnection,
 } from "../utils/cloudConnections";
+import {
+  accountFieldsFromStatus,
+  clearAccountFields,
+  formatCloudAccountLabel,
+} from "../utils/cloudAccountLabel";
 import {
   createOAuthState,
   getOAuthRedirectUri,
@@ -160,7 +165,11 @@ export default function ConnectCloudAccount() {
   }, [providerId, serviceId]);
 
   useEffect(() => {
-    if (!shouldReconnect || !existingConnectionId || reconnectHandledRef.current) {
+    if (!shouldReconnect) {
+      reconnectHandledRef.current = false;
+      return;
+    }
+    if (!existingConnectionId || reconnectHandledRef.current) {
       return;
     }
 
@@ -171,11 +180,16 @@ export default function ConnectCloudAccount() {
       setError(null);
       try {
         await disconnectCloudConnection(providerId, existingConnectionId ?? "");
-        updateMigration(
-          role === "source"
+        updateMigration({
+          ...(role === "source"
             ? { sourceConnectionId: undefined }
-            : { destinationConnectionId: undefined }
-        );
+            : { destinationConnectionId: undefined }),
+          ...clearAccountFields(role),
+        });
+        const next = new URLSearchParams(searchParams);
+        next.delete("reconnect");
+        next.delete("connectionId");
+        setSearchParams(next, { replace: true });
       } catch (err) {
         setError(
           err instanceof Error
@@ -194,6 +208,8 @@ export default function ConnectCloudAccount() {
     role,
     shouldReconnect,
     updateMigration,
+    searchParams,
+    setSearchParams,
   ]);
 
   const providerLabel = useMemo(() => {
@@ -202,11 +218,17 @@ export default function ConnectCloudAccount() {
   }, [provider, providerId]);
 
   const clearConnectionState = () => {
-    updateMigration(
-      role === "source"
+    updateMigration({
+      ...(role === "source"
         ? { sourceConnectionId: undefined }
-        : { destinationConnectionId: undefined }
-    );
+        : { destinationConnectionId: undefined }),
+      ...clearAccountFields(role),
+    });
+  };
+
+  const rememberAccountFromStatus = () => {
+    if (!connectionStatus) return;
+    updateMigration(accountFieldsFromStatus(role, connectionStatus));
   };
 
   const handleDisconnect = async () => {
@@ -225,8 +247,18 @@ export default function ConnectCloudAccount() {
     }
   };
 
+  const handleChangeAccount = () => {
+    if (!existingConnectionId) return;
+    const next = new URLSearchParams(searchParams);
+    next.set("connectionId", existingConnectionId);
+    next.set("reconnect", "1");
+    setSearchParams(next);
+  };
+
   const handleContinueToBrowse = () => {
     if (!existingConnectionId) return;
+    rememberAccountFromStatus();
+    persistSelections(accountFieldsFromStatus(role, connectionStatus));
     navigate(
       buildCloudBrowsePath({
         role,
@@ -237,17 +269,23 @@ export default function ConnectCloudAccount() {
     );
   };
 
-  const handleCredentialsConnected = (connectionId: string) => {
-    updateMigration(
-      role === "source"
+  const handleCredentialsConnected = (
+    connectionId: string,
+    status?: ConnectionTokenResponse
+  ) => {
+    const accountPatch = accountFieldsFromStatus(role, status);
+    updateMigration({
+      ...(role === "source"
         ? { sourceConnectionId: connectionId }
-        : { destinationConnectionId: connectionId }
-    );
-    persistSelections(
-      role === "source"
+        : { destinationConnectionId: connectionId }),
+      ...accountPatch,
+    });
+    persistSelections({
+      ...(role === "source"
         ? { sourceConnectionId: connectionId }
-        : { destinationConnectionId: connectionId }
-    );
+        : { destinationConnectionId: connectionId }),
+      ...accountPatch,
+    });
     navigate(
       buildCloudBrowsePath({
         role,
@@ -339,6 +377,13 @@ export default function ConnectCloudAccount() {
     !checkingConnection &&
     connectionValid === true;
 
+  useEffect(() => {
+    if (!showConnectedPanel || !connectionStatus) return;
+    const label = formatCloudAccountLabel(connectionStatus);
+    if (!label) return;
+    updateMigration(accountFieldsFromStatus(role, connectionStatus));
+  }, [showConnectedPanel, connectionStatus, role, updateMigration]);
+
   const showInvalidPanel =
     Boolean(existingConnectionId) &&
     !shouldReconnect &&
@@ -412,12 +457,28 @@ export default function ConnectCloudAccount() {
             <div className="browse-cloud-connect__icon" aria-hidden="true">
               <ProviderConnectIcon providerId={providerId} />
             </div>
-            <h2 className="browse-cloud-connect__provider">{providerLabel}</h2>
+            <div className="browse-cloud-connect__provider-row">
+              <h2 className="browse-cloud-connect__provider">{providerLabel}</h2>
+              <button
+                type="button"
+                className="browse-cloud-connect__change-account"
+                onClick={handleChangeAccount}
+                title="Use a different account"
+                aria-label="Use a different account"
+              >
+                <Pencil size={16} aria-hidden="true" />
+              </button>
+            </div>
             <div className="cloud-connection-status">
               <span className="cloud-connection-status__badge cloud-connection-status__badge--valid">
                 <CheckCircle2 size={16} aria-hidden="true" />
                 Connected
               </span>
+              {formatCloudAccountLabel(connectionStatus) && (
+                <p className="cloud-connection-status__account">
+                  {formatCloudAccountLabel(connectionStatus)}
+                </p>
+              )}
               {connectionStatus?.expiresAt && (
                 <p className="cloud-connection-status__hint">
                   Access token expires {new Date(connectionStatus.expiresAt).toLocaleString()}.
@@ -430,7 +491,7 @@ export default function ConnectCloudAccount() {
                   className="glass-button glass-button--progress-cta"
                   onClick={handleContinueToBrowse}
                 >
-                  Continue to folder selection
+                  Use this account
                 </button>
                 <button
                   type="button"

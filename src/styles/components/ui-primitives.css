@@ -294,3 +294,24 @@
 .ui-status--muted {
   color: var(--text-tertiary);
 }
+
+/*
+ * Scroll panes. Wheel/trackpad momentum + rubber-band overscroll are added in JS
+ * (see utils/momentumScroll.ts); it drives scrollTop directly, so we deliberately
+ * avoid CSS `scroll-behavior: smooth` here (it would double-animate every frame we
+ * write). Programmatic jumps that want animation pass `behavior: "smooth"` to
+ * scrollIntoView explicitly.
+ *
+ * `contain: paint` + a promoted layer keep the scroller compositing on its own
+ * layer even though it sits inside a backdrop-filtered glass panel — the usual
+ * reason native scroll turns janky inside frosted UIs on WebKit/Chromium.
+ */
+.scroll-region {
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-gutter: stable;
+  contain: paint;
+  transform: translateZ(0);
+}

@@ -155,7 +155,7 @@ export function buildCloudBrowsePath(params: {
   return `/browse-cloud?${search.toString()}`;
 }
 
-/** Valid connection → browse; missing/invalid/wrong provider → connect (reconnect only when same provider expired). */
+/** Valid connection → confirm account on connect page; missing/invalid → connect (sign-in). */
 export async function resolveCloudNavigation(params: {
   role: CloudEndpointRole;
   serviceId: string;
@@ -168,11 +168,11 @@ export async function resolveCloudNavigation(params: {
       const status = await checkCloudConnection(providerId, params.connectionId);
       if (status.valid) {
         return {
-          path: buildCloudBrowsePath({
+          path: buildCloudConnectPath({
             role: params.role,
             serviceId: params.serviceId,
-            connectionId: params.connectionId,
             providerId,
+            connectionId: params.connectionId,
           }),
           valid: true,
         };

@@ -10,7 +10,9 @@ import { useSelection } from "../context/SelectionContext";
 import { usePreferences } from "../contexts/PreferencesContext";
 import { getPresetRootForServiceType } from "../data/presetRoots";
 import { setMigrationRoot } from "../api/services";
+import { fetchProviders } from "../api/providers";
 import { Folder } from "../types/services";
+import { ProviderDescriptor } from "../types/providers";
 import { folderToApiRoot, isSpectraEligible } from "../utils/migrationRoots";
 import { isCloudServiceType, serviceIdToProviderId } from "../utils/cloudProviders";
 import {
@@ -18,6 +20,11 @@ import {
   checkCloudConnection,
   resolveCloudNavigation,
 } from "../utils/cloudConnections";
+import {
+  clearAccountFields,
+  clearEndpointCloudState,
+} from "../utils/cloudAccountLabel";
+import { shouldShowServiceInSelection } from "../utils/serviceSelectionFilter";
 
 export default function ConnectSource() {
   const navigate = useNavigate();
@@ -36,16 +43,36 @@ export default function ConnectSource() {
   const { preferences } = usePreferences();
   const [isPicking, setIsPicking] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [providers, setProviders] = useState<ProviderDescriptor[]>([]);
   const processedStateRef = useRef<string | null>(null);
 
   useEffect(() => {
     void refreshServices();
   }, [refreshServices]);
 
+  useEffect(() => {
+    let cancelled = false;
+    void fetchProviders()
+      .then((list) => {
+        if (!cancelled) setProviders(list);
+      })
+      .catch((err) => {
+        console.warn("Failed to load providers for service filtering", err);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const spectraEligible = isSpectraEligible(
     source?.root,
     destination?.root,
     migration.spectraLocked
+  );
+
+  const providersById = useMemo(
+    () => new Map(providers.map((provider) => [provider.id, provider])),
+    [providers]
   );
 
   const handleFolderSelected = async (
@@ -121,11 +148,16 @@ export default function ConnectSource() {
         sourceConnectionId: response.sourceConnectionId,
         destinationConnectionId: response.destinationConnectionId,
         ready: response.ready,
+        ...(isCloudServiceType(selected.type)
+          ? {}
+          : clearEndpointCloudState("source")),
       });
 
       selectSource(selected, root);
       navigate("/summary");
     } catch (err) {
+      // Root never stuck — drop stale cloud account label from a failed attempt.
+      updateMigration(clearAccountFields("source"));
       const message =
         err instanceof Error ? err.message : "Failed to set source root.";
       setSaveError(message);
@@ -164,16 +196,17 @@ export default function ConnectSource() {
   const options = useMemo(
     () =>
       services
-        .filter((service) => {
-          if (service.type === "spectra") {
-            if (!spectraEligible) return false;
-            return (
+        .filter((service) =>
+          shouldShowServiceInSelection({
+            service,
+            spectraEligible,
+            showSpectra:
               preferences.developer?.enabled === true &&
-              preferences.developer?.showSpectraService === true
-            );
-          }
-          return true;
-        })
+              preferences.developer?.showSpectraService === true,
+            hideUnsetServices: preferences.hideUnsetServices === true,
+            providersById,
+          })
+        )
         .map((service) => {
           const visual =
             serviceSelectionOptions[service.id] ??
@@ -187,7 +220,13 @@ export default function ConnectSource() {
             iconAccent: visual.iconAccent,
           };
         }),
-    [services, preferences.developer, spectraEligible]
+    [
+      services,
+      preferences.developer,
+      preferences.hideUnsetServices,
+      spectraEligible,
+      providersById,
+    ]
   );
 
   const handleSelect = async (id: string) => {
@@ -209,6 +248,7 @@ export default function ConnectSource() {
     }
 
     if (selected.type === "local") {
+      updateMigration(clearEndpointCloudState("source"));
       navigate(`/browse?serviceId=${selected.id}&role=source`);
       return;
     }
@@ -269,11 +309,15 @@ export default function ConnectSource() {
         sourceConnectionId: response.sourceConnectionId,
         destinationConnectionId: response.destinationConnectionId,
         ready: response.ready,
+        ...(isCloudServiceType(selected.type)
+          ? {}
+          : clearEndpointCloudState("source")),
       });
 
       selectSource(selected, root);
       navigate("/summary");
     } catch (err) {
+      updateMigration(clearAccountFields("source"));
       const message =
         err instanceof Error ? err.message : "Failed to set source root.";
       setSaveError(message);

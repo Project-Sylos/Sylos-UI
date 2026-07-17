@@ -685,6 +685,7 @@ export async function getMigrationDiffs(
     offset?: number;
     limit?: number;
     foldersOnly?: boolean;
+    includeDestinationOnly?: boolean;
   }
 ): Promise<{ items: DiffItem[]; pagination: PaginationInfo }> {
 
@@ -703,6 +704,9 @@ export async function getMigrationDiffs(
   }
   if (options?.foldersOnly !== undefined) {
     params.append("foldersOnly", options.foldersOnly.toString());
+  }
+  if (options?.includeDestinationOnly !== undefined) {
+    params.append("includeDestinationOnly", options.includeDestinationOnly.toString());
   }
 
   const response = await apiFetch(
@@ -817,6 +821,7 @@ export async function getMigrationDiffsStats(
   options?: {
     path?: string;       // locationPath, default "/"
     foldersOnly?: boolean;
+    includeDestinationOnly?: boolean;
   }
 ): Promise<DiffsStatsResponse> {
 
@@ -826,6 +831,9 @@ export async function getMigrationDiffsStats(
   }
   if (options?.foldersOnly !== undefined) {
     params.append("foldersOnly", options.foldersOnly.toString());
+  }
+  if (options?.includeDestinationOnly !== undefined) {
+    params.append("includeDestinationOnly", options.includeDestinationOnly.toString());
   }
 
   const query = params.toString();
@@ -1345,7 +1353,7 @@ export interface PathReviewStats {
 /** API can return flat PathReviewStats or legacy PathReviewStatsRaw. Normalize to PathReviewStats. */
 function normalizePathReviewStats(
   raw: PathReviewStatsRaw | PathReviewStats,
-  phase?: "traversal" | "copy"
+  phase?: "traversal" | "copy" | "delete"
 ): PathReviewStats {
   const isCopy = phase === "copy";
   // Already flat (current API shape)
@@ -1407,16 +1415,21 @@ function normalizePathReviewStats(
 /**
  * Get path review statistics
  * @param migrationId The ID of the migration
- * @param phase Optional phase ("traversal" | "copy") to determine which status counts to use
+ * @param phase Optional phase used for legacy response normalization
+ * @param view Optional review projection; source-cleanup uses delete-plan counters
  * @returns Promise resolving to PathReviewStats
  */
 export async function getPathReviewStats(
   migrationId: string,
-  phase?: "traversal" | "copy"
+  phase?: "traversal" | "copy" | "delete",
+  view?: "source-cleanup"
 ): Promise<PathReviewStats> {
 
+  const params = new URLSearchParams();
+  if (view) params.set("view", view);
+  const query = params.toString();
   const response = await apiFetch(
-    `/api/migrations/${migrationId}/stats`,
+    `/api/migrations/${migrationId}/stats${query ? `?${query}` : ""}`,
     {
       method: "GET",
     }
@@ -1460,6 +1473,7 @@ export interface SearchOptions {
   deleteStatusFilter?: string | null; // Delete status filter (pending, skipped, failed, deleted)
   statusSearchType?: "traversal" | "copy" | "delete" | "both"; // Controls which status conditions are processed
   phase?: "traversal" | "copy"; // Phase to determine which status counts to use in stats transformation
+  includeDestinationOnly?: boolean; // When false, hide destination-only rows server-side
 }
 
 export interface SearchRequest {
@@ -1468,7 +1482,8 @@ export interface SearchRequest {
     field?: string;
     direction?: "asc" | "desc";
   };
-  statusSearchType?: "traversal" | "copy" | "both"; // Controls which status conditions are processed
+  statusSearchType?: "traversal" | "copy" | "delete" | "both"; // Controls which status conditions are processed
+  includeDestinationOnly?: boolean;
 }
 
 /**
@@ -1588,6 +1603,10 @@ export async function searchPathReviewItems(
   // Add statusSearchType to request body if specified
   if (statusSearchType) {
     requestBody.statusSearchType = statusSearchType;
+  }
+
+  if (options?.includeDestinationOnly !== undefined) {
+    requestBody.includeDestinationOnly = options.includeDestinationOnly;
   }
 
   // If no conditions, set to undefined to send empty object
@@ -1970,6 +1989,7 @@ export async function getPreferences(): Promise<UserPreferences> {
     return {
       theme,
       sidebarCollapsed: typeof data.sidebarCollapsed === "boolean" ? data.sidebarCollapsed : DEFAULT_PREFERENCES.sidebarCollapsed,
+      hideUnsetServices: typeof data.hideUnsetServices === "boolean" ? data.hideUnsetServices : DEFAULT_PREFERENCES.hideUnsetServices,
       tips: data.tips && typeof data.tips === "object" ? {
         enabled: typeof data.tips.enabled === "boolean" ? data.tips.enabled : DEFAULT_PREFERENCES.tips!.enabled,
         categories: typeof data.tips.categories === "object" && data.tips.categories !== null ? data.tips.categories : DEFAULT_PREFERENCES.tips!.categories,

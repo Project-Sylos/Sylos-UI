@@ -6,6 +6,10 @@ export type MigrationStateSnapshot = {
   migrationId?: string;
   sourceConnectionId?: string;
   destinationConnectionId?: string;
+  sourceAccountEmail?: string;
+  sourceAccountDisplayName?: string;
+  destinationAccountEmail?: string;
+  destinationAccountDisplayName?: string;
   ready: boolean;
   spectraLocked?: boolean;
   spectraPrimaryRole?: "source" | "destination";

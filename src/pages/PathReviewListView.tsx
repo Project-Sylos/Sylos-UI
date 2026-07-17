@@ -57,6 +57,12 @@ export interface PathReviewListViewProps {
   onSkipDeleteClick?: (item: DiffItem) => void;
   /** Incremented from tree view after successful exclude/retry so list search results stay in sync. */
   treeListRefreshToken?: number;
+  /** When false, server omits destination-only rows from search results. */
+  includeDestinationOnly?: boolean;
+  /** Show the destination-only checkbox in the filter modal (cleanup/delete review). */
+  showDestinationOnlyToggle?: boolean;
+  showDestinationOnly?: boolean;
+  onShowDestinationOnlyChange?: (next: boolean) => void;
   /** Called after list mutations that should refresh the tree view’s current folder. */
   onListDataMutated?: () => void;
   onItemUpdate?: () => void; // Callback for when items are updated (e.g. start stats polling for background tasks)
@@ -74,6 +80,10 @@ export default function PathReviewListView({
   reviewView = "default",
   onSkipDeleteClick,
   treeListRefreshToken = 0,
+  includeDestinationOnly = true,
+  showDestinationOnlyToggle = false,
+  showDestinationOnly = false,
+  onShowDestinationOnlyChange,
   onListDataMutated,
   onItemUpdate,
   onApplyStatsDeltas,
@@ -431,6 +441,7 @@ export default function PathReviewListView({
         copyStatusFilter: copyStatusFilterValue,
         statusSearchType: statusSearchType,
         phase: phase,
+        includeDestinationOnly,
       });
 
       if (append) {
@@ -466,10 +477,21 @@ export default function PathReviewListView({
     }
   }, [migrationStatus, traversalStatusFilter]);
 
+  // Reset to first page when destination-only visibility changes so totals stay aligned.
+  useEffect(() => {
+    setCurrentPage(0);
+  }, [includeDestinationOnly]);
+
+  useEffect(() => {
+    if (!showDestinationOnly && traversalStatusFilter === "not_on_src") {
+      setTraversalStatusFilter("");
+    }
+  }, [showDestinationOnly, traversalStatusFilter]);
+
   useEffect(() => {
     loadItems();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [migrationId, currentPage, itemsPerPage, sortField, sortDir, activeSearchQuery, searchField, typeFilter, depthFilter, depthOperator, sizeFilter, sizeOperator, sizeDisplayUnit, traversalStatusFilter, treeListRefreshToken]);
+  }, [migrationId, currentPage, itemsPerPage, sortField, sortDir, activeSearchQuery, searchField, typeFilter, depthFilter, depthOperator, sizeFilter, sizeOperator, sizeDisplayUnit, traversalStatusFilter, treeListRefreshToken, includeDestinationOnly]);
 
   // Poll background tasks
   useEffect(() => {
@@ -1021,7 +1043,8 @@ export default function PathReviewListView({
       typeFilter !== "both" ||
       depthFilter.trim() !== "" ||
       sizeFilter.trim() !== "" ||
-      traversalStatusFilter !== ""
+      traversalStatusFilter !== "" ||
+      (showDestinationOnlyToggle && showDestinationOnly)
     );
   };
 
@@ -1199,7 +1222,13 @@ export default function PathReviewListView({
                     id="status-filter"
                     className="path-review-list__filter-menu-select"
                     value={traversalStatusFilter}
-                    onChange={(e) => setTraversalStatusFilter(e.target.value)}
+                    onChange={(e) => {
+                      const next = e.target.value;
+                      setTraversalStatusFilter(next);
+                      if (next === "not_on_src" && showDestinationOnlyToggle) {
+                        onShowDestinationOnlyChange?.(true);
+                      }
+                    }}
                   >
                     <option value="">All</option>
                     {!isCopyPhase(migrationStatus) && (
@@ -1221,6 +1250,26 @@ export default function PathReviewListView({
                   </select>
                 </div>
 
+                {showDestinationOnlyToggle && (
+                  <div className="path-review-list__filter-menu-section">
+                    <label className="path-review-list__filter-menu-checkbox">
+                      <input
+                        type="checkbox"
+                        checked={showDestinationOnly}
+                        onChange={(e) => {
+                          const next = e.target.checked;
+                          onShowDestinationOnlyChange?.(next);
+                          if (!next && traversalStatusFilter === "not_on_src") {
+                            setTraversalStatusFilter("");
+                          }
+                          setCurrentPage(0);
+                        }}
+                      />
+                      Show destination-only items
+                    </label>
+                  </div>
+                )}
+
                 </div>
                 <div className="path-review-list__filter-modal-footer">
                   <button
@@ -1235,6 +1284,9 @@ export default function PathReviewListView({
                       setSizeOperator("equals");
                       setSizeDisplayUnit("MB");
                       setTraversalStatusFilter("");
+                      if (showDestinationOnlyToggle) {
+                        onShowDestinationOnlyChange?.(false);
+                      }
                       setCurrentPage(0);
                     }}
                   >
@@ -1557,7 +1609,12 @@ export default function PathReviewListView({
       {/* Status Legend with Pagination Arrows */}
       {!loading && items.length > 0 && (
         <div className="path-review-list__legend-wrapper">
-          <PathReviewLegend zoomLevel={1} className="path-review__legend--compact" phase={getDisplayPhase()} />
+          <PathReviewLegend
+            zoomLevel={1}
+            className="path-review__legend--compact"
+            phase={getDisplayPhase()}
+            showDestinationOnly={includeDestinationOnly}
+          />
           {pagination && (
             <ListViewPagination
               pagination={pagination}

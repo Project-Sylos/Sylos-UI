@@ -79,6 +79,15 @@ function normalizeCloudRoot(raw: Record<string, unknown>): CloudRoot {
         : raw.DriveId != null
           ? String(raw.DriveId)
           : undefined,
+    migrationRootForbidden: Boolean(
+      raw.migrationRootForbidden ?? raw.MigrationRootForbidden ?? false
+    ),
+    migrationRootForbiddenReason:
+      raw.migrationRootForbiddenReason != null
+        ? String(raw.migrationRootForbiddenReason)
+        : raw.MigrationRootForbiddenReason != null
+          ? String(raw.MigrationRootForbiddenReason)
+          : undefined,
   };
 }
 
@@ -92,6 +101,18 @@ function normalizeConnectionResponse(
     providerId: String(data.providerId ?? providerId),
     valid: Boolean(data.valid ?? true),
     expiresAt: data.expiresAt != null ? String(data.expiresAt) : undefined,
+    accountEmail:
+      data.accountEmail != null
+        ? String(data.accountEmail)
+        : data.account_email != null
+          ? String(data.account_email)
+          : undefined,
+    accountDisplayName:
+      data.accountDisplayName != null
+        ? String(data.accountDisplayName)
+        : data.account_display_name != null
+          ? String(data.account_display_name)
+          : undefined,
   };
 }
 
@@ -214,12 +235,7 @@ export async function getConnectionStatus(
   }
 
   const data = (await response.json()) as Record<string, unknown>;
-  return {
-    connectionId: String(data.connectionId ?? connectionId),
-    providerId: String(data.providerId ?? providerId),
-    valid: Boolean(data.valid ?? false),
-    expiresAt: data.expiresAt != null ? String(data.expiresAt) : undefined,
-  };
+  return normalizeConnectionResponse(data, providerId, connectionId);
 }
 
 export async function deleteConnection(
@@ -262,6 +278,9 @@ export async function listCloudChildren(
     offset?: number;
     limit?: number;
     foldersOnly?: boolean;
+    /** Required for virtual roots from /roots (e.g. shared_with_me). */
+    rootType?: string;
+    driveId?: string;
   }
 ): Promise<ChildrenResponse> {
   const params = new URLSearchParams({ identifier });
@@ -273,6 +292,12 @@ export async function listCloudChildren(
   }
   if (options?.foldersOnly !== undefined) {
     params.append("foldersOnly", String(options.foldersOnly));
+  }
+  if (options?.rootType) {
+    params.append("rootType", options.rootType);
+  }
+  if (options?.driveId) {
+    params.append("driveId", options.driveId);
   }
 
   const response = await apiFetch(

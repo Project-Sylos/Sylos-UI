@@ -6,12 +6,15 @@ export interface PathReviewLegendProps {
   zoomLevel?: number;
   className?: string;
   phase?: "traversal" | "copy" | "source-cleanup" | "delete";
+  /** When false, hide the destination-only legend entry (cleanup/delete default). */
+  showDestinationOnly?: boolean;
 }
 
 export default function PathReviewLegend({
   zoomLevel = 1,
   className = "",
   phase = "traversal",
+  showDestinationOnly = true,
 }: PathReviewLegendProps) {
   const isCopyPhase = phase === "copy";
   const isSourceCleanup = phase === "source-cleanup";
@@ -56,6 +59,12 @@ export default function PathReviewLegend({
             }
           />
         </div>
+        {showDestinationOnly && (
+          <div className="path-review__legend-item">
+            <Check size={14 * zoomLevel} className="path-review__legend-icon path-review__legend-icon--exists-only-dst" />
+            <span className="path-review__legend-label">Exists (Destination Only)</span>
+          </div>
+        )}
       </div>
     );
   }
@@ -87,6 +96,12 @@ export default function PathReviewLegend({
             }
           />
         </div>
+        {showDestinationOnly && (
+          <div className="path-review__legend-item">
+            <Check size={14 * zoomLevel} className="path-review__legend-icon path-review__legend-icon--exists-only-dst" />
+            <span className="path-review__legend-label">Exists (Destination Only)</span>
+          </div>
+        )}
       </div>
     );
   }
@@ -127,18 +142,20 @@ export default function PathReviewLegend({
         <Check size={14 * zoomLevel} className="path-review__legend-icon path-review__legend-icon--exists" />
         <span className="path-review__legend-label">Exists (Both)</span>
       </div>
-      <div className="path-review__legend-item">
-        <Check size={14 * zoomLevel} className="path-review__legend-icon path-review__legend-icon--exists-only-dst" />
-        <span className="path-review__legend-label">Exists (Destination Only)</span>
-        <HelpTooltip
-          tipId="exists-dst-only-icon-tip"
-          category="path-review-destination-only"
-          position="above"
-          content={
-            <p>Folders with this status are shown for awareness and are not explored during discovery to save on performance and time. Already exists so no need to copy over.</p>
-          }
-        />
-      </div>
+      {showDestinationOnly && (
+        <div className="path-review__legend-item">
+          <Check size={14 * zoomLevel} className="path-review__legend-icon path-review__legend-icon--exists-only-dst" />
+          <span className="path-review__legend-label">Exists (Destination Only)</span>
+          <HelpTooltip
+            tipId="exists-dst-only-icon-tip"
+            category="path-review-destination-only"
+            position="above"
+            content={
+              <p>Folders with this status are shown for awareness and are not explored during discovery to save on performance and time. Already exists so no need to copy over.</p>
+            }
+          />
+        </div>
+      )}
       <div className="path-review__legend-item">
         <AlertCircle size={14 * zoomLevel} className="path-review__legend-icon path-review__legend-icon--failed" />
         <span className="path-review__legend-label">Failed</span>

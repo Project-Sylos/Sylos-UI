@@ -1,16 +1,8 @@
 /* Glass Container - Base reusable glass container component */
 
-/* Page shells + optional interactive .glass-container (hover state below) */
+/* Shared chrome for page shells and interactive glass cards */
 .glass-surface--panel,
 .glass-container {
-  backdrop-filter: blur(var(--glass-blur-primary))
-    saturate(var(--glass-backdrop-saturate));
-  background: rgba(
-    var(--glass-bg-base-r),
-    var(--glass-bg-base-g),
-    var(--glass-bg-base-b),
-    var(--glass-bg-opacity-primary)
-  );
   border: 1px solid rgba(
     var(--color-base-slate-r),
     var(--color-base-slate-g),
@@ -19,7 +11,56 @@
   );
   border-radius: 32px;
   box-shadow: var(--elevation-contact-rest), var(--glass-panel-outer-shadow);
-  transition: all 0.25s ease;
+  transition: background 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
+}
+
+/*
+ * Page shells: keep backdrop-filter on a static ::before layer.
+ * Applying blur to the same element that scrolls (or that contains a large
+ * scrolling subtree) forces expensive re-blurs every frame on WebKit/Chromium.
+ */
+.glass-surface--panel {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.glass-surface--panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  /* Sit behind panel children without forcing them to position:relative
+     (that was overriding absolute close/back controls). */
+  z-index: -1;
+  pointer-events: none;
+  backdrop-filter: blur(var(--glass-blur-primary))
+    saturate(var(--glass-backdrop-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur-primary))
+    saturate(var(--glass-backdrop-saturate));
+  background: rgba(
+    var(--glass-bg-base-r),
+    var(--glass-bg-base-g),
+    var(--glass-bg-base-b),
+    var(--glass-bg-opacity-primary)
+  );
+  transform: translateZ(0);
+}
+
+.glass-container {
+  backdrop-filter: blur(var(--glass-blur-primary))
+    saturate(var(--glass-backdrop-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur-primary))
+    saturate(var(--glass-backdrop-saturate));
+  background: rgba(
+    var(--glass-bg-base-r),
+    var(--glass-bg-base-g),
+    var(--glass-bg-base-b),
+    var(--glass-bg-opacity-primary)
+  );
 }
 
 /* Variants */

@@ -1,6 +1,9 @@
 import "./App.css";
 import "./oauthBootstrap";
+import { useEffect } from "react";
 import { HashRouter, Route, Routes } from "react-router-dom";
+
+import { enhanceMomentumScrolling } from "./utils/momentumScroll";
 
 import { LoginRoute, SetupRoute } from "./components/AuthRoutes";
 import ProtectedRoute from "./components/ProtectedRoute";
@@ -29,6 +32,24 @@ import Settings from "./pages/Settings";
 import SpectraConfigPage from "./pages/SpectraConfig";
 import Setup from "./pages/Setup";
 import Login from "./pages/Login";
+
+function MomentumScrollEnhancer() {
+  useEffect(() => {
+    enhanceMomentumScrolling();
+    let queued = false;
+    const observer = new MutationObserver(() => {
+      if (queued) return;
+      queued = true;
+      window.requestAnimationFrame(() => {
+        queued = false;
+        enhanceMomentumScrolling();
+      });
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, []);
+  return null;
+}
 
 function AppShell() {
   return (
@@ -163,6 +184,7 @@ function AppShell() {
 export default function App() {
   return (
     <HashRouter>
+      <MomentumScrollEnhancer />
       <AuthProvider>
         <RecoveryCodeProvider>
         <PreferencesProvider>

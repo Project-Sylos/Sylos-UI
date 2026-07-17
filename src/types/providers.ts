@@ -24,6 +24,8 @@ export interface CloudRoot {
   displayName: string;
   rootType: CloudRootType;
   driveId?: string;
+  migrationRootForbidden?: boolean;
+  migrationRootForbiddenReason?: string;
 }
 
 export interface CloudConnection {
@@ -45,6 +47,8 @@ export interface ConnectionTokenResponse {
   providerId: string;
   valid: boolean;
   expiresAt?: string;
+  accountEmail?: string;
+  accountDisplayName?: string;
 }
 
 export interface ConnectionStatusResponse {
@@ -52,6 +56,8 @@ export interface ConnectionStatusResponse {
   providerId: string;
   valid: boolean;
   expiresAt?: string;
+  accountEmail?: string;
+  accountDisplayName?: string;
 }
 
 export interface SFTPCredentialsPayload {

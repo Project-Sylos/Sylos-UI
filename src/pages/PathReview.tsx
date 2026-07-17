@@ -88,38 +88,57 @@ interface ToastState {
 
 /**
  * Apply API deltas to local stats (no refetch).
- * Canonical keys: traversalPending, traversalPendingRetry, traversalFailed, copyPending, copyFailed,
- * excluded, folders, files, sizeSrc, sizeDst. Only non-zero deltas are present.
+ * Canonical keys include traversal/copy/delete status buckets plus excluded,
+ * folders, files, sizeSrc, and sizeDst. Only non-zero deltas are present.
  * Stats mapping matches normalizePathReviewStats: “Pending” is copyStatusCounts.pending (copyPending),
  * “Pending Retry” is traversal pending in traversal phase / copy pending in copy phase.
  * - Traversal: copyPending → pendingCount; traversalPending → pendingCount (legacy); traversalFailed → failedCount; traversalPendingRetry → pendingRetriesCount.
  * - Copy: copyPending → pendingCount and pendingRetriesCount; copyFailed → failedCount.
+ * - Delete/source cleanup: deletePending → pendingCount; deleteFailed → failedCount;
+ *   deleteSkipped → excludedCount.
  */
 function applyStatsDeltas(
   prev: PathReviewStats | null,
   deltas: Record<string, number> | undefined,
-  phase: "traversal" | "copy"
+  phase: "traversal" | "copy" | "delete" | "source-cleanup"
 ): PathReviewStats | null {
   if (!prev || !deltas || Object.keys(deltas).length === 0) return prev;
   const d = (k: string) => deltas[k] ?? 0;
   const isCopy = phase === "copy";
-  const failedDelta = isCopy ? d("copyFailed") : d("traversalFailed");
+  const isDelete = phase === "delete" || phase === "source-cleanup";
+  const failedDelta = isDelete
+    ? d("deleteFailed")
+    : isCopy
+      ? d("copyFailed")
+      : d("traversalFailed");
+  const pendingDelta = isDelete
+    ? d("deletePending")
+    : d("copyPending") + (isCopy ? 0 : d("traversalPending"));
   const foldersCount = Math.max(0, prev.foldersCount + d("folders"));
   const filesCount = Math.max(0, prev.filesCount + d("files"));
   const total = foldersCount + filesCount;
   return {
-    pendingCount: Math.max(
-      0,
-      prev.pendingCount +
-        d("copyPending") +
-        (isCopy ? 0 : d("traversalPending"))
-    ),
+    pendingCount: Math.max(0, prev.pendingCount + pendingDelta),
     failedCount: Math.max(0, prev.failedCount + failedDelta),
-    excludedCount: Math.max(0, prev.excludedCount + d("excluded")),
+    excludedCount: Math.max(
+      0,
+      prev.excludedCount + (isDelete ? d("deleteSkipped") : d("excluded"))
+    ),
     pendingRetriesCount: Math.max(
       0,
       (prev.pendingRetriesCount ?? 0) +
-        (isCopy ? d("copyPending") : d("traversalPendingRetry"))
+        (phase === "delete"
+          ? d("deletePending")
+          : phase === "source-cleanup"
+            ? 0
+            : isCopy
+              ? d("copyPending")
+              : d("traversalPendingRetry"))
+    ),
+    successfulCount: Math.max(
+      0,
+      (prev.successfulCount ?? 0) +
+        (isDelete ? d("deleteDeleted") : d("copySuccessful"))
     ),
     foldersCount,
     filesCount,
@@ -204,6 +223,8 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
   const [highlightedItemId, setHighlightedItemId] = useState<string | null>(null);
   const [deleteSummary, setDeleteSummary] = useState<DeleteSummaryResponse | null>(null);
   const sourceCleanupPreparedRef = useRef(false);
+  /** Source-cleanup / delete review: hide destination-only by default. */
+  const [showDestinationOnly, setShowDestinationOnly] = useState(false);
   
   // Tree view pagination
   const [treeCurrentPage, setTreeCurrentPage] = useState(0);
@@ -213,6 +234,18 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
   // Map of locationPath -> page number to remember pagination per folder
   const [folderPageMap, setFolderPageMap] = useState<Map<string, number>>(new Map());
   const currentTreePathRef = useRef<string>("/");
+
+  const destinationOnlyToggleVisible =
+    isSourceCleanupView || isDeleteReviewPhase(migrationStatus);
+  const includeDestinationOnly = destinationOnlyToggleVisible
+    ? showDestinationOnly
+    : true;
+
+  const handleShowDestinationOnlyChange = (next: boolean) => {
+    setShowDestinationOnly(next);
+    setTreeCurrentPage(0);
+    setFolderPageMap(new Map());
+  };
   
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -231,7 +264,11 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
     if (!migrationId || activeTab !== "tree") return; // Only fetch stats when on tree view
     try {
       const currentPhase = getCurrentPhase();
-      const statsData = await getPathReviewStats(migrationId, currentPhase);
+      const statsData = await getPathReviewStats(
+        migrationId,
+        currentPhase,
+        isSourceCleanupView ? "source-cleanup" : undefined
+      );
       // Always update stats from polling, but list view selection stats will override when items are selected
       // This ensures stats are always fresh when user deselects items
       if (statsData) {
@@ -461,7 +498,7 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
       loadItems(currentLocationPath, treeCurrentPage);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [treeCurrentPage, treeItemsPerPage]);
+  }, [treeCurrentPage, treeItemsPerPage, includeDestinationOnly]);
 
   // Handle click outside items per page dropdown
   useEffect(() => {
@@ -489,9 +526,9 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
     }
   };
 
-  // Apply action deltas to local stats (no refetch). Uses current phase so traversal vs copy keys map correctly.
+  // Apply action deltas to local stats (no refetch), projected for the visible review.
   const handleApplyStatsDeltas = (deltas: Record<string, number>) => {
-    const phase = getCurrentPhase();
+    const phase = isSourceCleanupView ? "source-cleanup" : getCurrentPhase();
     setStats((prev) => applyStatsDeltas(prev, deltas, phase));
   };
 
@@ -644,9 +681,10 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
         locationPath: locationPath || "/",
         offset,
         limit: treeItemsPerPage,
+        includeDestinationOnly,
       });
 
-      // Response already filters out DST-only items and returns items with inSrc/inDst flags
+      // Server may exclude destination-only when includeDestinationOnly is false.
       let filteredItems = response.items;
 
       // Sort: folders first, then files, both alphabetically by name
@@ -1590,6 +1628,16 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
           >
             List View
           </button>
+          {destinationOnlyToggleVisible && (
+            <label className="path-review__destination-only-toggle">
+              <input
+                type="checkbox"
+                checked={showDestinationOnly}
+                onChange={(e) => handleShowDestinationOnlyChange(e.target.checked)}
+              />
+              <span>Show destination-only items</span>
+            </label>
+          )}
         </div>
 
         {error && <div className="path-review__error">{error}</div>}
@@ -1641,7 +1689,12 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
         {/* Status Legend with Pagination */}
         {!loading && items.length > 0 && (
           <div className="path-review-list__legend-wrapper">
-            <PathReviewLegend zoomLevel={1} className="path-review__legend--compact" phase={getDisplayPhase()} />
+            <PathReviewLegend
+              zoomLevel={1}
+              className="path-review__legend--compact"
+              phase={getDisplayPhase()}
+              showDestinationOnly={includeDestinationOnly}
+            />
             {pagination && (
               <div className="path-review-list__page-nav">
                 <div className="path-review-list__items-per-page-compact" ref={treeItemsPerPageDropdownRef}>
@@ -1859,6 +1912,10 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
               isActive={activeTab === "list"}
               onSkipDeleteClick={handleSkipDeleteClick}
               treeListRefreshToken={treeListRefreshToken}
+              includeDestinationOnly={includeDestinationOnly}
+              showDestinationOnlyToggle={destinationOnlyToggleVisible}
+              showDestinationOnly={showDestinationOnly}
+              onShowDestinationOnlyChange={handleShowDestinationOnlyChange}
               onListDataMutated={handleListDataMutated}
               onItemUpdate={() => {
                 startStatsPolling();

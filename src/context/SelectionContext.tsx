@@ -30,6 +30,10 @@ type MigrationState = {
   migrationId?: string;
   sourceConnectionId?: string;
   destinationConnectionId?: string;
+  sourceAccountEmail?: string;
+  sourceAccountDisplayName?: string;
+  destinationAccountEmail?: string;
+  destinationAccountDisplayName?: string;
   ready: boolean;
   /** Spectra sets both roots at once; locks the auto-set endpoint. */
   spectraLocked?: boolean;
@@ -256,9 +260,8 @@ export function SelectionProvider({ children }: { children: ReactNode }) {
       for (const [key, value] of Object.entries(update) as Array<
         [keyof MigrationState, MigrationState[keyof MigrationState]]
       >) {
-        if (value !== undefined) {
-          next[key] = value;
-        }
+        // Allow explicit undefined to clear optional fields (e.g. disconnect).
+        next[key] = value as never;
       }
       return next;
     });

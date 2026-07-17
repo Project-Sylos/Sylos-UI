@@ -5,7 +5,7 @@
 
 .selection-page {
   position: relative;
-  min-height: 100vh;
+  height: 100vh;
   width: 100%;
   display: flex;
   align-items: center;
@@ -32,11 +32,28 @@
   position: relative;
   z-index: 1;
   width: min(960px, 100%);
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.selection-page__scroll {
   display: flex;
   flex-direction: column;
   gap: 2.5rem;
   text-align: center;
   padding: clamp(2rem, 5vw, 3rem) clamp(2rem, 5vw, 4rem);
+  box-sizing: border-box;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-gutter: stable;
+  /* Composite the scroller independently of the frosted panel behind it. */
+  contain: paint;
+  transform: translateZ(0);
 }
 
 .selection-page__header h1 {
@@ -92,15 +109,17 @@
   box-shadow: var(--selection-card-shadow);
   color: inherit;
   cursor: pointer;
-  transition: transform 0.25s ease, border-color 0.25s ease,
-    box-shadow 0.25s ease, background 0.25s ease;
+  transition: transform 0.2s ease, border-color 0.2s ease,
+    box-shadow 0.2s ease, background 0.2s ease;
 }
 
-.selection-page__card:hover {
-  transform: translateY(-6px);
-  border-color: var(--selection-card-border-color-hover);
-  background: var(--selection-card-hover-background);
-  box-shadow: var(--selection-card-hover-shadow);
+@media (hover: hover) and (pointer: fine) {
+  .selection-page__card:hover {
+    transform: translateY(-6px);
+    border-color: var(--selection-card-border-color-hover);
+    background: var(--selection-card-hover-background);
+    box-shadow: var(--selection-card-hover-shadow);
+  }
 }
 
 .selection-page__card:disabled,
@@ -161,8 +180,41 @@
   line-height: 1.5;
 }
 
+.selection-page__scroll::-webkit-scrollbar {
+  width: 8px;
+}
+
+.selection-page__scroll::-webkit-scrollbar-track {
+  background: rgba(
+    var(--color-base-dark-r),
+    var(--color-base-dark-g),
+    var(--color-base-dark-b),
+    var(--glass-bg-opacity-tertiary)
+  );
+  border-radius: 4px;
+}
+
+.selection-page__scroll::-webkit-scrollbar-thumb {
+  background: rgba(
+    var(--color-base-slate-r),
+    var(--color-base-slate-g),
+    var(--color-base-slate-b),
+    0.3
+  );
+  border-radius: 4px;
+}
+
+.selection-page__scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(
+    var(--color-base-slate-r),
+    var(--color-base-slate-g),
+    var(--color-base-slate-b),
+    0.4
+  );
+}
+
 @media (max-width: 640px) {
-  .selection-page__content {
+  .selection-page__scroll {
     gap: 2rem;
   }
 
@@ -175,4 +227,3 @@
     height: 64px;
   }
 }
-

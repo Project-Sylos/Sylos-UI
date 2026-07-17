@@ -10,7 +10,9 @@ import { useSelection } from "../context/SelectionContext";
 import { usePreferences } from "../contexts/PreferencesContext";
 import { getPresetRootForServiceType } from "../data/presetRoots";
 import { setMigrationRoot } from "../api/services";
+import { fetchProviders } from "../api/providers";
 import { Folder } from "../types/services";
+import { ProviderDescriptor } from "../types/providers";
 import { folderToApiRoot, isSpectraEligible } from "../utils/migrationRoots";
 import { isCloudServiceType, serviceIdToProviderId } from "../utils/cloudProviders";
 import {
@@ -18,6 +20,11 @@ import {
   checkCloudConnection,
   resolveCloudNavigation,
 } from "../utils/cloudConnections";
+import {
+  clearAccountFields,
+  clearEndpointCloudState,
+} from "../utils/cloudAccountLabel";
+import { shouldShowServiceInSelection } from "../utils/serviceSelectionFilter";
 
 export default function Destination() {
   const navigate = useNavigate();
@@ -35,16 +42,36 @@ export default function Destination() {
   } = useSelection();
   const { preferences } = usePreferences();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [providers, setProviders] = useState<ProviderDescriptor[]>([]);
   const processedStateRef = useRef<string | null>(null);
 
   useEffect(() => {
     void refreshServices();
   }, [refreshServices]);
 
+  useEffect(() => {
+    let cancelled = false;
+    void fetchProviders()
+      .then((list) => {
+        if (!cancelled) setProviders(list);
+      })
+      .catch((err) => {
+        console.warn("Failed to load providers for service filtering", err);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const spectraEligible = isSpectraEligible(
     source?.root,
     destination?.root,
     migration.spectraLocked
+  );
+
+  const providersById = useMemo(
+    () => new Map(providers.map((provider) => [provider.id, provider])),
+    [providers]
   );
 
   const saveDestinationRoot = async (
@@ -121,11 +148,15 @@ export default function Destination() {
         sourceConnectionId: response.sourceConnectionId,
         destinationConnectionId: response.destinationConnectionId,
         ready: response.ready,
+        ...(isCloudServiceType(destinationService.type)
+          ? {}
+          : clearEndpointCloudState("destination")),
       });
 
       selectDestination(destinationService, destinationRoot);
       navigate("/summary");
     } catch (err) {
+      updateMigration(clearAccountFields("destination"));
       const message =
         err instanceof Error ? err.message : "Failed to set destination root.";
       alert(message);
@@ -178,16 +209,17 @@ export default function Destination() {
   const options = useMemo(
     () =>
       services
-        .filter((service) => {
-          if (service.type === "spectra") {
-            if (!spectraEligible) return false;
-            return (
+        .filter((service) =>
+          shouldShowServiceInSelection({
+            service,
+            spectraEligible,
+            showSpectra:
               preferences.developer?.enabled === true &&
-              preferences.developer?.showSpectraService === true
-            );
-          }
-          return true;
-        })
+              preferences.developer?.showSpectraService === true,
+            hideUnsetServices: preferences.hideUnsetServices === true,
+            providersById,
+          })
+        )
         .map((service) => {
           const visual =
             serviceSelectionOptions[service.id] ??
@@ -201,7 +233,13 @@ export default function Destination() {
             iconAccent: visual.iconAccent,
           };
         }),
-    [services, preferences.developer, spectraEligible]
+    [
+      services,
+      preferences.developer,
+      preferences.hideUnsetServices,
+      spectraEligible,
+      providersById,
+    ]
   );
 
   const handleSelect = async (id: string) => {
@@ -223,6 +261,7 @@ export default function Destination() {
     }
 
     if (selected.type === "local") {
+      updateMigration(clearEndpointCloudState("destination"));
       navigate(`/browse?serviceId=${selected.id}&role=destination`);
       return;
     }

@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 
 import { exchangeOAuthCode } from "../api/providers";
+import { useSelection } from "../context/SelectionContext";
 import {
   clearOAuthPendingSession,
   dedupeOAuthCodeExchange,
@@ -11,11 +12,13 @@ import {
   loadOAuthPendingSession,
   readOAuthCallbackParams,
 } from "../utils/cloudOAuth";
+import { accountFieldsFromStatus } from "../utils/cloudAccountLabel";
 import { getCloudProviderSignInBrand } from "../utils/cloudProviderOAuth";
 import "../App.css";
 
 export default function OAuthCallback() {
   const navigate = useNavigate();
+  const { updateMigration, persistSelections } = useSelection();
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -48,7 +51,7 @@ export default function OAuthCallback() {
       }
 
       try {
-        await dedupeOAuthCodeExchange(code, () =>
+        const status = await dedupeOAuthCodeExchange(code, () =>
           exchangeOAuthCode(pending.providerId, pending.connectionId, {
             code,
             redirect_uri: getOAuthRedirectUri(),
@@ -57,6 +60,20 @@ export default function OAuthCallback() {
         );
 
         if (cancelled) return;
+
+        const accountPatch = accountFieldsFromStatus(pending.role, status);
+        updateMigration({
+          ...(pending.role === "source"
+            ? { sourceConnectionId: pending.connectionId }
+            : { destinationConnectionId: pending.connectionId }),
+          ...accountPatch,
+        });
+        persistSelections({
+          ...(pending.role === "source"
+            ? { sourceConnectionId: pending.connectionId }
+            : { destinationConnectionId: pending.connectionId }),
+          ...accountPatch,
+        });
 
         clearOAuthPendingSession();
 
@@ -80,7 +97,7 @@ export default function OAuthCallback() {
     return () => {
       cancelled = true;
     };
-  }, [navigate]);
+  }, [navigate, updateMigration, persistSelections]);
 
   return (
     <section className="browse-folder">

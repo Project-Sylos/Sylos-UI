@@ -38,6 +38,17 @@ import {
   useBrowseSelection,
 } from "../hooks/useBrowseSelection";
 import { CloudRoot } from "../types/providers";
+
+/** Pass rootType/driveId only when listing a virtual root from /roots. */
+function rootListOptions(identifier: string, root: CloudRoot) {
+  if (identifier !== root.id) {
+    return {};
+  }
+  return {
+    ...(root.rootType ? { rootType: root.rootType } : {}),
+    ...(root.driveId ? { driveId: root.driveId } : {}),
+  };
+}
 import { Folder, PaginationInfo } from "../types/services";
 import { buildCloudConnectPath } from "../utils/cloudConnections";
 import { getBrowseTrailFromFolder } from "../utils/migrationRoots";
@@ -327,6 +338,7 @@ function BrowseCloudFolderPage() {
           offset: 0,
           limit: itemsPerPage,
           ...(hideFiles ? { foldersOnly: true } : {}),
+          ...rootListOptions(folder.ServiceID, matchedRoot),
         }
       );
 
@@ -368,6 +380,7 @@ function BrowseCloudFolderPage() {
           offset,
           limit,
           ...(hideFiles ? { foldersOnly: true } : {}),
+          ...rootListOptions(identifier, root),
         }
       );
 
@@ -512,6 +525,14 @@ function BrowseCloudFolderPage() {
       return;
     }
 
+    if (breadcrumbs.length <= 1 && activeRoot.migrationRootForbidden) {
+      setError(
+        activeRoot.migrationRootForbiddenReason ??
+          "This virtual location cannot be used as a migration root. Select a folder inside it."
+      );
+      return;
+    }
+
     if (role === "source" && pagination && pagination.total === 0) {
       setError(
         "You cannot use an empty folder as the source root. There is nothing to migrate."
@@ -602,6 +623,11 @@ function BrowseCloudFolderPage() {
 
   const canGoBack = Boolean(activeRoot);
   const canSelect = !isRootPicker && Boolean(currentIdentifier);
+  const selectedRootForbidden =
+    breadcrumbs.length <= 1 && activeRoot?.migrationRootForbidden === true;
+  const forbiddenRootReason =
+    activeRoot?.migrationRootForbiddenReason ??
+    "This virtual location cannot be used as a migration root. Select a folder inside it.";
 
   return (
     <section className="browse-folder">
@@ -735,6 +761,7 @@ function BrowseCloudFolderPage() {
                       <div className="browse-folder__item-name">{root.displayName}</div>
                       <div className="browse-folder__item-meta">
                         {rootTypeLabel(root.rootType)}
+                        {root.migrationRootForbidden ? " · Browse only" : ""}
                       </div>
                     </div>
                     <div
@@ -871,8 +898,10 @@ function BrowseCloudFolderPage() {
                 type="button"
                 className="glass-button glass-button--progress-cta"
                 onClick={() => void handleSelectRoot()}
+                disabled={selectedRootForbidden}
+                title={selectedRootForbidden ? forbiddenRootReason : undefined}
               >
-                Select
+                {selectedRootForbidden ? "Select a folder inside" : "Select"}
               </button>
             )}
           </div>

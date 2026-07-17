@@ -2,6 +2,7 @@ import { FormEvent, useState } from "react";
 import { Loader2 } from "lucide-react";
 
 import { createConnection, postProviderCredentials, probeSftpHostKey } from "../api/providers";
+import { ConnectionTokenResponse } from "../types/providers";
 import { SFTPCredentialsPayload } from "../types/providers";
 
 type AuthMethod = "password" | "pem";
@@ -12,7 +13,7 @@ type SftpCredentialsFormProps = {
   serviceId: string;
   role: "source" | "destination";
   migrationId?: string;
-  onConnected: (connectionId: string) => void;
+  onConnected: (connectionId: string, status?: ConnectionTokenResponse) => void;
   onCancel: () => void;
 };
 
@@ -111,12 +112,12 @@ export default function SftpCredentialsForm({
     setError(null);
     try {
       const connection = await createConnection(providerId, { migrationId });
-      await postProviderCredentials(
+      const status = await postProviderCredentials(
         providerId,
         connection.connectionId,
         buildPayload(hostKey)
       );
-      onConnected(connection.connectionId);
+      onConnected(connection.connectionId, status);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to connect SFTP server.");
       setStep("credentials");

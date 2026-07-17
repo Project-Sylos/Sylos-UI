@@ -46,6 +46,19 @@ export default function PathReviewStatusIcon({
   const baseClass = className || 'path-review__item-status-icon';
 
   if (isSourceCleanup) {
+    const existsOnlyOnDst =
+      !item.src ||
+      item.traversalStatus === "not_on_src" ||
+      item.dst?.traversalStatus === "not_on_src";
+    if (existsOnlyOnDst && !item.src) {
+      return (
+        <Check
+          size={iconSize}
+          className={`${baseClass} ${baseClass}--exists-only-dst`}
+          style={{ cursor: "default" }}
+        />
+      );
+    }
     const copyStatus = item.src?.copyStatus || item.copyStatus || "";
     if (copyStatus !== "successful" || !item.src) {
       return null;
@@ -72,6 +85,19 @@ export default function PathReviewStatusIcon({
   }
 
   if (isDeleteReview) {
+    const existsOnlyOnDst =
+      !item.src ||
+      item.traversalStatus === "not_on_src" ||
+      item.dst?.traversalStatus === "not_on_src";
+    if (existsOnlyOnDst && !item.src) {
+      return (
+        <Check
+          size={iconSize}
+          className={`${baseClass} ${baseClass}--exists-only-dst`}
+          style={{ cursor: "default" }}
+        />
+      );
+    }
     if (!item.src) {
       return null;
     }

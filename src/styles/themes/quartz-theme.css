@@ -55,10 +55,10 @@
   --button-shadow-opacity: 0.06;
   --button-shadow-opacity-hover: 0.1;
 
-  /* Warm near-white glass tint */
-  --glass-bg-base-r: 255;
-  --glass-bg-base-g: 252;
-  --glass-bg-base-b: 248;
+  /* Cool near-white glass tint for primary shells */
+  --glass-bg-base-r: 248;
+  --glass-bg-base-g: 251;
+  --glass-bg-base-b: 255;
 
   /* “Dark” channel used for subtle panel tints in components */
   --color-base-dark-r: 248;
@@ -135,8 +135,8 @@
 
   --selection-card-background: linear-gradient(
     165deg,
-    rgba(255, 254, 252, 0.97) 0%,
-    rgba(248, 250, 253, 0.88) 100%
+    rgba(250, 253, 255, 0.97) 0%,
+    rgba(243, 248, 253, 0.9) 100%
   );
   --selection-card-border-color: rgba(100, 116, 139, 0.14);
   --selection-card-shadow: var(--elevation-contact-rest),
@@ -145,8 +145,8 @@
   --selection-card-border-color-hover: var(--accent-cyan-opacity-10);
   --selection-card-hover-background: linear-gradient(
     165deg,
-    rgba(255, 255, 255, 1) 0%,
-    rgba(252, 253, 255, 0.96) 100%
+    rgba(252, 254, 255, 1) 0%,
+    rgba(246, 250, 255, 0.97) 100%
   );
   --selection-card-hover-shadow: var(--elevation-contact-hover),
     0 0 0 1px var(--accent-cyan-opacity-10),
@@ -155,7 +155,7 @@
   --selection-card-disabled-shadow: var(--elevation-contact-rest),
     0 12px 28px rgba(26, 26, 46, 0.05);
 
-  --sidebar-surface-bg: rgba(255, 255, 255, 0.28);
+  --sidebar-surface-bg: rgba(242, 248, 255, 0.38);
   --sidebar-surface-border: 1px solid rgba(100, 116, 139, 0.16);
   --sidebar-edge-shadow: 4px 0 24px rgba(26, 26, 46, 0.06);
   --sidebar-button-bg: rgba(255, 255, 255, 0.38);

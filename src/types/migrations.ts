@@ -342,6 +342,8 @@ export interface QueueMetrics {
   copy_rate_bytes_per_sec?: number;
   bytes_copied_per_sec?: number;
   possible_stall?: boolean;
+  /** Engine-computed copy/delete progress 0–100. */
+  progress_percent?: number;
 }
 
 export interface MigrationQueueMetricsResponse {

@@ -267,7 +267,15 @@ export default function CloudProviderOAuthSetup({
 
             {variant === "expanded" && docs && (
               <p className="cloud-oauth-setup__docs">
-                <a href={docs.setupGuideUrl} target="_blank" rel="noreferrer">
+                <a
+                  href={docs.setupGuideUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    window.open(docs.setupGuideUrl, "_blank", "noopener,noreferrer");
+                  }}
+                >
                   {docs.setupGuideLabel}
                 </a>
                 {" · "}

@@ -6,9 +6,14 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { ExternalLink } from "lucide-react";
+import codebergIcon from "../assets/external/codeberg.svg";
+import discordIcon from "../assets/external/discord.svg";
 import "../components/ConfirmDialog.css";
+import "../components/HelpModal.css";
 
-const SYLOS_COMMUNITY_URL = "https://codeberg.org/Sylos";
+const SYLOS_WIKI_URL = "https://codeberg.org/Sylos/Sylos/wiki/";
+const SYLOS_DISCORD_URL = "https://chat.sylos.io/";
 
 export type HelpModalPayload = {
   title: string;
@@ -85,23 +90,55 @@ export function useHelpModal(): HelpModalContextValue {
 
 export function defaultHelpModalBody(): ReactNode {
   return (
-    <>
-      <p>
-        Documentation links are coming soon. For questions, bug reports, or to
-        connect with others using Sylos, visit our community on Codeberg.
-      </p>
-      <p style={{ marginTop: "1rem" }}>
+    <div className="help-modal__links">
         <a
-          href={SYLOS_COMMUNITY_URL}
+          className="help-modal__link-row"
+          href={SYLOS_WIKI_URL}
           target="_blank"
           rel="noopener noreferrer"
-          style={{ color: "var(--accent-cyan, #22d3ee)" }}
+          onClick={(event) => {
+            event.preventDefault();
+            window.open(SYLOS_WIKI_URL, "_blank", "noopener,noreferrer");
+          }}
         >
-          Sylos on Codeberg →
+          <span className="help-modal__brand-icon">
+            <img src={codebergIcon} alt="" aria-hidden="true" />
+          </span>
+          <span className="help-modal__link-copy">
+            <span className="help-modal__link-title">Sylos Wiki</span>
+            <span className="help-modal__link-description">
+              Documentation, setup guides, and usage help
+            </span>
+          </span>
+          <span className="help-modal__external" aria-hidden="true">
+            <ExternalLink size={16} />
+          </span>
         </a>
-      </p>
-    </>
+        <a
+          className="help-modal__link-row"
+          href={SYLOS_DISCORD_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(event) => {
+            event.preventDefault();
+            window.open(SYLOS_DISCORD_URL, "_blank", "noopener,noreferrer");
+          }}
+        >
+          <span className="help-modal__brand-icon help-modal__brand-icon--discord">
+            <img src={discordIcon} alt="" aria-hidden="true" />
+          </span>
+          <span className="help-modal__link-copy">
+            <span className="help-modal__link-title">Sylos Discord</span>
+            <span className="help-modal__link-description">
+              Ask questions and connect with the community
+            </span>
+          </span>
+          <span className="help-modal__external" aria-hidden="true">
+            <ExternalLink size={16} />
+          </span>
+        </a>
+    </div>
   );
 }
 
-export { SYLOS_COMMUNITY_URL };
+export { SYLOS_DISCORD_URL, SYLOS_WIKI_URL };

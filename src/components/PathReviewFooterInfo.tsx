@@ -30,22 +30,28 @@ function folderFilePercentInts(foldersRatio: number, filesRatio: number): {
   return { folders: 100 - filesInt, files: filesInt };
 }
 
+export type PathReviewFooterHighlight = "compat" | "failed";
+
+export type PathReviewFooterItem = {
+  label: string;
+  value?: string | React.ReactNode;
+  isRatio?: boolean; // Special case for ratio bar
+  ratioValues?: {
+    folders: number;
+    files: number;
+  };
+  /** Soft chip highlight for non-zero attention counts. */
+  highlight?: PathReviewFooterHighlight;
+  tooltip?: {
+    tipId: string;
+    category: string;
+    content: React.ReactNode;
+    position?: "above" | "right" | "left" | "below";
+  };
+};
+
 interface PathReviewFooterInfoProps {
-  items: Array<{
-    label: string;
-    value?: string | React.ReactNode;
-    isRatio?: boolean; // Special case for ratio bar
-    ratioValues?: {
-      folders: number;
-      files: number;
-    };
-    tooltip?: {
-      tipId: string;
-      category: string;
-      content: React.ReactNode;
-      position?: "above" | "right" | "left" | "below";
-    };
-  }>;
+  items: PathReviewFooterItem[];
   className?: string;
 }
 
@@ -79,8 +85,15 @@ export default function PathReviewFooterInfo({ items, className = "" }: PathRevi
           );
         }
 
+        const highlightClass =
+          item.highlight === "compat"
+            ? " path-review-footer-info__stat--compat"
+            : item.highlight === "failed"
+              ? " path-review-footer-info__stat--failed"
+              : "";
+
         return (
-          <span key={index} className="path-review-footer-info__stat">
+          <span key={index} className={`path-review-footer-info__stat${highlightClass}`}>
             <span className="path-review-footer-info__stat-label">
               {item.label}:
               {item.tooltip && (
@@ -99,4 +112,3 @@ export default function PathReviewFooterInfo({ items, className = "" }: PathRevi
     </div>
   );
 }
-

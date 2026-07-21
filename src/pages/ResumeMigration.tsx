@@ -10,11 +10,13 @@ import {
   stopMigration,
   getMigrationStatus,
   uploadMigrationDB,
+  resumeMigration,
 } from "../api/services";
 import { clearAllMigrations } from "../api/admin";
 import DestructiveConfirmDialog from "../components/CleanSlateDialog";
 import "../components/CleanSlateDialog.css";
 import {
+  MigrationStatusResponse,
   MigrationWithStatus,
   getMigrationPhase,
   isMigrationLive,
@@ -64,6 +66,8 @@ export default function ResumeMigration() {
           configPath: "", // API doesn't return configPath
           createdAt: migration.startedAt || new Date().toISOString(),
           status: migration.status,
+          phase: migration.phase ?? migration.status,
+          live: migration.live,
           sourceId: migration.sourceId,
           destinationId: migration.destinationId,
           startedAt: migration.startedAt,
@@ -163,32 +167,77 @@ export default function ResumeMigration() {
     setPendingUpload(null);
   };
 
+  /** Progress-monitor mode query for a lifecycle phase. */
+  const progressMonitorModeForPhase = (phase: string): "discovery" | "copy" | "delete" => {
+    if (
+      phase === "copy-in-progress" ||
+      phase === "copy-suspended" ||
+      phase === "awaiting-copy-review"
+    ) {
+      return "copy";
+    }
+    if (
+      phase === "delete-in-progress" ||
+      phase === "delete-suspended" ||
+      phase === "awaiting-delete-review"
+    ) {
+      return "delete";
+    }
+    return "discovery";
+  };
+
   /**
-   * Determines the appropriate page to navigate to based on migration state
+   * Determines the appropriate page to navigate to based on migration state.
+   * Review → path-review; suspended / in-progress → progress-monitor; setup → summary.
    */
-  const determineNavigationTarget = (statusData: any): string => {
+  const determineNavigationTarget = (
+    statusData: MigrationStatusResponse
+  ): { path: string; shouldCallResume: boolean } => {
     const phase = getMigrationPhase(statusData);
-    const hasRoots = statusData?.result?.rootSummary !== undefined;
-    const migrationId = statusData?.id;
+    const migrationId = statusData.id;
 
     switch (phase) {
       case "awaiting-traversal-review":
       case "awaiting-copy-review":
-        return `/path-review/${migrationId}`;
+        return { path: `/path-review/${migrationId}`, shouldCallResume: false };
+      case "awaiting-delete-review":
+        return {
+          path: `/path-review/${migrationId}/source-cleanup`,
+          shouldCallResume: false,
+        };
+      case "traversal-suspended":
+      case "copy-suspended":
+      case "delete-suspended": {
+        const mode = progressMonitorModeForPhase(phase);
+        return {
+          path: `/progress-monitor/${migrationId}?mode=${mode}&retry=1`,
+          shouldCallResume: true,
+        };
+      }
+      case "failed":
+        return {
+          path: `/progress-monitor/${migrationId}?retry=1`,
+          shouldCallResume: true,
+        };
       case "traversal-in-progress":
       case "copy-in-progress":
-        return `/progress-monitor/${migrationId}`;
+      case "delete-in-progress": {
+        // Dead in-progress (not live) is normalized + resumed by the API.
+        const mode = progressMonitorModeForPhase(phase);
+        const live = isMigrationLive(statusData);
+        return {
+          path: `/progress-monitor/${migrationId}?mode=${mode}${live ? "" : "&retry=1"}`,
+          shouldCallResume: !live,
+        };
+      }
       case "roots-set":
       case "filters-set":
-        return `/summary`;
+        return { path: `/summary`, shouldCallResume: false };
       default:
         break;
     }
 
-    if (hasRoots) {
-      return `/summary`;
-    }
-    return "/summary";
+    return { path: `/summary`, shouldCallResume: false };
   };
 
   const handleResume = async (migrationId: string) => {
@@ -211,18 +260,26 @@ export default function ResumeMigration() {
       // The migrationId is the most important - source/destination will be reselected if needed
       updateMigration({
         migrationId: statusData.id,
-        ready: statusData.result?.rootSummary !== undefined,
+        sourceConnectionId: statusData.sourceRoot?.connectionId,
+        destinationConnectionId: statusData.destinationRoot?.connectionId,
+        ready: statusData.result?.rootSummary !== undefined || Boolean(statusData.sourceRoot),
       });
 
-      // Rehydrate source/destination from the server so the summary repopulates
-      // even when browser sessionStorage was cleared (e.g. resuming in a fresh session).
-      applyServerRoots(statusData.sourceRoot, statusData.destinationRoot);
+      // Rehydrate source/destination from the server so the summary / progress monitor
+      // repopulates even when browser sessionStorage was cleared.
+      applyServerRoots(statusData.sourceRoot, statusData.destinationRoot, true);
 
-      // Determine the appropriate page to navigate to
-      const targetPath = determineNavigationTarget(statusData);
-      
-      // Navigate directly to the appropriate page - no need to "load" the migration
-      // The target page will handle loading the migration data it needs
+      const { path: targetPath, shouldCallResume } =
+        determineNavigationTarget(statusData);
+
+      if (shouldCallResume) {
+        const result = await resumeMigration(migrationId);
+        if (!result.success) {
+          setError(result.error || "Failed to resume migration.");
+          return;
+        }
+      }
+
       navigate(targetPath);
     } catch (err) {
       const errorMessage =
@@ -303,6 +360,16 @@ export default function ResumeMigration() {
     } finally {
       setCleanSlateBusy(false);
     }
+  };
+
+  const showsStopButton = (migration: MigrationWithStatus) => {
+    if (isMigrationLive(migration)) return true;
+    const phase = getMigrationPhase(migration);
+    return (
+      phase === "traversal-in-progress" ||
+      phase === "copy-in-progress" ||
+      phase === "delete-in-progress"
+    );
   };
 
   return (
@@ -408,9 +475,7 @@ export default function ResumeMigration() {
                     Created: {formatDate(migration.createdAt)}
                   </div>
                 </div>
-                {(isMigrationLive(migration) ||
-                  getMigrationPhase(migration) === "traversal-in-progress" ||
-                  getMigrationPhase(migration) === "copy-in-progress") ? (
+                {(showsStopButton(migration)) ? (
                   <button
                     type="button"
                     className="resume-migration__stop-button-inline"

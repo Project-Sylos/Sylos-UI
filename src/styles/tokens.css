@@ -189,7 +189,7 @@
 
   /*
    * Shared UI primitives (fields, alerts, badges, intent buttons, tables)
-   * Theme packs override colors/opacity only — structure lives in ui-primitives.css
+   * Theme packs override colors/opacity only. Structure lives in ui-primitives.css
    */
   --ui-border: rgba(148, 163, 184, 0.22);
   --ui-border-strong: rgba(148, 163, 184, 0.35);

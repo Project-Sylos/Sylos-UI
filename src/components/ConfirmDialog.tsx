@@ -5,8 +5,11 @@ interface ConfirmDialogProps {
   message: string;
   confirmLabel?: string;
   cancelLabel?: string;
+  /** Optional third action (shown between cancel and confirm). */
+  secondaryLabel?: string;
   onConfirm: () => void;
   onCancel: () => void;
+  onSecondary?: () => void;
 }
 
 export default function ConfirmDialog({
@@ -14,8 +17,10 @@ export default function ConfirmDialog({
   message,
   confirmLabel = "Yes",
   cancelLabel = "No",
+  secondaryLabel,
   onConfirm,
   onCancel,
+  onSecondary,
 }: ConfirmDialogProps) {
   return (
     <div className="confirm-dialog__overlay" onClick={onCancel}>
@@ -25,7 +30,11 @@ export default function ConfirmDialog({
       >
         <h2 className="confirm-dialog__title">{title}</h2>
         <p className="confirm-dialog__message">{message}</p>
-        <div className="confirm-dialog__actions">
+        <div
+          className={`confirm-dialog__actions${
+            secondaryLabel ? " confirm-dialog__actions--stacked" : ""
+          }`}
+        >
           <button
             type="button"
             className="confirm-dialog__button confirm-dialog__button--cancel"
@@ -33,6 +42,15 @@ export default function ConfirmDialog({
           >
             {cancelLabel}
           </button>
+          {secondaryLabel && onSecondary ? (
+            <button
+              type="button"
+              className="confirm-dialog__button confirm-dialog__button--secondary"
+              onClick={onSecondary}
+            >
+              {secondaryLabel}
+            </button>
+          ) : null}
           <button
             type="button"
             className="confirm-dialog__button confirm-dialog__button--confirm"
@@ -45,4 +63,3 @@ export default function ConfirmDialog({
     </div>
   );
 }
-

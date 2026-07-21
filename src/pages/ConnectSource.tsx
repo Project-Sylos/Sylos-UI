@@ -156,7 +156,7 @@ export default function ConnectSource() {
       selectSource(selected, root);
       navigate("/summary");
     } catch (err) {
-      // Root never stuck — drop stale cloud account label from a failed attempt.
+      // Root never stuck. Drop stale cloud account label from a failed attempt.
       updateMigration(clearAccountFields("source"));
       const message =
         err instanceof Error ? err.message : "Failed to set source root.";

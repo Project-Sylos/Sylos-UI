@@ -7,6 +7,9 @@ import {
   SFTPHostKeyProbePayload,
   SFTPHostKeyProbeResponse,
   SFTPCredentialsPayload,
+  SFTPSavedHostDetail,
+  SFTPSavedHostSummary,
+  SFTPSavedHostUpsertPayload,
 } from "../types/providers";
 import { ChildrenResponse, Folder, PaginationInfo } from "../types/services";
 import { apiFetch, readErrorMessage } from "./client";
@@ -176,6 +179,8 @@ export async function probeSftpHostKey(
   return {
     hostKey: String(data.hostKey ?? ""),
     fingerprint: String(data.fingerprint ?? ""),
+    trusted: Boolean(data.trusted),
+    hostKeyChanged: Boolean(data.hostKeyChanged),
   };
 }
 
@@ -386,4 +391,84 @@ export async function deleteCloudBrowseNodes(
     deleted: data.deleted ?? [],
     errors: data.errors ?? [],
   };
+}
+
+function normalizeSavedHostSummary(raw: Record<string, unknown>): SFTPSavedHostSummary {
+  return {
+    id: String(raw.id ?? ""),
+    displayName: String(raw.displayName ?? raw.DisplayName ?? ""),
+    host: String(raw.host ?? ""),
+    port: Number(raw.port ?? 22) || 22,
+    username: String(raw.username ?? ""),
+    authMethod: String(raw.authMethod ?? raw.AuthMethod ?? "password"),
+    updatedAt: String(raw.updatedAt ?? raw.UpdatedAt ?? ""),
+    lastUsedAt:
+      raw.lastUsedAt != null
+        ? String(raw.lastUsedAt)
+        : raw.LastUsedAt != null
+          ? String(raw.LastUsedAt)
+          : undefined,
+  };
+}
+
+export async function listSftpSavedHosts(): Promise<SFTPSavedHostSummary[]> {
+  const response = await apiFetch("/api/providers/sftp/saved-hosts");
+  if (!response.ok) {
+    throw new Error(`Failed to list saved SFTP hosts: ${await readErrorMessage(response)}`);
+  }
+  const data = (await response.json()) as { items?: Record<string, unknown>[] };
+  return (data.items ?? []).map((item) => normalizeSavedHostSummary(item));
+}
+
+export async function getSftpSavedHost(hostId: string): Promise<SFTPSavedHostDetail> {
+  const response = await apiFetch(`/api/providers/sftp/saved-hosts/${encodeURIComponent(hostId)}`);
+  if (!response.ok) {
+    throw new Error(`Failed to load saved SFTP host: ${await readErrorMessage(response)}`);
+  }
+  const raw = (await response.json()) as Record<string, unknown>;
+  return {
+    ...normalizeSavedHostSummary(raw),
+    password: raw.password != null ? String(raw.password) : undefined,
+    privateKey:
+      raw.privateKey != null
+        ? String(raw.privateKey)
+        : raw.PrivateKey != null
+          ? String(raw.PrivateKey)
+          : undefined,
+    keyPassphrase:
+      raw.keyPassphrase != null
+        ? String(raw.keyPassphrase)
+        : raw.KeyPassphrase != null
+          ? String(raw.KeyPassphrase)
+          : undefined,
+    hostKey:
+      raw.hostKey != null
+        ? String(raw.hostKey)
+        : raw.HostKey != null
+          ? String(raw.HostKey)
+          : undefined,
+  };
+}
+
+export async function upsertSftpSavedHost(
+  payload: SFTPSavedHostUpsertPayload
+): Promise<SFTPSavedHostSummary> {
+  const response = await apiFetch("/api/providers/sftp/saved-hosts", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to save SFTP host: ${await readErrorMessage(response)}`);
+  }
+  const raw = (await response.json()) as Record<string, unknown>;
+  return normalizeSavedHostSummary(raw);
+}
+
+export async function deleteSftpSavedHost(hostId: string): Promise<void> {
+  const response = await apiFetch(`/api/providers/sftp/saved-hosts/${encodeURIComponent(hostId)}`, {
+    method: "DELETE",
+  });
+  if (!response.ok && response.status !== 204) {
+    throw new Error(`Failed to delete saved SFTP host: ${await readErrorMessage(response)}`);
+  }
 }

@@ -1,5 +1,11 @@
 import { DropboxAccountType, getDropboxScopesForAccountType } from "./dropboxOAuth";
+import { buildBoxAuthUrl, DEFAULT_BOX_SCOPES } from "./boxOAuth";
 import { buildGoogleAuthUrl } from "./googleOAuth";
+import {
+  buildMicrosoftAuthUrl,
+  DEFAULT_ONEDRIVE_SCOPES,
+  DEFAULT_SHAREPOINT_SCOPES,
+} from "./microsoftOAuth";
 
 const DEFAULT_GOOGLE_SCOPES = ["https://www.googleapis.com/auth/drive"];
 
@@ -9,6 +15,12 @@ export function getCloudProviderDisplayName(providerId: string): string {
       return "Google Drive";
     case "dropbox":
       return "Dropbox";
+    case "onedrive":
+      return "OneDrive";
+    case "sharepoint":
+      return "SharePoint";
+    case "box":
+      return "Box";
     default:
       return providerId.replace(/_/g, " ");
   }
@@ -20,6 +32,12 @@ export function getCloudProviderSignInBrand(providerId: string): string {
       return "Google";
     case "dropbox":
       return "Dropbox";
+    case "onedrive":
+      return "Microsoft";
+    case "sharepoint":
+      return "Microsoft";
+    case "box":
+      return "Box";
     default:
       return getCloudProviderDisplayName(providerId);
   }
@@ -52,6 +70,12 @@ export function resolveCloudProviderScopes(
   }
   if (apiScopes?.length) return apiScopes;
   switch (providerId) {
+    case "onedrive":
+      return DEFAULT_ONEDRIVE_SCOPES;
+    case "sharepoint":
+      return DEFAULT_SHAREPOINT_SCOPES;
+    case "box":
+      return DEFAULT_BOX_SCOPES;
     case "google_drive":
     default:
       return DEFAULT_GOOGLE_SCOPES;
@@ -79,6 +103,11 @@ export function buildCloudProviderAuthUrl(
       });
       return `https://www.dropbox.com/oauth2/authorize?${search.toString()}`;
     }
+    case "onedrive":
+    case "sharepoint":
+      return buildMicrosoftAuthUrl(params);
+    case "box":
+      return buildBoxAuthUrl(params);
     case "google_drive":
     default:
       return buildGoogleAuthUrl(params);

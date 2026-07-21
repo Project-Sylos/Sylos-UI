@@ -76,16 +76,137 @@ export default function SpectraConfigPage() {
     // Get from config, handling 0 values properly
     if (section === "seed") {
       return String(config.seed[field as keyof typeof config.seed] ?? "");
-    } else if (section === "api") {
+    }
+    if (section === "api") {
       return String(config.api[field as keyof typeof config.api] ?? "");
-    } else if (section === "secondary_tables") {
+    }
+    if (section === "secondary_tables") {
       return String(config.secondary_tables[field] ?? "");
+    }
+    if (section === "auth") {
+      if (field === "access_token_ttl_seconds") {
+        return String(config.auth?.access_token_ttl_seconds ?? 3600);
+      }
+    }
+    if (section === "chaos") {
+      if (field === "list_children_cps") {
+        return String(
+          config.chaos?.rate_limits?.operations?.list_children?.calls_per_second ?? 5000
+        );
+      }
+      if (field === "packet_loss") {
+        return String(config.chaos?.packet_loss?.probability ?? 0);
+      }
+      if (field === "list_children_latency_ms") {
+        return String(config.chaos?.latency?.list_children_ms ?? 0);
+      }
     }
     return "";
   };
 
+  const isFloatField = (section: string, field: string) =>
+    section === "secondary_tables" ||
+    field === "folder_backoff_factor" ||
+    field === "folder_depth_decay_factor" ||
+    field === "file_backoff_factor" ||
+    field === "file_depth_decay_factor" ||
+    field === "packet_loss";
+
+  const applyNumberToConfig = (
+    prev: SpectraConfig,
+    section: "seed" | "api" | "secondary_tables" | "auth" | "chaos",
+    field: string,
+    numValue: number
+  ): SpectraConfig => {
+    if (section === "secondary_tables") {
+      return {
+        ...prev,
+        secondary_tables: {
+          ...prev.secondary_tables,
+          [field]: numValue,
+        },
+      };
+    }
+    if (section === "auth") {
+      return {
+        ...prev,
+        auth: {
+          enabled: prev.auth?.enabled ?? false,
+          access_token_ttl_seconds:
+            field === "access_token_ttl_seconds"
+              ? numValue
+              : (prev.auth?.access_token_ttl_seconds ?? 3600),
+        },
+      };
+    }
+    if (section === "chaos") {
+      const chaos = prev.chaos ?? {
+        enabled: false,
+        rate_limits: {
+          poll_interval_ms: 1000,
+          global: { calls_per_second: 0, burst: 0 },
+          operations: {},
+          bandwidth: { bytes_per_second: 1073741824 },
+        },
+        backoff: { base_retry_after_ms: 100, exponential_factor: 2 },
+        latency: { list_children_ms: 0, jitter_ms: 0 },
+        packet_loss: { probability: 0, retry_after_ms: 500 },
+      };
+      if (field === "list_children_cps") {
+        return {
+          ...prev,
+          chaos: {
+            ...chaos,
+            rate_limits: {
+              ...chaos.rate_limits,
+              operations: {
+                ...chaos.rate_limits.operations,
+                list_children: {
+                  calls_per_second: numValue,
+                  burst: numValue,
+                },
+              },
+            },
+          },
+        };
+      }
+      if (field === "packet_loss") {
+        return {
+          ...prev,
+          chaos: {
+            ...chaos,
+            packet_loss: {
+              ...chaos.packet_loss,
+              probability: numValue,
+            },
+          },
+        };
+      }
+      if (field === "list_children_latency_ms") {
+        return {
+          ...prev,
+          chaos: {
+            ...chaos,
+            latency: {
+              ...chaos.latency,
+              list_children_ms: numValue,
+            },
+          },
+        };
+      }
+      return prev;
+    }
+    return {
+      ...prev,
+      [section]: {
+        ...prev[section],
+        [field]: numValue,
+      },
+    };
+  };
+
   const handleNumberInputChange = (
-    section: "seed" | "api" | "secondary_tables",
+    section: "seed" | "api" | "secondary_tables" | "auth" | "chaos",
     field: string,
     value: string
   ) => {
@@ -95,36 +216,19 @@ export default function SpectraConfigPage() {
       [key]: value,
     }));
 
-    if (value !== "") {
-      const isFloatField = section === "secondary_tables" || 
-        field === "folder_backoff_factor" || 
-        field === "folder_depth_decay_factor" ||
-        field === "file_backoff_factor" ||
-        field === "file_depth_decay_factor";
-      const numValue = isFloatField 
-        ? parseFloat(value) || 0
-        : parseInt(value, 10) || 0;
-      
-      setConfig((prev) => {
-        if (section === "secondary_tables") {
-          return {
-            ...prev,
-            secondary_tables: {
-              ...prev.secondary_tables,
-              [field]: numValue,
-            },
-          };
-        } else {
-          return {
-            ...prev,
-            [section]: {
-              ...prev[section],
-              [field]: numValue,
-            },
-          };
-        }
-      });
+    // Keep the draft empty while typing; commit a number only when present.
+    if (value === "" || value === "-" || value === "." || value === "-.") {
+      return;
     }
+
+    const numValue = isFloatField(section, field)
+      ? parseFloat(value)
+      : parseInt(value, 10);
+    if (Number.isNaN(numValue)) {
+      return;
+    }
+
+    setConfig((prev) => applyNumberToConfig(prev, section, field, numValue));
   };
 
   const handleBooleanInputChange = (
@@ -147,8 +251,6 @@ export default function SpectraConfigPage() {
       mode: checked ? "ephemeral" : "persistent",
       seed: {
         ...prev.seed,
-        // Disable cache when ephemeral mode is enabled
-        enable_cache: checked ? false : prev.seed.enable_cache,
         // Disable diverging_tree_mode when NOT ephemeral
         diverging_tree_mode: checked ? prev.seed.diverging_tree_mode : false,
       },
@@ -161,38 +263,38 @@ export default function SpectraConfigPage() {
   };
 
   const handleNumberInputBlur = (
-    section: "seed" | "api" | "secondary_tables",
+    section: "seed" | "api" | "secondary_tables" | "auth" | "chaos",
     field: string,
     defaultValue: number
   ) => {
     const key = `${section}.${field}`;
     const currentValue = inputValues[key];
-    
-    if (currentValue === "" || currentValue === undefined) {
+
+    if (
+      currentValue === "" ||
+      currentValue === undefined ||
+      currentValue === "-" ||
+      currentValue === "." ||
+      currentValue === "-." ||
+      Number.isNaN(
+        isFloatField(section, field)
+          ? parseFloat(currentValue)
+          : parseInt(currentValue, 10)
+      )
+    ) {
       setInputValues((prev) => {
         const newValues = { ...prev };
         delete newValues[key];
         return newValues;
       });
-      
-      setConfig((prev) => {
-        if (section === "secondary_tables") {
-          return {
-            ...prev,
-            secondary_tables: {
-              ...prev.secondary_tables,
-              [field]: defaultValue,
-            },
-          };
-        } else {
-          return {
-            ...prev,
-            [section]: {
-              ...prev[section],
-              [field]: defaultValue,
-            },
-          };
-        }
+
+      setConfig((prev) => applyNumberToConfig(prev, section, field, defaultValue));
+    } else {
+      // Clear draft so display falls back to the committed config value.
+      setInputValues((prev) => {
+        const newValues = { ...prev };
+        delete newValues[key];
+        return newValues;
       });
     }
   };
@@ -481,19 +583,6 @@ export default function SpectraConfigPage() {
             required
             disabled={config.mode === "ephemeral"}
           />
-          <div className="spectra-config__checkbox-field">
-            <input
-              id="enable_cache"
-              type="checkbox"
-              checked={config.seed.enable_cache ?? false}
-              onChange={(e) => handleBooleanInputChange("seed", "enable_cache", e.target.checked)}
-              disabled={config.mode === "ephemeral"}
-              className="spectra-config__checkbox-input"
-            />
-            <label htmlFor="enable_cache" className="form-field__label" style={{ margin: 0 }}>
-              Enable Cache
-            </label>
-          </div>
         </FormSection>
 
         {/* Remove original location of Diverging Tree Mode Section */}
@@ -543,6 +632,122 @@ export default function SpectraConfigPage() {
                 </p>
               ),
             }}
+          />
+        </FormSection>
+
+        <FormSection title="Auth">
+          <div className="spectra-config__checkbox-field">
+            <input
+              id="auth_enabled"
+              type="checkbox"
+              checked={config.auth?.enabled ?? false}
+              onChange={(e) =>
+                setConfig((prev) => ({
+                  ...prev,
+                  auth: {
+                    enabled: e.target.checked,
+                    access_token_ttl_seconds: prev.auth?.access_token_ttl_seconds ?? 3600,
+                  },
+                }))
+              }
+              className="spectra-config__checkbox-input"
+            />
+            <label htmlFor="auth_enabled" className="form-field__label" style={{ margin: 0 }}>
+              Enable Auth Tokens
+            </label>
+          </div>
+          <FormField
+            id="access_token_ttl_seconds"
+            label="Access Token TTL (seconds)"
+            type="number"
+            value={getInputValue("auth", "access_token_ttl_seconds")}
+            onChange={(value) =>
+              handleNumberInputChange("auth", "access_token_ttl_seconds", value)
+            }
+            onBlur={() =>
+              handleNumberInputBlur("auth", "access_token_ttl_seconds", 3600)
+            }
+            helpTooltip={{
+              tipId: "spectra-auth-ttl",
+              category: "spectra-config",
+              position: "right",
+              content: (
+                <p>
+                  Access token lifetime in seconds. Use -1 for tokens that never expire. Refresh tokens always last forever.
+                </p>
+              ),
+            }}
+          />
+        </FormSection>
+
+        <FormSection title="Chaos Simulation">
+          <div className="spectra-config__checkbox-field">
+            <input
+              id="chaos_enabled"
+              type="checkbox"
+              checked={config.chaos?.enabled ?? false}
+              onChange={(e) =>
+                setConfig((prev) => ({
+                  ...prev,
+                  chaos: {
+                    ...(prev.chaos ?? {
+                      enabled: false,
+                      rate_limits: {
+                        poll_interval_ms: 1000,
+                        global: { calls_per_second: 0, burst: 0 },
+                        operations: {},
+                        bandwidth: { bytes_per_second: 1073741824 },
+                      },
+                      backoff: { base_retry_after_ms: 100, exponential_factor: 2 },
+                      latency: { list_children_ms: 0, jitter_ms: 0 },
+                      packet_loss: { probability: 0, retry_after_ms: 500 },
+                    }),
+                    enabled: e.target.checked,
+                  },
+                }))
+              }
+              className="spectra-config__checkbox-input"
+            />
+            <label htmlFor="chaos_enabled" className="form-field__label" style={{ margin: 0 }}>
+              Enable Chaos
+            </label>
+          </div>
+          <FormField
+            id="list_children_cps"
+            label="ListChildren calls/sec"
+            type="number"
+            value={getInputValue("chaos", "list_children_cps")}
+            onChange={(value) =>
+              handleNumberInputChange("chaos", "list_children_cps", value)
+            }
+            onBlur={() => handleNumberInputBlur("chaos", "list_children_cps", 5000)}
+            min={0}
+          />
+          <FormField
+            id="packet_loss"
+            label="Packet Loss Probability"
+            type="number"
+            value={getInputValue("chaos", "packet_loss")}
+            onChange={(value) =>
+              handleNumberInputChange("chaos", "packet_loss", value)
+            }
+            onBlur={() => handleNumberInputBlur("chaos", "packet_loss", 0)}
+            step={0.01}
+            min={0}
+            max={1}
+          />
+          <FormField
+            id="list_children_latency_ms"
+            label="ListChildren Latency (ms)"
+            type="number"
+            value={getInputValue("chaos", "list_children_latency_ms")}
+            onChange={(value) =>
+              handleNumberInputChange("chaos", "list_children_latency_ms", value)
+            }
+            onBlur={() =>
+              handleNumberInputBlur("chaos", "list_children_latency_ms", 0)
+            }
+            min={0}
           />
         </FormSection>
 

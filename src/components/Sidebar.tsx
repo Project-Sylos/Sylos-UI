@@ -133,7 +133,7 @@ export default function Sidebar() {
             className={`sidebar__button sidebar__button--with-badge`}
             onClick={handleSettingsClick}
             aria-label={
-              oauthHealthIssues || recoveryNeedsAttention ? "Settings — needs attention" : "Settings"
+              oauthHealthIssues || recoveryNeedsAttention ? "Settings - needs attention" : "Settings"
             }
           >
             <span className="sidebar__button-emoji">⚙️</span>

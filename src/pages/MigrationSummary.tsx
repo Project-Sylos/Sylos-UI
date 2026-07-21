@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { Search, CheckCircle2, Circle, ChevronRight, Pencil } from "lucide-react";
 
 import PageContainer from "../components/PageContainer";
 import CloudConnectionIssues from "../components/CloudConnectionIssues";
+import HelpTooltip from "../components/HelpTooltip";
 import { useSelection } from "../context/SelectionContext";
-import { getMigrationStatus, renameMigration, startMigration } from "../api/services";
+import { getMigrationStatus, renameMigration, startMigration, setPathCheckTarget } from "../api/services";
 import { ServiceDescriptor, Folder } from "../types/services";
 import {
   CloudConnectionCheckResult,
@@ -24,7 +25,55 @@ import {
   formatServiceRootLabel,
   getEndpointEditNavigation,
 } from "../utils/migrationRoots";
+import {
+  LOCAL_OS_SUBTYPE_OPTIONS,
+  LocalOsSubtype,
+  detectHostLocalOs,
+  isLocalFilesystemService,
+  providerIdFromService,
+  resolvePathCheckTargetFromEndpoints,
+} from "../utils/pathCheckTarget";
 import "./MigrationSummary.css";
+
+const LOCAL_OS_CHECKS_ON_NOTE =
+  "We'll flag names this OS would reject, so you can fix them before copy.";
+const LOCAL_OS_CHECKS_OFF_NOTE =
+  "Same OS as source, so destination name checks are skipped.";
+
+const LOCAL_OS_CHECKS_ON_HELP = (
+  <>
+    <p>
+      During discovery, Sylos checks each file and folder name against this
+      destination OS.
+    </p>
+    <p>
+      Illegal characters, reserved names, length limits, and naming collisions
+      are flagged on the review screen so you can rename them before copying
+      starts.
+    </p>
+  </>
+);
+
+const LOCAL_OS_CHECKS_OFF_HELP = (
+  <>
+    <p>
+      Source and destination use the same OS naming rules, so names that already
+      work on the source should work on the destination.
+    </p>
+    <p>
+      If the destination is actually a different OS (for example Linux files going
+      onto a Windows volume), change the destination OS here to turn checks on.
+    </p>
+  </>
+);
+
+const LOCAL_OS_SOURCE_HELP = (
+  <p>
+    Label which OS this local path lives on. Destination name checks follow the
+    destination OS. The source OS is only used to skip those checks when both
+    sides match.
+  </p>
+);
 
 function computeDefaultName(
   source?: { service?: { displayName?: string }; root?: Folder },
@@ -47,6 +96,47 @@ export default function MigrationSummary() {
   const [nameDirty, setNameDirty] = useState(false);
   const [nameSaving, setNameSaving] = useState(false);
   const [serverName, setServerName] = useState<string | undefined>(undefined);
+  const hostOs = useMemo(() => detectHostLocalOs(), []);
+  const [sourceLocalOs, setSourceLocalOs] = useState<LocalOsSubtype>(hostOs);
+  const [destinationLocalOs, setDestinationLocalOs] = useState<LocalOsSubtype>(hostOs);
+  const [sourceOsDirty, setSourceOsDirty] = useState(false);
+  const [destinationOsDirty, setDestinationOsDirty] = useState(false);
+
+  const sourceIsLocal = isLocalFilesystemService(source?.service);
+  const destinationIsLocal = isLocalFilesystemService(destination?.service);
+  const sourceProviderId = useMemo(
+    () => providerIdFromService(source?.service),
+    [source?.service]
+  );
+  const destinationProviderId = useMemo(
+    () => providerIdFromService(destination?.service),
+    [destination?.service]
+  );
+
+  const pathCheckTarget = useMemo(
+    () =>
+      resolvePathCheckTargetFromEndpoints({
+        sourceProvider: sourceProviderId,
+        destinationProvider: destinationProviderId,
+        sourceIsLocal,
+        destinationIsLocal,
+        sourceLocalOs,
+        destinationLocalOs,
+      }),
+    [
+      sourceProviderId,
+      destinationProviderId,
+      sourceIsLocal,
+      destinationIsLocal,
+      sourceLocalOs,
+      destinationLocalOs,
+    ]
+  );
+
+  const sameLocalOsDisablesChecks =
+    sourceIsLocal &&
+    destinationIsLocal &&
+    sourceLocalOs === destinationLocalOs;
 
   const computedDefaultName = useMemo(
     () => computeDefaultName(source, destination),
@@ -110,7 +200,6 @@ export default function MigrationSummary() {
     };
   }, [source, destination, migration, sourceConfigured, destinationConfigured]);
 
-  // Load the persisted name for this migration (present when resuming/editing).
   useEffect(() => {
     const migrationId = migration.migrationId;
     if (!migrationId) {
@@ -132,7 +221,19 @@ export default function MigrationSummary() {
     };
   }, [migration.migrationId]);
 
-  // Keep the input showing the server/default name until the user edits it.
+  // Reset local OS defaults when a local endpoint is (re)selected, until the user edits.
+  useEffect(() => {
+    if (sourceIsLocal && !sourceOsDirty) {
+      setSourceLocalOs(hostOs);
+    }
+  }, [sourceIsLocal, hostOs, sourceOsDirty, source?.root?.ServiceID]);
+
+  useEffect(() => {
+    if (destinationIsLocal && !destinationOsDirty) {
+      setDestinationLocalOs(hostOs);
+    }
+  }, [destinationIsLocal, hostOs, destinationOsDirty, destination?.root?.ServiceID]);
+
   useEffect(() => {
     if (!nameDirty) {
       setNameInput(serverName ?? computedDefaultName);
@@ -181,7 +282,15 @@ export default function MigrationSummary() {
         return;
       }
 
-      const run = await startMigration({ migrationId: migration.migrationId });
+      try {
+        await setPathCheckTarget(migration.migrationId, pathCheckTarget);
+      } catch {
+        // Still pass via start options below.
+      }
+      const run = await startMigration({
+        migrationId: migration.migrationId,
+        options: { pathCheckTarget },
+      });
       navigate(`/progress-monitor/${run.id}`);
     } catch (err) {
       const message =
@@ -276,6 +385,15 @@ export default function MigrationSummary() {
               : undefined
           }
           rootPath={formatMigrationPath(source?.root)}
+          showLocalOs={sourceConfigured && sourceIsLocal}
+          localOs={sourceLocalOs}
+          onLocalOsChange={(next) => {
+            setSourceOsDirty(true);
+            setSourceLocalOs(next);
+          }}
+          localOsSelectId="source-local-os"
+          localOsHelpTipId="migration-source-local-os"
+          localOsHelp={LOCAL_OS_SOURCE_HELP}
           onSelect={() => void navigateToEndpoint("source", source)}
         />
 
@@ -300,6 +418,26 @@ export default function MigrationSummary() {
               : undefined
           }
           rootPath={formatMigrationPath(destination?.root)}
+          showLocalOs={destinationConfigured && destinationIsLocal}
+          localOs={destinationLocalOs}
+          onLocalOsChange={(next) => {
+            setDestinationOsDirty(true);
+            setDestinationLocalOs(next);
+          }}
+          localOsSelectId="destination-local-os"
+          localOsNote={
+            sameLocalOsDisablesChecks
+              ? LOCAL_OS_CHECKS_OFF_NOTE
+              : destinationIsLocal
+                ? LOCAL_OS_CHECKS_ON_NOTE
+                : undefined
+          }
+          localOsHelpTipId="migration-destination-local-os"
+          localOsHelp={
+            sameLocalOsDisablesChecks
+              ? LOCAL_OS_CHECKS_OFF_HELP
+              : LOCAL_OS_CHECKS_ON_HELP
+          }
           onSelect={() => void navigateToEndpoint("destination", destination)}
         />
       </div>
@@ -333,6 +471,13 @@ type SetupEndpointCardProps = {
   serviceName?: string;
   accountLabel?: string;
   rootPath: string;
+  showLocalOs?: boolean;
+  localOs?: LocalOsSubtype;
+  onLocalOsChange?: (next: LocalOsSubtype) => void;
+  localOsSelectId?: string;
+  localOsNote?: string;
+  localOsHelpTipId?: string;
+  localOsHelp?: ReactNode;
   onSelect: () => void;
 };
 
@@ -345,6 +490,13 @@ function SetupEndpointCard({
   serviceName,
   accountLabel,
   rootPath,
+  showLocalOs,
+  localOs,
+  onLocalOsChange,
+  localOsSelectId,
+  localOsNote,
+  localOsHelpTipId,
+  localOsHelp,
   onSelect,
 }: SetupEndpointCardProps) {
   const StatusIcon = configured ? CheckCircle2 : Circle;
@@ -400,6 +552,41 @@ function SetupEndpointCard({
             <span className="migration-summary__info-label">Root Path</span>
             <span className="migration-summary__info-value">{rootPath}</span>
           </div>
+          {showLocalOs && localOs && onLocalOsChange && localOsSelectId ? (
+            <div className="migration-summary__info-row migration-summary__info-row--os">
+              <div className="migration-summary__os-label-row">
+                <label className="migration-summary__info-label" htmlFor={localOsSelectId}>
+                  OS
+                </label>
+                {localOsHelp && localOsHelpTipId ? (
+                  <HelpTooltip
+                    tipId={localOsHelpTipId}
+                    category="migration-setup"
+                    position="above"
+                    content={localOsHelp}
+                  />
+                ) : null}
+              </div>
+              <select
+                id={localOsSelectId}
+                className="migration-summary__os-select"
+                value={localOs}
+                onChange={(event) =>
+                  onLocalOsChange(event.target.value as LocalOsSubtype)
+                }
+                onClick={(event) => event.stopPropagation()}
+              >
+                {LOCAL_OS_SUBTYPE_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+              {localOsNote ? (
+                <p className="migration-summary__os-note">{localOsNote}</p>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       )}
 

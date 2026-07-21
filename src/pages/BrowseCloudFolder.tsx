@@ -38,17 +38,6 @@ import {
   useBrowseSelection,
 } from "../hooks/useBrowseSelection";
 import { CloudRoot } from "../types/providers";
-
-/** Pass rootType/driveId only when listing a virtual root from /roots. */
-function rootListOptions(identifier: string, root: CloudRoot) {
-  if (identifier !== root.id) {
-    return {};
-  }
-  return {
-    ...(root.rootType ? { rootType: root.rootType } : {}),
-    ...(root.driveId ? { driveId: root.driveId } : {}),
-  };
-}
 import { Folder, PaginationInfo } from "../types/services";
 import { buildCloudConnectPath } from "../utils/cloudConnections";
 import { getBrowseTrailFromFolder } from "../utils/migrationRoots";
@@ -57,6 +46,48 @@ import "./BrowseFolder.css";
 interface BreadcrumbItem {
   path: string;
   name: string;
+  /** Namespace/drive override after entering a Dropbox shared/team folder. */
+  driveId?: string;
+}
+
+function effectiveDriveId(root: CloudRoot, trail: BreadcrumbItem[]): string | undefined {
+  for (let i = trail.length - 1; i >= 0; i -= 1) {
+    if (trail[i].driveId) {
+      return trail[i].driveId;
+    }
+  }
+  return root.driveId;
+}
+
+/** Pass rootType only when opening a virtual root; always keep driveId for namespaced roots. */
+function rootListOptions(
+  identifier: string,
+  root: CloudRoot,
+  trail: BreadcrumbItem[] = []
+) {
+  const atRoot = identifier === root.id;
+  const namespaced =
+    root.rootType === "shared_drive" ||
+    root.rootType === "shared_with_me" ||
+    root.rootType === "team_space" ||
+    root.rootType === "team_folder" ||
+    root.rootType === "shared_folder" ||
+    root.rootType === "user_root" ||
+    root.rootType === "sharepoint_site" ||
+    root.rootType === "sharepoint_drive" ||
+    root.rootType === "my_drive";
+
+  if (!atRoot && !namespaced) {
+    return {};
+  }
+
+  const driveId = effectiveDriveId(root, trail);
+
+  return {
+    // Nested listings omit rootType so the API does not re-map child ids as virtual roots.
+    ...(atRoot && root.rootType ? { rootType: root.rootType } : {}),
+    ...(driveId ? { driveId } : {}),
+  };
 }
 
 function rootTypeLabel(rootType: string): string {
@@ -75,6 +106,10 @@ function rootTypeLabel(rootType: string): string {
       return "Team folder";
     case "shared_folder":
       return "Shared folder";
+    case "sharepoint_site":
+      return "SharePoint site";
+    case "sharepoint_drive":
+      return "Document library";
     default:
       return rootType.replace(/_/g, " ");
   }
@@ -86,7 +121,11 @@ function isNamespacedCloudRoot(root: CloudRoot): boolean {
     root.rootType === "shared_with_me" ||
     root.rootType === "team_space" ||
     root.rootType === "team_folder" ||
-    root.rootType === "shared_folder"
+    root.rootType === "shared_folder" ||
+    root.rootType === "sharepoint_site" ||
+    root.rootType === "sharepoint_drive" ||
+    root.rootType === "my_drive" ||
+    root.rootType === "user_root"
   );
 }
 
@@ -112,7 +151,13 @@ function folderFromCloudRoot(root: CloudRoot): Folder {
             ? "shared_folder"
             : root.rootType === "team_space"
               ? "team_space"
-              : "folder",
+              : root.rootType === "sharepoint_site"
+                ? "sharepoint_site"
+                : root.rootType === "sharepoint_drive"
+                  ? "sharepoint_drive"
+                  : root.rootType === "my_drive"
+                    ? "my_drive"
+                    : "folder",
     browseTrail: [{ path: root.id, name: root.displayName }],
   };
 }
@@ -129,15 +174,31 @@ function folderFromBreadcrumbs(
   const currentName = breadcrumbs[breadcrumbs.length - 1].name;
   const childNames = breadcrumbs.slice(1).map((item) => item.name);
 
+  // For Dropbox/GDrive namespaced roots, parentId carries Path-Root / drive namespace
+  // metadata (not the browse parent folder id).
+  const parentId =
+    isNamespacedCloudRoot(activeRoot) && effectiveDriveId(activeRoot, breadcrumbs)
+      ? effectiveDriveId(activeRoot, breadcrumbs)
+      : breadcrumbs[breadcrumbs.length - 2].path;
+
+  const nsType =
+    activeRoot.rootType === "team_folder" ||
+    activeRoot.rootType === "shared_folder" ||
+    activeRoot.rootType === "sharepoint_drive"
+      ? activeRoot.rootType
+      : activeRoot.rootType === "team_space"
+        ? "team_folder"
+        : "folder";
+
   return {
     ServiceID: currentIdentifier,
     Id: currentIdentifier,
     name: currentName,
     locationPath: childNames.length ? `/${childNames.join("/")}` : "/",
-    parentId: breadcrumbs[breadcrumbs.length - 2].path,
+    parentId,
     parentPath:
       childNames.length > 1 ? `/${childNames.slice(0, -1).join("/")}` : "/",
-    type: "folder",
+    type: nsType,
     browseTrail: breadcrumbs,
   };
 }
@@ -229,8 +290,10 @@ function BrowseCloudFolderPage() {
 
   const cloudMutationContext = () => ({
     role,
-    rootType: breadcrumbs.length <= 1 ? activeRoot?.rootType : undefined,
-    driveId: activeRoot?.driveId,
+    rootType: activeRoot?.rootType,
+    driveId: activeRoot
+      ? effectiveDriveId(activeRoot, breadcrumbs)
+      : undefined,
   });
 
   useEffect(() => {
@@ -338,7 +401,7 @@ function BrowseCloudFolderPage() {
           offset: 0,
           limit: itemsPerPage,
           ...(hideFiles ? { foldersOnly: true } : {}),
-          ...rootListOptions(folder.ServiceID, matchedRoot),
+          ...rootListOptions(folder.ServiceID, matchedRoot, trail),
         }
       );
 
@@ -380,7 +443,7 @@ function BrowseCloudFolderPage() {
           offset,
           limit,
           ...(hideFiles ? { foldersOnly: true } : {}),
-          ...rootListOptions(identifier, root),
+          ...rootListOptions(identifier, root, trail),
         }
       );
 
@@ -432,9 +495,38 @@ function BrowseCloudFolderPage() {
     }
     if (!activeRoot) return;
 
+    // Navigating into a SharePoint subsite: treat it as a new browse-only root.
+    if (folder.type === "sharepoint_site") {
+      handleRootSelect({
+        id: folder.ServiceID,
+        displayName: folder.name,
+        rootType: "sharepoint_site",
+        migrationRootForbidden: true,
+        migrationRootForbiddenReason:
+          "Select a document library or folder inside this site. The site itself cannot be a migration root.",
+      });
+      return;
+    }
+
+    // Dropbox shared/team folders and SharePoint libraries are their own drive namespaces.
+    // OneDrive "Shared" items live on foreign drives. ParentId carries that drive id.
+    const nsDriveId =
+      folder.parentId &&
+      (folder.parentId === folder.ServiceID ||
+        folder.type === "team_folder" ||
+        folder.type === "shared_folder" ||
+        folder.type === "sharepoint_drive" ||
+        activeRoot.rootType === "shared_with_me")
+        ? folder.parentId
+        : undefined;
+
     const trail = [
       ...breadcrumbs,
-      { path: folder.ServiceID, name: folder.name },
+      {
+        path: folder.ServiceID,
+        name: folder.name,
+        ...(nsDriveId ? { driveId: nsDriveId } : {}),
+      },
     ];
     setCurrentPage(0);
     void loadChildren(folder.ServiceID, activeRoot, trail, { page: 0 });

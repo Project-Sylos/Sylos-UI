@@ -173,7 +173,7 @@
   --sidebar-button-primary-border: rgba(100, 116, 139, 0.18);
   --sidebar-button-primary-border-hover: rgba(100, 116, 139, 0.26);
 
-  /* Shared UI primitives — light readable stack */
+  /* Shared UI primitives. Light readable stack */
   --ui-border: rgba(100, 116, 139, 0.16);
   --ui-border-strong: rgba(100, 116, 139, 0.28);
   --ui-field-bg: rgba(255, 255, 255, 0.95);

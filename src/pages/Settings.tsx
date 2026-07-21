@@ -7,6 +7,7 @@ import { useTheme } from "../contexts/ThemeContext";
 import { usePreferences } from "../contexts/PreferencesContext";
 import { useAuth } from "../contexts/AuthContext";
 import CloudProviderOAuthSetup from "../components/CloudProviderOAuthSetup";
+import SettingsSftpHostsSection from "../components/SettingsSftpHostsSection";
 import "../components/CloudProviderOAuthSetup.css";
 import { clearAllMigrations, wipeInstall } from "../api/admin";
 import {
@@ -54,6 +55,9 @@ export default function Settings() {
   const cloudProviders = [
     { providerId: "google_drive", displayName: "Google Drive" },
     { providerId: "dropbox", displayName: "Dropbox" },
+    { providerId: "onedrive", displayName: "OneDrive" },
+    { providerId: "sharepoint", displayName: "SharePoint" },
+    { providerId: "box", displayName: "Box" },
   ] as const;
 
   const handleClose = () => {
@@ -464,8 +468,8 @@ export default function Settings() {
               <h1 className="settings__section-title">Cloud providers</h1>
               <p className="settings__subsection-description">
                 {isAdmin
-                  ? "Configure OAuth app credentials for cloud storage. Sylos checks connection health on startup and can re-check on a schedule you choose."
-                  : "View cloud OAuth connection status. You can run a connection test; only admins can add or change credentials."}
+                  ? "Configure OAuth app credentials for cloud storage and manage remembered SFTP hosts. Sylos checks OAuth connection health on startup and can re-check on a schedule you choose."
+                  : "View cloud OAuth connection status and remembered SFTP hosts. You can run an OAuth connection test; only admins can add or change OAuth credentials."}
               </p>
 
               <div className="settings__subsection">
@@ -533,6 +537,8 @@ export default function Settings() {
                   />
                 ))}
               </div>
+
+              <SettingsSftpHostsSection canManage={Boolean(user)} />
             </div>
           )}
 

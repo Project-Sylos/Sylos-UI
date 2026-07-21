@@ -22,7 +22,7 @@ export function isServiceSetUp(
 
   const provider = providersById.get(providerIdForService(service));
   if (!provider) {
-    // No provider descriptor — keep visible so admins can still investigate.
+    // No provider descriptor. Keep visible so admins can still investigate.
     return true;
   }
   if (provider.authType === "credentials_form") {

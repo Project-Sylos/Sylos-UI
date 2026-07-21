@@ -5,6 +5,7 @@ import {
   hasTraversalFailure,
   isTraversalRetryPending,
 } from "../utils/pathReviewTraversalStatus";
+import { isCopyComplete } from "../utils/copyStatus";
 
 export interface PathReviewStatusIconProps {
   item: DiffItem;
@@ -60,7 +61,7 @@ export default function PathReviewStatusIcon({
       );
     }
     const copyStatus = item.src?.copyStatus || item.copyStatus || "";
-    if (copyStatus !== "successful" || !item.src) {
+    if (!isCopyComplete(copyStatus) || !item.src) {
       return null;
     }
     const deleteStatus = item.src?.deleteStatus || "";
@@ -188,8 +189,8 @@ export default function PathReviewStatusIcon({
       );
     }
     
-    // 5. Successful copyStatus - show magenta exists icon (exists on both)
-    if (copyStatus === "successful") {
+    // 5. Copy complete (successful or already_existed) - magenta exists icon (exists on both)
+    if (isCopyComplete(copyStatus)) {
       return (
         <Check
           size={iconSize}
@@ -263,8 +264,8 @@ export default function PathReviewStatusIcon({
       );
     }
 
-    // 6. Successful copyStatus - show magenta exists icon (exists on both)
-    if (copyStatus === "successful") {
+    // 6. Copy complete (successful or already_existed) - magenta exists icon (exists on both)
+    if (isCopyComplete(copyStatus)) {
       return (
         <Check
           size={iconSize}

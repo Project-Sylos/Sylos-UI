@@ -78,4 +78,41 @@ export interface SFTPHostKeyProbePayload {
 export interface SFTPHostKeyProbeResponse {
   hostKey: string;
   fingerprint: string;
+  /** True when this host:port was previously trusted on this install. */
+  trusted?: boolean;
+  /** True when a stored pin exists but the live host key differs. */
+  hostKeyChanged?: boolean;
+}
+
+export type SFTPSavedHostAuthMethod = "password" | "pem";
+
+export interface SFTPSavedHostSummary {
+  id: string;
+  displayName: string;
+  host: string;
+  port: number;
+  username: string;
+  authMethod: SFTPSavedHostAuthMethod | string;
+  updatedAt: string;
+  lastUsedAt?: string;
+}
+
+export interface SFTPSavedHostDetail extends SFTPSavedHostSummary {
+  password?: string;
+  privateKey?: string;
+  keyPassphrase?: string;
+  hostKey?: string;
+}
+
+export interface SFTPSavedHostUpsertPayload {
+  id?: string;
+  displayName?: string;
+  host: string;
+  port?: number;
+  username: string;
+  authMethod: SFTPSavedHostAuthMethod | string;
+  password?: string;
+  privateKey?: string;
+  keyPassphrase?: string;
+  hostKey?: string;
 }

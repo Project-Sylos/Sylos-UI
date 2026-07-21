@@ -3,6 +3,9 @@ import { Cloud, Database, FolderOpen, Server } from "lucide-react";
 
 import googleDriveLogo from "../assets/external/Google_Drive_Logo.svg";
 import dropboxLogo from "../assets/external/dropbox-1-logo-png-transparent.png";
+import oneDriveLogo from "../assets/external/onedrive.webp";
+import sharePointLogo from "../assets/external/sharepoint.svg";
+import boxLogo from "../assets/external/BOX.svg";
 
 /** Theme-driven icon tones on selection cards (see SelectionPage.css) */
 export type ServiceIconAccent = "a" | "b";
@@ -37,6 +40,36 @@ const dropboxSelectionIcon = (
   />
 );
 
+const oneDriveSelectionIcon = (
+  <img
+    src={oneDriveLogo}
+    alt=""
+    className="service-external-logo"
+    width={44}
+    height={44}
+  />
+);
+
+const sharePointSelectionIcon = (
+  <img
+    src={sharePointLogo}
+    alt=""
+    className="service-external-logo"
+    width={44}
+    height={44}
+  />
+);
+
+const boxSelectionIcon = (
+  <img
+    src={boxLogo}
+    alt=""
+    className="service-external-logo"
+    width={44}
+    height={44}
+  />
+);
+
 export const serviceSelectionOptions: Record<string, ServiceSelectionVisual> = {
   local: {
     icon: <FolderOpen size={40} />,
@@ -64,6 +97,21 @@ export const serviceSelectionOptions: Record<string, ServiceSelectionVisual> = {
     description:
       "Sign in with Dropbox to browse My Dropbox, team folders, and shared folders.",
   },
+  onedrive: {
+    icon: oneDriveSelectionIcon,
+    description:
+      "Sign in with Microsoft to browse OneDrive files and items shared with you.",
+  },
+  sharepoint: {
+    icon: sharePointSelectionIcon,
+    description:
+      "Sign in with Microsoft to browse SharePoint sites and document libraries.",
+  },
+  box: {
+    icon: boxSelectionIcon,
+    description:
+      "Sign in with Box to browse All Files and choose a migration root.",
+  },
   sftp: {
     icon: <Server size={40} />,
     description:
@@ -71,4 +119,3 @@ export const serviceSelectionOptions: Record<string, ServiceSelectionVisual> = {
     iconAccent: "b",
   },
 };
-

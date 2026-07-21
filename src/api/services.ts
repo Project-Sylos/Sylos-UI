@@ -637,6 +637,8 @@ export interface PathNodeItem {
 export interface PathNodes {
   src?: PathNodeItem;  // Source node (present if item exists in SRC queue)
   dst?: PathNodeItem;  // Destination node (present if item exists in DST queue)
+  /** Accepted/committed destination basename when remapped for compatibility. */
+  resolvedDstName?: string;
 }
 
 export interface PaginationInfo {
@@ -676,6 +678,15 @@ export interface DiffItem {
   copyStatus?: string;       // Copy status from src if available, otherwise dst
   src?: PathNodeItem;        // Full src node (for hover card)
   dst?: PathNodeItem;        // Full dst node (for hover card)
+  /** Suggested destination basename from path-name review queue */
+  proposedPath?: string;
+  /** Accepted/committed destination basename after remap (may differ from name). */
+  resolvedDstName?: string;
+  pathIssueStatus?: string;
+  pathIssueSummary?: string;
+  pathIssueMessages?: PathIssueMessage[];
+  /** True when the compatibility warning is dismissed for this item. */
+  pathIssueIgnored?: boolean;
 }
 
 export async function getMigrationDiffs(
@@ -801,6 +812,7 @@ export async function getMigrationDiffs(
       copyStatus: primaryNode.copyStatus,
       src: nodes.src,
       dst: nodes.dst,
+      resolvedDstName: nodes.resolvedDstName || undefined,
     };
 
     transformedItems.push(diffItem);
@@ -1123,6 +1135,9 @@ export interface PhaseChangeResponse {
   success: boolean;
   message?: string;
   error?: string;
+  errorCode?: string;
+  count?: number;
+  issues?: PathIssue[];
 }
 
 /**
@@ -1156,20 +1171,293 @@ export async function changePhase(
 
   if (!response.ok) {
     let errorMessage = `Failed to change phase to ${phase}`;
+    let errorCode: string | undefined;
+    let count: number | undefined;
+    let issues: PathIssue[] | undefined;
     try {
       const errorData = await response.json();
-      errorMessage = errorData.error || errorMessage;
+      errorMessage = errorData.error || errorData.message || errorMessage;
+      errorCode = errorData.errorCode;
+      count = errorData.count;
+      issues = errorData.issues;
     } catch {
       errorMessage = `HTTP ${response.status}: ${response.statusText}`;
     }
     return {
       success: false,
       error: errorMessage,
+      errorCode,
+      count,
+      issues,
     };
   }
 
   const data = await response.json();
   return data;
+}
+
+export interface PathIssue {
+  nodeId: string;
+  path: string;
+  proposedPath: string;
+  status: string;
+  category?: string;
+  summary?: string;
+  eventTime?: number;
+  messages?: PathIssueMessage[];
+  /** True when the warning is dismissed (original name kept). */
+  ignored?: boolean;
+}
+
+export interface PathIssuesListResponse {
+  issues: PathIssue[];
+  count: number;
+  pathChecksEnabled?: boolean;
+}
+
+export interface PathIssueMessage {
+  category?: string;
+  message: string;
+  /** GPL structured attribute (e.g. InvalidChar: forbidden runes found). */
+  detail?: string;
+  docsURL?: string;
+}
+
+export interface ValidatePathProposalResponse {
+  valid: boolean;
+  messages?: PathIssueMessage[];
+  pathChecksEnabled?: boolean;
+}
+
+export interface PathIssuesMutationResponse {
+  success: boolean;
+  accepted?: number;
+  ignored?: number;
+  issues?: PathIssue[];
+  count?: number;
+  message?: string;
+  error?: string;
+  pathChecksEnabled?: boolean;
+}
+
+export async function listPathIssues(
+  migrationId: string
+): Promise<PathIssuesListResponse> {
+  const response = await apiFetch(`/api/migrations/${migrationId}/path-issues`);
+  if (!response.ok) {
+    throw new Error(`Failed to load destination name issues (${response.status})`);
+  }
+  return response.json();
+}
+
+export interface PathCheckTargetResponse {
+  pathCheckTarget: string;
+  pathChecksEnabled: boolean;
+}
+
+export async function getPathCheckTarget(
+  migrationId: string
+): Promise<PathCheckTargetResponse> {
+  const response = await apiFetch(
+    `/api/migrations/${migrationId}/path-check-target`
+  );
+  if (!response.ok) {
+    throw new Error(`Failed to load path check settings (${response.status})`);
+  }
+  return response.json();
+}
+
+export async function setPathCheckTarget(
+  migrationId: string,
+  pathCheckTarget: string
+): Promise<PathCheckTargetResponse> {
+  const response = await apiFetch(
+    `/api/migrations/${migrationId}/path-check-target`,
+    {
+      method: "POST",
+      body: JSON.stringify({ pathCheckTarget }),
+    }
+  );
+  if (!response.ok) {
+    throw new Error(`Failed to save path check settings (${response.status})`);
+  }
+  return response.json();
+}
+
+export async function validatePathProposal(
+  migrationId: string,
+  nodeId: string,
+  proposedPath: string
+): Promise<ValidatePathProposalResponse> {
+  const response = await apiFetch(
+    `/api/migrations/${migrationId}/path-issues/validate`,
+    {
+      method: "POST",
+      body: JSON.stringify({ nodeId, proposedPath }),
+    }
+  );
+  if (!response.ok) {
+    throw new Error(`Failed to check destination name (${response.status})`);
+  }
+  return response.json();
+}
+
+export async function acceptPathProposal(
+  migrationId: string,
+  nodeId: string,
+  proposedPath?: string
+): Promise<PathIssuesMutationResponse> {
+  const response = await apiFetch(
+    `/api/migrations/${migrationId}/path-issues/${encodeURIComponent(nodeId)}/accept`,
+    {
+      method: "POST",
+      body: JSON.stringify({ proposedPath: proposedPath || "" }),
+    }
+  );
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    return {
+      success: false,
+      message: data.message || data.error || "Could not apply suggested destination name.",
+    };
+  }
+  return data;
+}
+
+export async function remapPathManual(
+  migrationId: string,
+  nodeId: string,
+  proposedPath: string,
+  forceSkipValidation = false
+): Promise<PathIssuesMutationResponse> {
+  const response = await apiFetch(
+    `/api/migrations/${migrationId}/path-issues/${encodeURIComponent(nodeId)}/remap`,
+    {
+      method: "POST",
+      body: JSON.stringify({ proposedPath, forceSkipValidation }),
+    }
+  );
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    return {
+      success: false,
+      message: data.message || data.error || "Could not rename destination.",
+    };
+  }
+  return data;
+}
+
+export async function acceptAllPathProposals(
+  migrationId: string
+): Promise<PathIssuesMutationResponse> {
+  const response = await apiFetch(
+    `/api/migrations/${migrationId}/path-issues/accept-all`,
+    { method: "POST" }
+  );
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    return {
+      success: false,
+      message: data.message || data.error || "Could not apply suggested names.",
+    };
+  }
+  return data;
+}
+
+export async function ignoreRemainingPathIssues(
+  migrationId: string
+): Promise<PathIssuesMutationResponse> {
+  const response = await apiFetch(
+    `/api/migrations/${migrationId}/path-issues/ignore-remaining`,
+    { method: "POST" }
+  );
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    return {
+      success: false,
+      message: data.message || data.error || "Could not dismiss name warnings.",
+    };
+  }
+  return data;
+}
+
+/** Dismiss destination naming warnings for one node and its contents. */
+export async function ignorePathIssueSubtree(
+  migrationId: string,
+  nodeId: string
+): Promise<PathIssuesMutationResponse> {
+  const response = await apiFetch(
+    `/api/migrations/${migrationId}/path-issues/${encodeURIComponent(nodeId)}/ignore`,
+    { method: "POST" }
+  );
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    return {
+      success: false,
+      message: data.message || data.error || "Could not dismiss this name warning.",
+    };
+  }
+  return data;
+}
+
+/** Restore previously dismissed destination naming warnings for one node and its contents. */
+export async function unignorePathIssueSubtree(
+  migrationId: string,
+  nodeId: string
+): Promise<PathIssuesMutationResponse> {
+  const response = await apiFetch(
+    `/api/migrations/${migrationId}/path-issues/${encodeURIComponent(nodeId)}/unignore`,
+    { method: "POST" }
+  );
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    return {
+      success: false,
+      message: data.message || data.error || "Could not restore this name warning.",
+    };
+  }
+  return data;
+}
+
+/** Merge path-issue queue fields onto diff items by node id. */
+export function applyPathIssuesToDiffItems(
+  items: DiffItem[],
+  issues: PathIssue[]
+): DiffItem[] {
+  if (!issues.length) {
+    return items.map((item) => ({
+      ...item,
+      proposedPath: undefined,
+      pathIssueStatus: undefined,
+      pathIssueSummary: undefined,
+      pathIssueMessages: undefined,
+      pathIssueIgnored: undefined,
+    }));
+  }
+  const byId = new Map(issues.map((i) => [i.nodeId, i]));
+  return items.map((item) => {
+    const issue = byId.get(item.id);
+    if (!issue) {
+      return {
+        ...item,
+        proposedPath: undefined,
+        pathIssueStatus: undefined,
+        pathIssueSummary: undefined,
+        pathIssueMessages: undefined,
+        pathIssueIgnored: undefined,
+      };
+    }
+    const ignored = !!issue.ignored;
+    return {
+      ...item,
+      // Ignored warnings keep original names (no auto remap hint).
+      proposedPath: ignored ? undefined : issue.proposedPath || undefined,
+      pathIssueStatus: issue.status,
+      pathIssueSummary: issue.summary,
+      pathIssueMessages: issue.messages?.length ? issue.messages : undefined,
+      pathIssueIgnored: ignored || undefined,
+    };
+  });
 }
 
 export interface DeleteSummaryResponse {
@@ -1450,7 +1738,7 @@ export async function getPathReviewStats(
 
 // Search API types and functions
 export interface SearchCondition {
-  field: string;  // "name", "path", "depth", "size", "type", "traversalStatus", "copyStatus"
+  field: string;  // "name", "path", "depth", "size", "type", "traversalStatus", "copyStatus", "pathIssueStatus"
   operator?: string;  // Optional - ignored for name/path/type/traversalStatus/copyStatus, required for depth/size
   value: string | number;  // Value to match against
 }
@@ -1471,6 +1759,10 @@ export interface SearchOptions {
   traversalStatusFilter?: string | null; // Traversal status filter (pending, failed, etc.)
   copyStatusFilter?: string | null; // Copy status filter (exclusion_explicit, exclusion_inherited, pending, successful, failed)
   deleteStatusFilter?: string | null; // Delete status filter (pending, skipped, failed, deleted)
+  /** Compatibility filter: issues | accepted | rejected | none | manual */
+  pathIssueStatusFilter?: string | null;
+  /** Compatibility finding category (InvalidChar, EmptyPart, …) */
+  pathIssueCategoryFilter?: string | null;
   statusSearchType?: "traversal" | "copy" | "delete" | "both"; // Controls which status conditions are processed
   phase?: "traversal" | "copy"; // Phase to determine which status counts to use in stats transformation
   includeDestinationOnly?: boolean; // When false, hide destination-only rows server-side
@@ -1600,6 +1892,28 @@ export async function searchPathReviewItems(
     });
   }
 
+  const hasPathIssueFilter =
+    options?.pathIssueStatusFilter !== undefined &&
+    options.pathIssueStatusFilter !== null &&
+    options.pathIssueStatusFilter !== "";
+  if (hasPathIssueFilter) {
+    requestBody.conditions!.push({
+      field: "pathIssueStatus",
+      value: options.pathIssueStatusFilter!,
+    });
+  }
+
+  const hasPathIssueCategoryFilter =
+    options?.pathIssueCategoryFilter !== undefined &&
+    options.pathIssueCategoryFilter !== null &&
+    options.pathIssueCategoryFilter !== "";
+  if (hasPathIssueCategoryFilter) {
+    requestBody.conditions!.push({
+      field: "pathIssueCategory",
+      value: options.pathIssueCategoryFilter!,
+    });
+  }
+
   // Add statusSearchType to request body if specified
   if (statusSearchType) {
     requestBody.statusSearchType = statusSearchType;
@@ -1708,6 +2022,7 @@ export async function searchPathReviewItems(
       copyStatus: primaryNode?.copyStatus || undefined,
       src: nodes.src,
       dst: nodes.dst,
+      resolvedDstName: nodes.resolvedDstName || undefined,
     };
 
     transformedItems.push(diffItem);

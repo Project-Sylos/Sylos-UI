@@ -167,6 +167,21 @@
   line-height: 1.4;
 }
 
+.item-hover-card__split--single {
+  grid-template-columns: 1fr;
+}
+
+.item-hover-card__detail--emphasis .item-hover-card__detail-value {
+  color: var(--accent-cyan, #67e8f9);
+  font-weight: 600;
+}
+
+.item-hover-card__compat-note {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
 @media (max-width: 768px) {
   .item-hover-card {
     min-width: 300px;
@@ -177,4 +192,5 @@
     grid-template-columns: 1fr;
   }
 }
+
 

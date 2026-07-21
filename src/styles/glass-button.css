@@ -131,7 +131,7 @@
   color: var(--text-primary);
 }
 
-/* Footer / progression CTAs with longer labels — allow natural line breaks. */
+/* Footer / progression CTAs with longer labels. Allow natural line breaks. */
 .glass-button--multiline {
   white-space: normal;
   text-align: center;

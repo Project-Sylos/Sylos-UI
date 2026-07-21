@@ -52,8 +52,11 @@ type SelectionContextValue = {
   selectSource: (service: ServiceDescriptor, root?: Folder) => void;
   selectDestination: (service: ServiceDescriptor, root?: Folder) => void;
   updateMigration: (update: Partial<MigrationState>) => void;
-  /** Rehydrate source/destination from server-persisted roots (used on resume when sessionStorage is empty). */
-  applyServerRoots: (source?: RootInfo, destination?: RootInfo) => void;
+  /** Rehydrate source/destination from server-persisted roots.
+   *  When force is true (resume flow), always replace current endpoints so a prior
+   *  migration's selection cannot stick around.
+   */
+  applyServerRoots: (source?: RootInfo, destination?: RootInfo, force?: boolean) => void;
   clearSelections: () => void;
   /** Flush current setup to sessionStorage (e.g. before OAuth full-page redirect). */
   persistSelections: (migrationPatch?: Partial<MigrationState>) => void;
@@ -268,14 +271,16 @@ export function SelectionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const applyServerRoots = useCallback(
-    (sourceRoot?: RootInfo, destinationRoot?: RootInfo) => {
+    (sourceRoot?: RootInfo, destinationRoot?: RootInfo, force?: boolean) => {
       const nextSource = endpointFromRootInfo(sourceRoot);
       const nextDestination = endpointFromRootInfo(destinationRoot);
       if (nextSource) {
-        setSource((current) => (current?.root ? current : nextSource));
+        setSource((current) => (force || !current?.root ? nextSource : current));
       }
       if (nextDestination) {
-        setDestination((current) => (current?.root ? current : nextDestination));
+        setDestination((current) =>
+          force || !current?.root ? nextDestination : current
+        );
       }
     },
     []

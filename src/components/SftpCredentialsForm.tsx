@@ -1,9 +1,19 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 
-import { createConnection, postProviderCredentials, probeSftpHostKey } from "../api/providers";
-import { ConnectionTokenResponse } from "../types/providers";
-import { SFTPCredentialsPayload } from "../types/providers";
+import {
+  createConnection,
+  getSftpSavedHost,
+  listSftpSavedHosts,
+  postProviderCredentials,
+  probeSftpHostKey,
+  upsertSftpSavedHost,
+} from "../api/providers";
+import {
+  ConnectionTokenResponse,
+  SFTPCredentialsPayload,
+  SFTPSavedHostSummary,
+} from "../types/providers";
 
 type AuthMethod = "password" | "pem";
 type FormStep = "credentials" | "trust-host";
@@ -36,7 +46,13 @@ export default function SftpCredentialsForm({
   onConnected,
   onCancel,
 }: SftpCredentialsFormProps) {
+  void serviceId;
+  void role;
+
   const [step, setStep] = useState<FormStep>("credentials");
+  const [savedHosts, setSavedHosts] = useState<SFTPSavedHostSummary[]>([]);
+  const [selectedSavedId, setSelectedSavedId] = useState("");
+  const [rememberHost, setRememberHost] = useState(true);
   const [host, setHost] = useState("");
   const [port, setPort] = useState("22");
   const [authMethod, setAuthMethod] = useState<AuthMethod>("password");
@@ -48,18 +64,34 @@ export default function SftpCredentialsForm({
   const [trustedFingerprint, setTrustedFingerprint] = useState("");
   const [pendingHostKey, setPendingHostKey] = useState("");
   const [pendingFingerprint, setPendingFingerprint] = useState("");
+  const [hostKeyChanged, setHostKeyChanged] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const refreshSavedHosts = useCallback(async () => {
+    try {
+      const items = await listSftpSavedHosts();
+      setSavedHosts(items);
+    } catch {
+      // Non-fatal: form still works without the site list.
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshSavedHosts();
+  }, [refreshSavedHosts]);
 
   const clearTrustedHost = () => {
     setTrustedHostKey("");
     setTrustedFingerprint("");
     setPendingHostKey("");
     setPendingFingerprint("");
+    setHostKeyChanged(false);
   };
 
   const handleHostChange = (value: string) => {
     setHost(value);
+    setSelectedSavedId("");
     clearTrustedHost();
     setStep("credentials");
     setError(null);
@@ -67,6 +99,7 @@ export default function SftpCredentialsForm({
 
   const handlePortChange = (value: string) => {
     setPort(value);
+    setSelectedSavedId("");
     clearTrustedHost();
     setStep("credentials");
     setError(null);
@@ -80,6 +113,40 @@ export default function SftpCredentialsForm({
       setKeyPassphrase("");
     } else {
       setPassword("");
+    }
+  };
+
+  const applySavedHost = async (hostId: string) => {
+    if (!hostId) {
+      setSelectedSavedId("");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const detail = await getSftpSavedHost(hostId);
+      setSelectedSavedId(detail.id);
+      setHost(detail.host);
+      setPort(String(detail.port || 22));
+      setUsername(detail.username);
+      const method: AuthMethod = detail.authMethod === "pem" ? "pem" : "password";
+      setAuthMethod(method);
+      setPassword(detail.password ?? "");
+      setPrivateKey(detail.privateKey ?? "");
+      setKeyPassphrase(detail.keyPassphrase ?? "");
+      if (detail.hostKey) {
+        setTrustedHostKey(detail.hostKey);
+        setTrustedFingerprint("");
+      } else {
+        clearTrustedHost();
+      }
+      setRememberHost(true);
+      setStep("credentials");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load saved connection.");
+      setSelectedSavedId("");
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -111,12 +178,31 @@ export default function SftpCredentialsForm({
     setBusy(true);
     setError(null);
     try {
+      const payload = buildPayload(hostKey);
       const connection = await createConnection(providerId, { migrationId });
       const status = await postProviderCredentials(
         providerId,
         connection.connectionId,
-        buildPayload(hostKey)
+        payload
       );
+      if (rememberHost) {
+        try {
+          await upsertSftpSavedHost({
+            id: selectedSavedId || undefined,
+            host: payload.host,
+            port: payload.port,
+            username: payload.username,
+            authMethod,
+            password: payload.password,
+            privateKey: payload.privateKey,
+            keyPassphrase: payload.keyPassphrase,
+            hostKey,
+          });
+          await refreshSavedHosts();
+        } catch {
+          // Connection succeeded; remembering the site is best-effort.
+        }
+      }
       onConnected(connection.connectionId, status);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to connect SFTP server.");
@@ -147,8 +233,20 @@ export default function SftpCredentialsForm({
         host: host.trim(),
         port: Number(port) || 22,
       });
+      if (probe.trusted && !probe.hostKeyChanged && probe.hostKey) {
+        setTrustedHostKey(probe.hostKey);
+        setTrustedFingerprint(probe.fingerprint);
+        await connectWithHostKey(probe.hostKey);
+        return;
+      }
       setPendingHostKey(probe.hostKey);
       setPendingFingerprint(probe.fingerprint);
+      setHostKeyChanged(Boolean(probe.hostKeyChanged));
+      if (probe.trusted && probe.hostKeyChanged) {
+        setError(
+          "The server fingerprint changed since it was last trusted. Confirm the new fingerprint carefully before continuing."
+        );
+      }
       setStep("trust-host");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to verify server host key.");
@@ -173,8 +271,9 @@ export default function SftpCredentialsForm({
       <div className="sftp-credentials-form sftp-credentials-form--trust">
         <h3 className="sftp-credentials-form__trust-title">Verify server identity</h3>
         <p className="sftp-credentials-form__trust-copy">
-          Sylos has not connected to this server before. Confirm the fingerprint matches what
-          your administrator expects before trusting it.
+          {hostKeyChanged
+            ? "Confirm this new fingerprint matches what your administrator expects before trusting it again."
+            : "Sylos has not connected to this server before. Confirm the fingerprint matches what your administrator expects before trusting it."}
         </p>
         <p className="sftp-credentials-form__trust-host">
           <span className="sftp-credentials-form__trust-label">Server</span>
@@ -224,6 +323,23 @@ export default function SftpCredentialsForm({
 
   return (
     <form className="sftp-credentials-form" onSubmit={(e) => void handleSubmit(e)}>
+      {savedHosts.length > 0 && (
+        <label className="sftp-credentials-form__field sftp-credentials-form__field--full">
+          Saved connections
+          <select
+            value={selectedSavedId}
+            onChange={(e) => void applySavedHost(e.target.value)}
+            disabled={busy}
+          >
+            <option value="">New connection…</option>
+            {savedHosts.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.displayName || `${item.username}@${item.host}:${item.port}`}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       <div className="sftp-credentials-form__grid">
         <label className="sftp-credentials-form__field">
           Host
@@ -231,7 +347,7 @@ export default function SftpCredentialsForm({
             value={host}
             onChange={(e) => handleHostChange(e.target.value)}
             required
-            autoFocus
+            autoFocus={savedHosts.length === 0}
           />
         </label>
         <label className="sftp-credentials-form__field">
@@ -298,6 +414,14 @@ export default function SftpCredentialsForm({
           />
         </label>
       )}
+      <label className="sftp-credentials-form__checkbox">
+        <input
+          type="checkbox"
+          checked={rememberHost}
+          onChange={(e) => setRememberHost(e.target.checked)}
+        />
+        Remember this connection
+      </label>
       {trustedFingerprint && (
         <p className="sftp-credentials-form__pinned">
           Trusted fingerprint: <code>{trustedFingerprint}</code>

@@ -2,7 +2,7 @@ import { MigrationRootRequestRoot } from "../types/migrations";
 import { BrowseTrailItem, Folder } from "../types/services";
 import { serviceIdToProviderId } from "./cloudProviders";
 
-/** Cloud provider folder IDs — not human-readable paths. */
+/** Cloud provider folder IDs. Not human-readable paths. */
 const CLOUD_PROVIDER_FOLDER_IDS = new Set([
   "root",
   "sharedWithMe",

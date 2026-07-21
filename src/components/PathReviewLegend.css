@@ -1,0 +1,96 @@
+.path-review-legend-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex-shrink: 0;
+  height: 28px;
+  padding: 0 0.55rem;
+  border-radius: 6px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  background: rgba(148, 163, 184, 0.08);
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-weight: 550;
+  cursor: pointer;
+}
+
+.path-review-legend-trigger:hover {
+  background: rgba(148, 163, 184, 0.14);
+  color: var(--text-primary);
+}
+
+.path-review-legend-popover {
+  position: fixed;
+  z-index: 100060;
+  width: min(340px, calc(100vw - 24px));
+  max-height: min(420px, calc(100vh - 24px));
+  overflow: auto;
+  padding: 0.7rem 0.75rem;
+  border-radius: 10px;
+  background: rgba(
+    var(--color-base-dark-r),
+    var(--color-base-dark-g),
+    var(--color-base-dark-b),
+    0.98
+  );
+  border: 1px solid rgba(
+    var(--color-base-slate-r),
+    var(--color-base-slate-g),
+    var(--color-base-slate-b),
+    0.45
+  );
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+  color: var(--text-primary);
+}
+
+.path-review-legend-popover__title {
+  margin: 0 0 0.55rem;
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.path-review-legend-popover__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.path-review-legend-popover__row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.path-review-legend-popover__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 18px;
+  margin-top: 0.1rem;
+}
+
+.path-review-legend-popover__text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+  min-width: 0;
+}
+
+.path-review-legend-popover__label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.path-review-legend-popover__tip {
+  font-size: 0.76rem;
+  line-height: 1.35;
+  color: var(--text-muted);
+}

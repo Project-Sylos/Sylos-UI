@@ -66,6 +66,29 @@
   font-size: 0.95rem;
 }
 
+.progress-monitor__dev-metrics {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: var(--text-secondary);
+  background: rgba(
+    var(--glass-bg-base-r),
+    var(--glass-bg-base-g),
+    var(--glass-bg-base-b),
+    var(--glass-bg-opacity-secondary)
+  );
+  border: 1px solid rgba(
+    var(--color-base-slate-r),
+    var(--color-base-slate-g),
+    var(--color-base-slate-b),
+    var(--glass-border-opacity-subtle)
+  );
+  border-radius: 8px;
+  padding: 0.45rem 0.75rem;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
 .progress-monitor__metrics {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -189,6 +212,27 @@
   font-size: 1rem;
   font-weight: 500;
   color: var(--text-secondary);
+  flex-wrap: wrap;
+}
+
+.progress-monitor__rate-limit {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--ui-alert-danger-fg, #b42318);
+  background: var(--ui-alert-danger-bg, rgba(180, 35, 24, 0.12));
+  border: 1px solid var(--ui-alert-danger-border, rgba(180, 35, 24, 0.35));
+  border-radius: 6px;
+  padding: 0.15rem 0.45rem;
+  white-space: nowrap;
+}
+
+.progress-monitor__rate-limit--pacing {
+  color: var(--ui-alert-warning-fg, #b54708);
+  background: var(--ui-alert-warning-bg, rgba(181, 71, 8, 0.12));
+  border-color: var(--ui-alert-warning-border, rgba(181, 71, 8, 0.35));
 }
 
 .progress-monitor__metric-title {

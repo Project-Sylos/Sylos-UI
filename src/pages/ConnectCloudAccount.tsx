@@ -5,6 +5,9 @@ import { CheckCircle2, Cloud, Loader2, LogIn, LogOut, Pencil, Server, Unplug, Us
 import "../App.css";
 import googleDriveLogo from "../assets/external/Google_Drive_Logo.svg";
 import dropboxLogo from "../assets/external/dropbox-1-logo-png-transparent.png";
+import oneDriveLogo from "../assets/external/onedrive.webp";
+import sharePointLogo from "../assets/external/sharepoint.svg";
+import boxLogo from "../assets/external/BOX.svg";
 import { createConnection, fetchProviders } from "../api/providers";
 import { GlassSurfacePanel } from "../components/GlassSurfacePanel";
 import PageBackButton from "../components/PageBackButton";
@@ -62,6 +65,36 @@ function ProviderConnectIcon({ providerId }: { providerId: string }) {
     return (
       <img
         src={dropboxLogo}
+        alt=""
+        className="service-external-logo service-external-logo--connect"
+      />
+    );
+  }
+
+  if (providerId === "onedrive") {
+    return (
+      <img
+        src={oneDriveLogo}
+        alt=""
+        className="service-external-logo service-external-logo--connect"
+      />
+    );
+  }
+
+  if (providerId === "sharepoint") {
+    return (
+      <img
+        src={sharePointLogo}
+        alt=""
+        className="service-external-logo service-external-logo--connect"
+      />
+    );
+  }
+
+  if (providerId === "box") {
+    return (
+      <img
+        src={boxLogo}
         alt=""
         className="service-external-logo service-external-logo--connect"
       />

@@ -1,6 +1,17 @@
-import React from "react";
-import { Clock, X, Check, AlertCircle, RotateCw } from "lucide-react";
-import HelpTooltip from "./HelpTooltip";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
+import {
+  AlertCircle,
+  AlertTriangle,
+  Check,
+  CircleHelp,
+  Clock,
+  Info,
+  RotateCw,
+  X,
+} from "lucide-react";
+import { PATH_REVIEW_COPY } from "../utils/pathReviewCopy";
+import "./PathReviewLegend.css";
 
 export interface PathReviewLegendProps {
   zoomLevel?: number;
@@ -8,178 +19,308 @@ export interface PathReviewLegendProps {
   phase?: "traversal" | "copy" | "source-cleanup" | "delete";
   /** When false, hide the destination-only legend entry (cleanup/delete default). */
   showDestinationOnly?: boolean;
+  /** Show destination naming compatibility legend entry. */
+  showCompatibility?: boolean;
 }
 
+type LegendRow = {
+  key: string;
+  icon: ReactNode;
+  label: string;
+  tip: string;
+};
+
+/**
+ * Compact status-icon help control. Opens a popover instead of a full-width legend strip.
+ */
 export default function PathReviewLegend({
   zoomLevel = 1,
   className = "",
   phase = "traversal",
   showDestinationOnly = true,
+  showCompatibility = false,
 }: PathReviewLegendProps) {
   const isCopyPhase = phase === "copy";
   const isSourceCleanup = phase === "source-cleanup";
   const isDeleteReview = phase === "delete";
+  const iconSize = 14 * zoomLevel;
 
-  if (isDeleteReview) {
-    return (
-      <div className={`path-review__legend ${className}`}>
-        <div className="path-review__legend-item">
-          <Check size={14 * zoomLevel} className="path-review__legend-icon path-review__legend-icon--deleted" />
-          <span className="path-review__legend-label">Removed</span>
-          <HelpTooltip
-            tipId="delete-removed-icon-tip"
-            category="path-review-delete-removed"
-            position="above"
-            content={
-              <p>These items were removed from the source successfully.</p>
-            }
-          />
-        </div>
-        <div className="path-review__legend-item">
-          <AlertCircle size={14 * zoomLevel} className="path-review__legend-icon path-review__legend-icon--failed" />
-          <span className="path-review__legend-label">Failed</span>
-          <HelpTooltip
-            tipId="delete-failed-icon-tip"
-            category="path-review-delete-failed"
-            position="above"
-            content={
-              <p>Removal failed for these items. Click to mark them for retry.</p>
-            }
-          />
-        </div>
-        <div className="path-review__legend-item">
-          <RotateCw size={14 * zoomLevel} className="path-review__legend-icon path-review__legend-icon--retry" />
-          <span className="path-review__legend-label">Retry</span>
-          <HelpTooltip
-            tipId="delete-retry-icon-tip"
-            category="path-review-delete-retry"
-            position="above"
-            content={
-              <p>Items marked for removal retry. Click again to undo.</p>
-            }
-          />
-        </div>
-        {showDestinationOnly && (
-          <div className="path-review__legend-item">
-            <Check size={14 * zoomLevel} className="path-review__legend-icon path-review__legend-icon--exists-only-dst" />
-            <span className="path-review__legend-label">Exists (Destination Only)</span>
-          </div>
-        )}
-      </div>
-    );
-  }
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const [coords, setCoords] = useState<{ left: number; top: number } | null>(null);
 
-  if (isSourceCleanup) {
-    return (
-      <div className={`path-review__legend ${className}`}>
-        <div className="path-review__legend-item">
-          <Clock size={14 * zoomLevel} className="path-review__legend-icon path-review__legend-icon--pending" />
-          <span className="path-review__legend-label">Pending Removal</span>
-          <HelpTooltip
-            tipId="delete-pending-icon-tip"
-            category="path-review-delete-pending"
-            position="above"
-            content={
-              <p>These items were copied successfully and are scheduled for removal from the source. Click to exclude an item from removal.</p>
-            }
+  const rows: LegendRow[] = (() => {
+    if (isDeleteReview) {
+      const out: LegendRow[] = [
+        {
+          key: "removed",
+          icon: (
+            <Check
+              size={iconSize}
+              className="path-review__legend-icon path-review__legend-icon--deleted"
+            />
+          ),
+          label: "Removed",
+          tip: "These items were removed from the source successfully.",
+        },
+        {
+          key: "failed",
+          icon: (
+            <AlertCircle
+              size={iconSize}
+              className="path-review__legend-icon path-review__legend-icon--failed"
+            />
+          ),
+          label: "Failed",
+          tip: "Removal failed for these items. Click to mark them for retry.",
+        },
+        {
+          key: "retry",
+          icon: (
+            <RotateCw
+              size={iconSize}
+              className="path-review__legend-icon path-review__legend-icon--retry"
+            />
+          ),
+          label: "Retry",
+          tip: "Items marked for removal retry. Click again to undo.",
+        },
+      ];
+      if (showDestinationOnly) {
+        out.push({
+          key: "dst-only",
+          icon: (
+            <Check
+              size={iconSize}
+              className="path-review__legend-icon path-review__legend-icon--exists-only-dst"
+            />
+          ),
+          label: "Exists (destination only)",
+          tip: "Shown for awareness; not part of the removal plan.",
+        });
+      }
+      return out;
+    }
+
+    if (isSourceCleanup) {
+      const out: LegendRow[] = [
+        {
+          key: "pending-removal",
+          icon: (
+            <Clock
+              size={iconSize}
+              className="path-review__legend-icon path-review__legend-icon--pending"
+            />
+          ),
+          label: "Pending removal",
+          tip: "Copied successfully and scheduled for removal from the source. Click to exclude from removal.",
+        },
+        {
+          key: "excluded-removal",
+          icon: (
+            <X
+              size={iconSize}
+              className="path-review__legend-icon path-review__legend-icon--excluded"
+            />
+          ),
+          label: "Excluded from removal",
+          tip: "These items will be kept on the source. Click to include them again.",
+        },
+      ];
+      if (showDestinationOnly) {
+        out.push({
+          key: "dst-only",
+          icon: (
+            <Check
+              size={iconSize}
+              className="path-review__legend-icon path-review__legend-icon--exists-only-dst"
+            />
+          ),
+          label: "Exists (destination only)",
+          tip: "Shown for awareness; not part of the removal plan.",
+        });
+      }
+      return out;
+    }
+
+    const out: LegendRow[] = [];
+    if (!isCopyPhase) {
+      out.push({
+        key: "pending",
+        icon: (
+          <Clock
+            size={iconSize}
+            className="path-review__legend-icon path-review__legend-icon--pending"
           />
-        </div>
-        <div className="path-review__legend-item">
-          <X size={14 * zoomLevel} className="path-review__legend-icon path-review__legend-icon--excluded" />
-          <span className="path-review__legend-label">Excluded from Removal</span>
-          <HelpTooltip
-            tipId="delete-skipped-icon-tip"
-            category="path-review-delete-skipped"
-            position="above"
-            content={
-              <p>These items will be kept on the source. Click to include them in the removal plan again.</p>
-            }
+        ),
+        label: "Pending",
+        tip: "Will be copied. Click the icon to exclude from copy.",
+      });
+    }
+    out.push(
+      {
+        key: "excluded",
+        icon: (
+          <X
+            size={iconSize}
+            className="path-review__legend-icon path-review__legend-icon--excluded"
           />
-        </div>
-        {showDestinationOnly && (
-          <div className="path-review__legend-item">
-            <Check size={14 * zoomLevel} className="path-review__legend-icon path-review__legend-icon--exists-only-dst" />
-            <span className="path-review__legend-label">Exists (Destination Only)</span>
-          </div>
-        )}
-      </div>
+        ),
+        label: "Excluded",
+        tip: isCopyPhase
+          ? "Explicitly excluded from copy during discovery review."
+          : "Will not be copied. Click again to include.",
+      },
+      {
+        key: "both",
+        icon: (
+          <Check
+            size={iconSize}
+            className="path-review__legend-icon path-review__legend-icon--exists"
+          />
+        ),
+        label: "Exists (both)",
+        tip: "Already present on source and destination.",
+      }
     );
-  }
+    if (showDestinationOnly) {
+      out.push({
+        key: "dst-only",
+        icon: (
+          <Check
+            size={iconSize}
+            className="path-review__legend-icon path-review__legend-icon--exists-only-dst"
+          />
+        ),
+        label: "Exists (destination only)",
+        tip: "Already on destination. Folders with this status are not explored during discovery.",
+      });
+    }
+    if (showCompatibility) {
+      out.push(
+        {
+          key: "compat-auto",
+          icon: (
+            <Info
+              size={iconSize}
+              className="path-review__legend-icon path-review__legend-icon--compat-info"
+            />
+          ),
+          label: PATH_REVIEW_COPY.compatibilityFilterIssues,
+          tip: PATH_REVIEW_COPY.compatibilityLegendAutoTip,
+        },
+        {
+          key: "compat-manual",
+          icon: (
+            <AlertTriangle
+              size={iconSize}
+              className="path-review__legend-icon path-review__legend-icon--compatibility"
+            />
+          ),
+          label: PATH_REVIEW_COPY.compatibilityFilterManual,
+          tip: PATH_REVIEW_COPY.compatibilityLegendManualTip,
+        }
+      );
+    }
+    out.push(
+      {
+        key: "failed",
+        icon: (
+          <AlertCircle
+            size={iconSize}
+            className="path-review__legend-icon path-review__legend-icon--failed"
+          />
+        ),
+        label: "Failed",
+        tip: `Failed items can be marked for retry to be ${
+          isCopyPhase ? "copied" : "explored"
+        } again.`,
+      },
+      {
+        key: "retry",
+        icon: (
+          <RotateCw
+            size={iconSize}
+            className="path-review__legend-icon path-review__legend-icon--retry"
+          />
+        ),
+        label: "Retry",
+        tip: "Marked for retry. Click again to unmark.",
+      }
+    );
+    return out;
+  })();
+
+  useLayoutEffect(() => {
+    if (!open || !buttonRef.current) {
+      setCoords(null);
+      return;
+    }
+    const rect = buttonRef.current.getBoundingClientRect();
+    setCoords({ left: rect.left, top: rect.bottom + 6 });
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    const onPointer = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (buttonRef.current?.contains(t) || panelRef.current?.contains(t)) return;
+      setOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("mousedown", onPointer);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("mousedown", onPointer);
+    };
+  }, [open]);
+
+  const panel =
+    open && coords
+      ? createPortal(
+          <div
+            ref={panelRef}
+            className="path-review-legend-popover"
+            style={{ left: coords.left, top: coords.top }}
+            role="dialog"
+            aria-label="Status icon legend"
+          >
+            <p className="path-review-legend-popover__title">Status icons</p>
+            <ul className="path-review-legend-popover__list">
+              {rows.map((row) => (
+                <li key={row.key} className="path-review-legend-popover__row">
+                  <span className="path-review-legend-popover__icon">{row.icon}</span>
+                  <span className="path-review-legend-popover__text">
+                    <span className="path-review-legend-popover__label">{row.label}</span>
+                    <span className="path-review-legend-popover__tip">{row.tip}</span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>,
+          document.body
+        )
+      : null;
 
   return (
-    <div className={`path-review__legend ${className}`}>
-      {!isCopyPhase && (
-        <div className="path-review__legend-item">
-          <Clock size={14 * zoomLevel} className="path-review__legend-icon path-review__legend-icon--pending" />
-          <span className="path-review__legend-label">Pending</span>
-          <HelpTooltip
-            tipId="pending-icon-tip"
-            category="path-review-pending"
-            position="above"
-            content={
-              <p>Click these icons on the items to mark them to be excluded from copying over.</p>
-            }
-          />
-        </div>
-      )}
-      <div className="path-review__legend-item">
-        <X size={14 * zoomLevel} className="path-review__legend-icon path-review__legend-icon--excluded" />
-        <span className="path-review__legend-label">Excluded</span>
-        <HelpTooltip
-          tipId="excluded-icon-tip"
-          category="path-review-excluded"
-          position="above"
-          content={
-            isCopyPhase ? (
-              <p>These items were explicitly excluded from being copied over as per your request in the discovery path review section.</p>
-            ) : (
-              <p>Pending items can be marked as excluded from the copy operation.</p>
-            )
-          }
-        />
-      </div>
-      <div className="path-review__legend-item">
-        <Check size={14 * zoomLevel} className="path-review__legend-icon path-review__legend-icon--exists" />
-        <span className="path-review__legend-label">Exists (Both)</span>
-      </div>
-      {showDestinationOnly && (
-        <div className="path-review__legend-item">
-          <Check size={14 * zoomLevel} className="path-review__legend-icon path-review__legend-icon--exists-only-dst" />
-          <span className="path-review__legend-label">Exists (Destination Only)</span>
-          <HelpTooltip
-            tipId="exists-dst-only-icon-tip"
-            category="path-review-destination-only"
-            position="above"
-            content={
-              <p>Folders with this status are shown for awareness and are not explored during discovery to save on performance and time. Already exists so no need to copy over.</p>
-            }
-          />
-        </div>
-      )}
-      <div className="path-review__legend-item">
-        <AlertCircle size={14 * zoomLevel} className="path-review__legend-icon path-review__legend-icon--failed" />
-        <span className="path-review__legend-label">Failed</span>
-        <HelpTooltip
-          tipId="failed-icon-tip"
-          category="path-review-failed"
-          position="above"
-          content={
-            <p>Failed items can be marked for retry to be {isCopyPhase ? "copied" : "explored"} again.</p>
-          }
-        />
-      </div>
-      <div className="path-review__legend-item">
-        <RotateCw size={14 * zoomLevel} className="path-review__legend-icon path-review__legend-icon--retry" />
-        <span className="path-review__legend-label">Retry</span>
-        <HelpTooltip
-          tipId="retry-icon-tip"
-          category="path-review-retry"
-          position="above"
-          content={
-            <p>Items marked for retry can be marked again to undo queueing them to be retried.</p>
-          }
-        />
-      </div>
-    </div>
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        className={`path-review-legend-trigger ${className}`.trim()}
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        title="Status icon help"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <CircleHelp size={15} aria-hidden />
+        <span>Icons</span>
+      </button>
+      {panel}
+    </>
   );
 }

@@ -1,0 +1,72 @@
+.path-review-issues-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  height: 28px;
+  padding: 0 0.55rem;
+  border-radius: 6px;
+  border: 1px solid rgba(
+    var(--color-base-slate-r),
+    var(--color-base-slate-g),
+    var(--color-base-slate-b),
+    var(--glass-border-opacity-default)
+  );
+  background: linear-gradient(
+    160deg,
+    rgba(
+      var(--glass-bg-base-r),
+      var(--glass-bg-base-g),
+      var(--glass-bg-base-b),
+      0.25
+    ) 0%,
+    rgba(
+      var(--glass-bg-base-r),
+      var(--glass-bg-base-g),
+      var(--glass-bg-base-b),
+      0.15
+    ) 100%
+  );
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-weight: 550;
+  cursor: pointer;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.path-review-issues-button:hover {
+  color: var(--text-primary);
+  border-color: var(--accent-cyan-opacity-10);
+}
+
+.path-review-issues-button--active {
+  color: var(--text-primary);
+  border-color: var(--accent-cyan-opacity-20);
+  box-shadow: 0 0 0 1px var(--accent-cyan-opacity-10);
+}
+
+.path-review-issues-button--attention {
+  color: #fda4af;
+  border-color: rgba(244, 63, 94, 0.35);
+  background: rgba(244, 63, 94, 0.1);
+}
+
+.path-review-issues-button--warnings {
+  color: #fbbf24;
+  border-color: rgba(245, 158, 11, 0.35);
+  background: rgba(245, 158, 11, 0.1);
+}
+
+.path-review-issues-button__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.path-review-issues-button__sep {
+  opacity: 0.55;
+}
+
+.path-review-issues-button__stat {
+  font-variant-numeric: tabular-nums;
+}

@@ -38,6 +38,36 @@
   white-space: nowrap;
 }
 
+.path-review-footer-info__stat--compat,
+.path-review-footer-info__stat--failed {
+  height: 28px;
+  padding: 0 0.55rem;
+  border-radius: 6px;
+  font-weight: 550;
+}
+
+.path-review-footer-info__stat--compat {
+  color: #fcd34d;
+  background: rgba(251, 191, 36, 0.12);
+  border: 1px solid rgba(251, 191, 36, 0.35);
+}
+
+.path-review-footer-info__stat--compat .path-review-footer-info__stat-label,
+.path-review-footer-info__stat--compat .path-review-footer-info__stat-value {
+  color: inherit;
+}
+
+.path-review-footer-info__stat--failed {
+  color: #fca5a5;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+}
+
+.path-review-footer-info__stat--failed .path-review-footer-info__stat-label,
+.path-review-footer-info__stat--failed .path-review-footer-info__stat-value {
+  color: inherit;
+}
+
 .path-review-footer-info__ratio-bar {
   display: flex;
   width: 80px;

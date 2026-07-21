@@ -1,10 +1,11 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import {
   Folder,
   File,
   ChevronUp,
   ChevronDown,
   ChevronRight,
+  EyeOff,
   Filter,
   ArrowRight,
   X,
@@ -29,7 +30,18 @@ import {
   BackgroundTask,
   PathReviewStats,
   getMigrationStatus,
+  PathIssue,
+  applyPathIssuesToDiffItems,
+  listPathIssues,
 } from "../api/services";
+import CompatibilityCaution from "../components/CompatibilityCaution";
+import DestinationRenameHint from "../components/DestinationRenameHint";
+import PathReviewContextMenu from "../components/PathReviewContextMenu";
+import {
+  PATH_REVIEW_COPY,
+  pathIssueShortLabel,
+  summarizePathIssues,
+} from "../utils/pathReviewCopy";
 import {
   MigrationStatusResponse,
   isCopyReviewPhase,
@@ -39,9 +51,11 @@ import {
   getPathReviewDisplayPhase,
   getPathReviewUIPhase,
 } from "../utils/pathReviewPhase";
+import { isCopyComplete } from "../utils/copyStatus";
 import { useListDensity } from "../contexts/ListDensityContext";
 import PathReviewStatusIcon from "../components/PathReviewStatusIcon";
 import PathReviewLegend from "../components/PathReviewLegend";
+import PathReviewIssuesButton from "../components/PathReviewIssuesButton";
 import ListViewPagination from "../components/ListViewPagination";
 import ListItemMeta from "../components/ListItemMeta";
 import { getDiffItemFailureMessage } from "../utils/diffFailureMessage";
@@ -73,6 +87,25 @@ export interface PathReviewListViewProps {
   onNavigateToTreeView?: (item: DiffItem) => void; // Callback to navigate to tree view and highlight item
   onToast?: (message: string, type: "success" | "error") => void; // Callback to show toast (e.g. retry/exclude success or error)
   isActive?: boolean;
+  pathIssues?: PathIssue[];
+  onPathIssuesChange?: (issues: PathIssue[]) => void;
+  onOpenRename?: (item: DiffItem) => void;
+  /** Shared inspector selection from parent PathReview. */
+  inspectorItemId?: string | null;
+  onInspectorSelect?: (item: DiffItem) => void;
+  /** Attention count for Issues button (failed + manual rename). */
+  issuesAttentionCount?: number;
+  /** Suggested-rename warning count for Issues button. */
+  issuesWarningCount?: number;
+  issuesPanelOpen?: boolean;
+  onOpenIssuesPanel?: () => void;
+  /** When token changes, apply jump filters from Issues panel. */
+  listJumpToken?: number;
+  listJumpTarget?: {
+    statusFilter?: string;
+    pathIssueStatus?: string;
+    pathIssueCategory?: string;
+  } | null;
 }
 
 export default function PathReviewListView({
@@ -93,6 +126,17 @@ export default function PathReviewListView({
   onNavigateToTreeView,
   onToast,
   isActive = true,
+  pathIssues = [],
+  onPathIssuesChange,
+  onOpenRename,
+  inspectorItemId = null,
+  onInspectorSelect,
+  issuesAttentionCount = 0,
+  issuesWarningCount = 0,
+  issuesPanelOpen = false,
+  onOpenIssuesPanel,
+  listJumpToken = 0,
+  listJumpTarget = null,
 }: PathReviewListViewProps) {
   const { densityStyle, setListViewportElement } = useListDensity();
   const [items, setItems] = useState<DiffItem[]>([]);
@@ -115,6 +159,8 @@ export default function PathReviewListView({
   const [sizeOperator, setSizeOperator] = useState<"equals" | "gt" | "gte" | "lt" | "lte">("equals"); // Size operator
   const [sizeDisplayUnit, setSizeDisplayUnit] = useState<"bytes" | "KB" | "MB" | "GB">("MB"); // Display unit for size input
   const [traversalStatusFilter, setTraversalStatusFilter] = useState<string>(""); // Traversal status filter (pending, failed, etc.)
+  const [pathIssueStatusFilter, setPathIssueStatusFilter] = useState<string>(""); // Compatibility filter
+  const [pathIssueCategoryFilter, setPathIssueCategoryFilter] = useState<string>(""); // Compat category
   const [foldersOnly, setFoldersOnly] = useState(false); // Deprecated - using typeFilter instead
   const [itemsPerPage, setItemsPerPage] = useState(100);
   const [currentPage, setCurrentPage] = useState(0);
@@ -130,6 +176,20 @@ export default function PathReviewListView({
   const sortMenuRef = useRef<HTMLDivElement>(null);
   const listItemsRef = useRef<HTMLDivElement | null>(null);
   const sortButtonRef = useRef<HTMLButtonElement>(null);
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    item: DiffItem;
+  } | null>(null);
+
+  useEffect(() => {
+    setItems((prev) => applyPathIssuesToDiffItems(prev, pathIssues));
+  }, [pathIssues]);
+
+  const pathIssueCategoryCounts = useMemo(
+    () => summarizePathIssues(pathIssues).categoryCounts,
+    [pathIssues]
+  );
 
   // Phase detection helpers
   const isCopyPhase = (status: MigrationStatusResponse | null): boolean =>
@@ -144,6 +204,8 @@ export default function PathReviewListView({
 
   const getDisplayPhase = () =>
     getPathReviewDisplayPhase(migrationStatus, reviewView);
+  const showCompatUI =
+    !isSourceCleanupView && !isDeletePhase(migrationStatus);
 
   // Fetch migration status
   const fetchMigrationStatus = async () => {
@@ -439,15 +501,20 @@ export default function PathReviewListView({
         sizeOperator: parsedSizeBytes !== null && parsedSizeBytes >= 0 ? sizeOperator : undefined,
         traversalStatusFilter: traversalStatusFilterValue,
         copyStatusFilter: copyStatusFilterValue,
+        pathIssueStatusFilter: pathIssueStatusFilter || undefined,
+        pathIssueCategoryFilter: pathIssueCategoryFilter || undefined,
         statusSearchType: statusSearchType,
         phase: phase,
         includeDestinationOnly,
       });
 
       if (append) {
-        setItems((prev) => [...prev, ...response.items]);
+        setItems((prev) => [
+          ...prev,
+          ...applyPathIssuesToDiffItems(response.items, pathIssues),
+        ]);
       } else {
-        setItems(response.items);
+        setItems(applyPathIssuesToDiffItems(response.items, pathIssues));
       }
 
       setPagination(response.pagination);
@@ -488,10 +555,28 @@ export default function PathReviewListView({
     }
   }, [showDestinationOnly, traversalStatusFilter]);
 
+  // Apply Issues-panel jump filters (switch already happened in parent).
+  useEffect(() => {
+    if (!listJumpToken || !listJumpTarget) return;
+    setCurrentPage(0);
+    setActiveSearchQuery("");
+    setSearchQuery("");
+    if (listJumpTarget.statusFilter) {
+      setTraversalStatusFilter(listJumpTarget.statusFilter);
+      setPathIssueStatusFilter("");
+      setPathIssueCategoryFilter("");
+    } else {
+      setTraversalStatusFilter("");
+      setPathIssueStatusFilter(listJumpTarget.pathIssueStatus || "");
+      setPathIssueCategoryFilter(listJumpTarget.pathIssueCategory || "");
+    }
+  }, [listJumpToken, listJumpTarget]);
+
+
   useEffect(() => {
     loadItems();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [migrationId, currentPage, itemsPerPage, sortField, sortDir, activeSearchQuery, searchField, typeFilter, depthFilter, depthOperator, sizeFilter, sizeOperator, sizeDisplayUnit, traversalStatusFilter, treeListRefreshToken, includeDestinationOnly]);
+  }, [migrationId, currentPage, itemsPerPage, sortField, sortDir, activeSearchQuery, searchField, typeFilter, depthFilter, depthOperator, sizeFilter, sizeOperator, sizeDisplayUnit, traversalStatusFilter, pathIssueStatusFilter, pathIssueCategoryFilter, treeListRefreshToken, includeDestinationOnly]);
 
   // Poll background tasks
   useEffect(() => {
@@ -772,6 +857,13 @@ export default function PathReviewListView({
         if (r?.deltas) for (const [k, v] of Object.entries(r.deltas)) merged[k] = (merged[k] ?? 0) + (v as number);
       }
       if (Object.keys(merged).length > 0) onApplyStatsDeltas?.(merged);
+      // Exclude also ignores naming warnings; unexclude restores them.
+      try {
+        const refreshed = await listPathIssues(migrationId);
+        onPathIssuesChange?.(refreshed.issues || []);
+      } catch {
+        // list reload below still refreshes row state
+      }
       await loadItems(false, { silent: true });
       onListDataMutated?.();
       onToast?.(isExcluding ? "Item excluded" : "Item unexcluded", "success");
@@ -964,7 +1056,7 @@ export default function PathReviewListView({
       
       // Copy phase status logic:
       // 1. Failed = src.copyStatus === "failed" (copy failed)
-      // 2. Successful = src.copyStatus === "successful" (got brought over) OR item is dst-only
+      // 2. Successful = copy complete (successful / already_existed) OR item is dst-only
       // 3. Pending = src.copyStatus === "pending" (didn't get brought over - treat same as failed)
       // 4. Excluded = copyStatus shows exclusion (read-only in copy phase)
       
@@ -973,8 +1065,8 @@ export default function PathReviewListView({
         copyStatus === "exclusion_inherited" ||
         copyStatus === "excluded";
       const isPending = copyStatus === "pending";
-      const isSuccessful = copyStatus === "successful" || existsOnlyOnDst;
-      const existsOnBoth = copyStatus === "successful"; // Successful copyStatus means it exists on both
+      const isSuccessful = isCopyComplete(copyStatus) || existsOnlyOnDst;
+      const existsOnBoth = isCopyComplete(copyStatus); // Copy complete means it exists on both
       
       return {
         isExcluded,
@@ -994,7 +1086,7 @@ export default function PathReviewListView({
       // 1. Failed traversalStatus → failed to traverse
       // 2. Excluded copyStatus → excluded from copy
       // 3. Pending copyStatus → pending - will be copied over
-      // 4. Successful copyStatus → already exists on both
+      // 4. Copy complete → already exists on both
       // 5. traversalStatus 'not_on_src' → exists only on destination
       
       const isExcluded =
@@ -1002,8 +1094,8 @@ export default function PathReviewListView({
         copyStatus === "exclusion_inherited" ||
         copyStatus === "excluded";
       const isPending = copyStatus === "pending";
-      const isSuccessful = copyStatus === "successful";
-      const existsOnBoth = isSuccessful; // Successful copyStatus means it exists on both
+      const isSuccessful = isCopyComplete(copyStatus);
+      const existsOnBoth = isSuccessful; // Copy complete means it exists on both
       
       return {
         isExcluded,
@@ -1044,6 +1136,8 @@ export default function PathReviewListView({
       depthFilter.trim() !== "" ||
       sizeFilter.trim() !== "" ||
       traversalStatusFilter !== "" ||
+      pathIssueStatusFilter !== "" ||
+      pathIssueCategoryFilter !== "" ||
       (showDestinationOnlyToggle && showDestinationOnly)
     );
   };
@@ -1250,6 +1344,57 @@ export default function PathReviewListView({
                   </select>
                 </div>
 
+                {/* Compatibility Filter */}
+                {showCompatUI ? (
+                <div className="path-review-list__filter-menu-section">
+                  <label
+                    className="path-review-list__filter-menu-label"
+                    htmlFor="compatibility-filter"
+                  >
+                    {PATH_REVIEW_COPY.compatibilityFilterLabel}
+                  </label>
+                  <select
+                    id="compatibility-filter"
+                    className="path-review-list__filter-menu-select"
+                    value={
+                      pathIssueCategoryFilter
+                        ? `cat:${pathIssueCategoryFilter}`
+                        : pathIssueStatusFilter
+                    }
+                    onChange={(e) => {
+                      const next = e.target.value;
+                      if (next.startsWith("cat:")) {
+                        setPathIssueStatusFilter("issues");
+                        setPathIssueCategoryFilter(next.slice(4));
+                      } else {
+                        setPathIssueStatusFilter(next);
+                        setPathIssueCategoryFilter("");
+                      }
+                      setCurrentPage(0);
+                    }}
+                  >
+                    <option value="">{PATH_REVIEW_COPY.compatibilityFilterAll}</option>
+                    <option value="issues">{PATH_REVIEW_COPY.compatibilityFilterIssues}</option>
+                    <option value="manual">
+                      {PATH_REVIEW_COPY.compatibilityFilterManual}
+                    </option>
+                    <option value="rejected">
+                      {PATH_REVIEW_COPY.compatibilityFilterRejected}
+                    </option>
+                    <option value="none">{PATH_REVIEW_COPY.compatibilityFilterNone}</option>
+                    {pathIssueCategoryCounts.length > 0 ? (
+                      <optgroup label={PATH_REVIEW_COPY.compatibilityFilterByType}>
+                        {pathIssueCategoryCounts.map(([category, count]) => (
+                          <option key={category} value={`cat:${category}`}>
+                            {pathIssueShortLabel([{ category }])} ({count})
+                          </option>
+                        ))}
+                      </optgroup>
+                    ) : null}
+                  </select>
+                </div>
+                ) : null}
+
                 {showDestinationOnlyToggle && (
                   <div className="path-review-list__filter-menu-section">
                     <label className="path-review-list__filter-menu-checkbox">
@@ -1284,6 +1429,8 @@ export default function PathReviewListView({
                       setSizeOperator("equals");
                       setSizeDisplayUnit("MB");
                       setTraversalStatusFilter("");
+                      setPathIssueStatusFilter("");
+                      setPathIssueCategoryFilter("");
                       if (showDestinationOnlyToggle) {
                         onShowDestinationOnlyChange?.(false);
                       }
@@ -1502,6 +1649,12 @@ export default function PathReviewListView({
                       if (onItemUpdate) onItemUpdate();
                     } else {
                       if (result.deltas && Object.keys(result.deltas).length > 0) onApplyStatsDeltas?.(result.deltas);
+                      try {
+                        const refreshed = await listPathIssues(migrationId);
+                        onPathIssuesChange?.(refreshed.issues || []);
+                      } catch {
+                        // list reload below still refreshes row state
+                      }
                       await loadItems(false, { silent: true });
                       onListDataMutated?.();
                     }
@@ -1571,6 +1724,12 @@ export default function PathReviewListView({
                       if (onItemUpdate) onItemUpdate();
                     } else {
                       if (result.deltas && Object.keys(result.deltas).length > 0) onApplyStatsDeltas?.(result.deltas);
+                      try {
+                        const refreshed = await listPathIssues(migrationId);
+                        onPathIssuesChange?.(refreshed.issues || []);
+                      } catch {
+                        // list reload below still refreshes row state
+                      }
                       await loadItems(false, { silent: true });
                       onListDataMutated?.();
                     }
@@ -1606,28 +1765,42 @@ export default function PathReviewListView({
         </div>
       )}
 
-      {/* Status Legend with Pagination Arrows */}
+      {/* Icon help + pagination */}
       {!loading && items.length > 0 && (
         <div className="path-review-list__legend-wrapper">
-          <PathReviewLegend
-            zoomLevel={1}
-            className="path-review__legend--compact"
-            phase={getDisplayPhase()}
-            showDestinationOnly={includeDestinationOnly}
-          />
-          {pagination && (
-            <ListViewPagination
-              pagination={pagination}
-              currentPage={currentPage}
-              itemsPerPage={itemsPerPage}
-              onPageChange={setCurrentPage}
-              onItemsPerPageChange={(value) => {
-                setItemsPerPage(value);
-                setCurrentPage(0);
-              }}
-              zoomLevel={1}
-            />
-          )}
+          <div className="path-review-list__legend-toolbar">
+            <div className="path-review-list__legend-start">
+              {onOpenIssuesPanel ? (
+                <PathReviewIssuesButton
+                  issueCount={issuesAttentionCount}
+                  warningCount={issuesWarningCount}
+                  active={issuesPanelOpen}
+                  onClick={onOpenIssuesPanel}
+                />
+              ) : null}
+              <PathReviewLegend
+                zoomLevel={1}
+                phase={getDisplayPhase()}
+                showDestinationOnly={includeDestinationOnly}
+                showCompatibility={
+                  showCompatUI && pathIssues.some((i) => !i.ignored)
+                }
+              />
+            </div>
+            {pagination && (
+              <ListViewPagination
+                pagination={pagination}
+                currentPage={currentPage}
+                itemsPerPage={itemsPerPage}
+                onPageChange={setCurrentPage}
+                onItemsPerPageChange={(value) => {
+                  setItemsPerPage(value);
+                  setCurrentPage(0);
+                }}
+                zoomLevel={1}
+              />
+            )}
+          </div>
         </div>
       )}
 
@@ -1660,6 +1833,8 @@ export default function PathReviewListView({
                   ? (item.src?.deleteStatus || "") === "pending"
                   : isTraversalRetryPending(item);
 
+              const isInspectorFocused = inspectorItemId === item.id;
+
               return (
                 <div
                   key={item.id}
@@ -1667,10 +1842,32 @@ export default function PathReviewListView({
                     status.isExcluded ? "path-review-list__item--excluded" : ""
                   } ${status.isDeleted ? "path-review-list__item--deleted" : ""} ${
                     isExplicit ? "path-review-list__item--selected" : ""
-                  } ${isInherited ? "path-review-list__item--inherited" : ""}`}
+                  } ${isInherited ? "path-review-list__item--inherited" : ""} ${
+                    isInspectorFocused ? "path-review-list__item--inspector-focused" : ""
+                  } ${
+                    showCompatUI &&
+                    item.pathIssueStatus === "manual_review" &&
+                    !item.pathIssueIgnored
+                      ? "path-review__item--path-issue"
+                      : ""
+                  }`}
+                  onClick={() => onInspectorSelect?.(item)}
+                  onContextMenu={(e) => {
+                    if (
+                      !showCompatUI ||
+                      !onOpenRename ||
+                      (!item.pathIssueStatus && !item.proposedPath)
+                    )
+                      return;
+                    e.preventDefault();
+                    setContextMenu({ x: e.clientX, y: e.clientY, item });
+                  }}
                 >
                   {/* Checkbox */}
-                  <div className="path-review-list__item-checkbox">
+                  <div
+                    className="path-review-list__item-checkbox"
+                    onClick={(e) => e.stopPropagation()}
+                  >
                     <input
                       type="checkbox"
                       checked={isSelected}
@@ -1686,7 +1883,10 @@ export default function PathReviewListView({
                   </div>
 
                   {/* Status Icon */}
-                  <div className="path-review-list__item-status-icon-container">
+                  <div
+                    className="path-review-list__item-status-icon-container"
+                    onClick={(e) => e.stopPropagation()}
+                  >
                     <PathReviewStatusIcon
                       item={item}
                       isMarkedForRetry={isMarkedForRetry}
@@ -1702,7 +1902,7 @@ export default function PathReviewListView({
                   </div>
 
                   {/* File/Folder Icon */}
-                  <div className="path-review-list__item-icon">
+                  <div className="path-review__item-icon path-review-list__item-icon">
                     {isFolder ? (
                       <Folder size={16} />
                     ) : (
@@ -1712,7 +1912,29 @@ export default function PathReviewListView({
 
                   {/* Name Column */}
                   <div className="path-review-list__item-name-col">
-                    <div className="path-review-list__item-name">{item.name}</div>
+                    <div className="path-review__item-name-row">
+                      <div className="path-review-list__item-name">{item.name}</div>
+                      {showCompatUI &&
+                        !item.pathIssueIgnored &&
+                        (item.pathIssueStatus || item.proposedPath) && (
+                        <CompatibilityCaution item={item} compact />
+                      )}
+                      {showCompatUI && item.pathIssueIgnored ? (
+                        <span
+                          className="path-review__item-ignored"
+                          title={PATH_REVIEW_COPY.compatibilityIgnoredLabel}
+                          aria-label={PATH_REVIEW_COPY.compatibilityIgnoredLabel}
+                        >
+                          <EyeOff size={14} aria-hidden />
+                        </span>
+                      ) : null}
+                    </div>
+                    {showCompatUI ? (
+                      <DestinationRenameHint
+                        item={item}
+                        phase={getDisplayPhase()}
+                      />
+                    ) : null}
                     {failureMessage && (
                       <div
                         className="path-review-list__item-failure-message"
@@ -1736,7 +1958,10 @@ export default function PathReviewListView({
                   />
 
                   {/* Navigate to Tree View Icon */}
-                  <div className="path-review-list__item-navigate">
+                  <div
+                    className="path-review-list__item-navigate"
+                    onClick={(e) => e.stopPropagation()}
+                  >
                     <button
                       type="button"
                       className="path-review-list__item-navigate-button"
@@ -1758,6 +1983,15 @@ export default function PathReviewListView({
           </div>
         )}
       </div>
+
+      {contextMenu && (
+        <PathReviewContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          onRename={() => onOpenRename?.(contextMenu.item)}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
 
     </div>
   );

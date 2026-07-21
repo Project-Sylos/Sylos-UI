@@ -1,4 +1,4 @@
-/* Shared UI primitives — structure here; colors from theme tokens */
+/* Shared UI primitives. Structure here; colors from theme tokens */
 
 /* ——— Fields ——— */
 .ui-field {
@@ -303,7 +303,7 @@
  * scrollIntoView explicitly.
  *
  * `contain: paint` + a promoted layer keep the scroller compositing on its own
- * layer even though it sits inside a backdrop-filtered glass panel — the usual
+ * layer even though it sits inside a backdrop-filtered glass panel. The usual
  * reason native scroll turns janky inside frosted UIs on WebKit/Chromium.
  */
 .scroll-region {

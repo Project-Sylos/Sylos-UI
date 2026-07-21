@@ -63,6 +63,17 @@
   gap: 1rem;
   margin-top: 1.5rem;
   justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.confirm-dialog__actions--stacked {
+  flex-direction: column-reverse;
+  align-items: stretch;
+}
+
+.confirm-dialog__actions--stacked .confirm-dialog__button {
+  width: 100%;
+  justify-content: center;
 }
 
 .confirm-dialog__button {
@@ -104,6 +115,16 @@
     var(--color-base-slate-b),
     0.5
   );
+}
+
+.confirm-dialog__button--secondary {
+  border-color: rgba(251, 191, 36, 0.45);
+  color: #fcd34d;
+}
+
+.confirm-dialog__button--secondary:hover {
+  background: rgba(251, 191, 36, 0.12);
+  border-color: rgba(251, 191, 36, 0.65);
 }
 
 .confirm-dialog__button--confirm {

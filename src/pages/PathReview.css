@@ -9,7 +9,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: clamp(2rem, 5vw, 5rem);
+  padding: clamp(1.25rem, 3vw, 2.5rem);
   box-sizing: border-box;
   color: var(--text-primary);
   font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
@@ -23,32 +23,40 @@
 .path-review__content {
   position: relative;
   z-index: 1;
-  width: min(1400px, 100%);
-  max-height: calc(100vh - 2rem);
+  width: min(1480px, 100%);
+  height: min(780px, calc(100vh - 5rem));
+  max-height: calc(100vh - 5rem);
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  padding: clamp(1rem, 2.5vw, 1.5rem) clamp(1.5rem, 3vw, 2rem);
+  gap: 0.35rem;
+  padding: clamp(0.7rem, 1.5vw, 1rem) clamp(0.9rem, 2vw, 1.35rem);
   overflow: hidden;
   min-height: 0;
 }
 
 .path-review__back {
-  position: absolute;
-  top: clamp(1.5rem, 4vw, 2.5rem);
-  left: clamp(1.5rem, 4vw, 3rem);
+  position: static;
   z-index: 2;
+  width: 36px;
+  height: 36px;
+  justify-self: start;
 }
 
 .path-review__header {
-  text-align: center;
+  display: grid;
+  grid-template-columns: 36px 1fr 36px;
+  align-items: center;
   flex-shrink: 0;
   margin-top: 0;
+  gap: 0.35rem;
+  min-height: 36px;
 }
 
 .path-review__header h1 {
-  font-size: clamp(1.25rem, 2.5vw, 1.75rem);
-  margin: 0.25rem 0 0;
+  grid-column: 2;
+  text-align: center;
+  font-size: clamp(1.05rem, 2vw, 1.4rem);
+  margin: 0;
 }
 
 .path-review__subheader {
@@ -235,27 +243,50 @@
 .path-review-list__legend-wrapper {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: calc(1rem * var(--zoom, 1));
-  padding: calc(0.25rem * var(--zoom, 1)) 0;
-  margin-bottom: calc(0.25rem * var(--zoom, 1));
+  justify-content: flex-end;
+  gap: calc(0.65rem * var(--zoom, 1));
+  padding: calc(0.15rem * var(--zoom, 1)) 0;
+  margin-bottom: calc(0.15rem * var(--zoom, 1));
   width: 100%;
+  min-width: 0;
+  /* Keep visible so the page-size dropdown is not clipped. */
   overflow: visible;
   position: relative;
-  z-index: 10;
-  isolation: isolate;
+  z-index: 20;
   background: transparent;
   border: none;
   box-shadow: none;
+  flex-shrink: 0;
+}
+
+.path-review-list__legend-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.45rem;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding-right: 0.25rem;
+}
+
+.path-review-list__legend-start {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .path-review__legend {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: calc(1rem * var(--zoom, 1));
-  flex: 1;
-  flex-shrink: 0;
+  justify-content: flex-start;
+  gap: calc(0.75rem * var(--zoom, 1));
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
   font-size: calc(0.8rem * var(--zoom, 1));
   background: transparent;
   border: none;
@@ -278,8 +309,9 @@
 .path-review-list__page-nav {
   display: flex;
   align-items: center;
-  gap: calc(0.4rem * var(--zoom, 1));
+  gap: calc(0.35rem * var(--zoom, 1));
   flex-shrink: 0;
+  padding-right: 0.15rem;
 }
 
 .path-review-list__page-nav-button {
@@ -429,7 +461,9 @@
 
 .path-review-list__items-per-page-dropdown {
   position: absolute;
-  top: calc(100% + calc(0.25rem * var(--zoom, 1)));
+  /* Open upward so parent overflow:hidden panels do not clip the menu. */
+  bottom: calc(100% + calc(0.25rem * var(--zoom, 1)));
+  top: auto;
   left: 0;
   z-index: 1000;
   display: flex;
@@ -561,6 +595,14 @@
   color: rgba(59, 130, 246, 0.9);
 }
 
+.path-review__legend-icon--compatibility {
+  color: #fbbf24;
+}
+
+.path-review__legend-icon--compat-info {
+  color: #7dd3fc;
+}
+
 .path-review__legend-label {
   color: var(--text-secondary);
   font-size: 0.85rem;
@@ -642,6 +684,73 @@
   animation: highlightPulse 2s ease-in-out;
   border-color: var(--accent-cyan-opacity-20) !important;
   background: color-mix(in srgb, var(--accent-cyan) 22%, transparent) !important;
+}
+
+.path-review__item--selected {
+  border-color: rgba(148, 163, 184, 0.45) !important;
+  background: rgba(148, 163, 184, 0.12) !important;
+  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.2);
+}
+
+.path-review__item-arrow-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.path-review__item-arrow-button:hover:not(:disabled) {
+  background: rgba(148, 163, 184, 0.15);
+}
+
+.path-review__item-arrow-button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.path-review__workspace {
+  display: flex;
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+  gap: 0;
+  align-items: stretch;
+}
+
+.path-review__workspace-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.path-review__workspace-main .path-review__tab-content,
+.path-review__workspace-main .path-review__list-view-container {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.path-review__workspace-main .path-review__tab-content--hidden,
+.path-review__workspace-main .path-review__list-view-container.path-review__tab-content--hidden {
+  display: none !important;
+}
+
+.path-review__workspace-main .path-review__list-container {
+  flex: 1 1 0;
+  min-height: 0;
 }
 
 @keyframes highlightPulse {
@@ -739,6 +848,10 @@
 .path-review__item-name-col {
   min-width: 0;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0;
 }
 
 .path-review__item-path-col {
@@ -788,6 +901,56 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.path-review__item-path-suggestion {
+  min-width: 0;
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--accent-cyan, #67e8f9);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.path-review__item-name-row {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+  width: 100%;
+}
+
+.path-review__item-name-row .path-review__item-name,
+.path-review__item-name-row .path-review-list__item-name {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.path-review__item--path-issue {
+  box-shadow: inset 3px 0 0 rgba(251, 191, 36, 0.85);
+}
+
+.path-review__item-ignored {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  color: rgba(148, 163, 184, 0.9);
+  opacity: 0.85;
+}
+
+.path-review__path-busy {
+  position: fixed;
+  bottom: 5.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1400;
+  padding: 0.65rem 1rem;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.92);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  color: var(--text-primary);
+  font-size: 0.9rem;
 }
 
 .path-review__item-info--folder {
@@ -904,7 +1067,7 @@
 .path-review__tabs {
   display: flex;
   gap: 0.5rem;
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.35rem;
   flex-shrink: 0;
   padding: 0;
   background: transparent;
@@ -1993,6 +2156,11 @@
   background: color-mix(in srgb, var(--accent-cyan) 12%, transparent);
 }
 
+.path-review-list__item--inspector-focused {
+  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.5);
+  background: rgba(148, 163, 184, 0.1);
+}
+
 .path-review-list__item--inherited {
   border-color: var(--accent-cyan-opacity-10);
   background: color-mix(in srgb, var(--accent-cyan) 8%, transparent);
@@ -2084,12 +2252,13 @@
 .path-review-list__item-name-col {
   min-width: 0;
   display: flex;
-  align-items: baseline;
-  gap: calc(0.5rem * var(--zoom, 1));
+  flex-direction: column;
+  justify-content: center;
+  gap: 0;
+  overflow: hidden;
 }
 
 .path-review-list__item-failure-message {
-  flex: 1;
   min-width: 0;
   font-size: calc(0.75rem * var(--zoom, 1));
   font-weight: 400;

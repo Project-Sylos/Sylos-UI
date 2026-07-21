@@ -7,7 +7,7 @@
  *    halting the instant the wheel stops. This is what Lenis does; we scope it to
  *    our overflow containers instead of the page root.
  *  - Rubber-band: when a boundary is hit and the user keeps pushing, translate the
- *    pane with a damped offset, then spring it back — like mobile/macOS overscroll
+ *    pane with a damped offset, then spring it back. Like mobile/macOS overscroll
  *    (à la elastic-scroll-polyfill), which no library provides cross-platform.
  *
  * Honors prefers-reduced-motion by staying out of the way (native scroll).
@@ -20,6 +20,7 @@ const SCROLL_SELECTOR = [
   ".selection-page__scroll",
   ".path-review__list",
   ".browse-folder__list",
+  ".spectra-config__content",
 ].join(", ");
 
 /** Momentum glide: higher = snappier/less glide (0–1 per frame at 60fps). */

@@ -1,10 +1,11 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   ArrowLeft,
   ChevronRight,
   ChevronLeft,
   ChevronDown,
+  EyeOff,
   Folder,
   File,
   Copy,
@@ -34,7 +35,20 @@ import {
   triggerRetrySweep,
   resumeMigration,
   getMigrationStatus,
+  listPathIssues,
+  PathIssue,
+  applyPathIssuesToDiffItems,
+  acceptAllPathProposals,
+  ignoreRemainingPathIssues,
+  ignorePathIssueSubtree,
+  unignorePathIssueSubtree,
 } from "../api/services";
+import CompatibilityCaution from "../components/CompatibilityCaution";
+import DestinationRenameHint from "../components/DestinationRenameHint";
+import PathReviewInspector from "../components/PathReviewInspector";
+import PathReviewContextMenu from "../components/PathReviewContextMenu";
+import PathRenameEditor from "../components/PathRenameEditor";
+import { PATH_REVIEW_COPY, summarizePathIssues } from "../utils/pathReviewCopy";
 import {
   MigrationStatusResponse,
   isTraversalReviewPhase,
@@ -42,7 +56,6 @@ import {
   isDeleteReviewPhase,
   getMigrationPhase,
 } from "../types/migrations";
-import ItemHoverCard from "../components/ItemHoverCard";
 import { GlassSurfacePanel } from "../components/GlassSurfacePanel";
 import PageBackButton from "../components/PageBackButton";
 import Toast from "../components/Toast";
@@ -56,6 +69,10 @@ import { PATH_REVIEW_DENSITY_STORAGE_KEY } from "../utils/listDensity";
 import PathReviewListView from "./PathReviewListView";
 import PathReviewStatusIcon from "../components/PathReviewStatusIcon";
 import PathReviewLegend from "../components/PathReviewLegend";
+import PathReviewIssuesButton from "../components/PathReviewIssuesButton";
+import PathReviewIssuesPanel, {
+  type PathReviewListJumpTarget,
+} from "../components/PathReviewIssuesPanel";
 import PathReviewFooterInfo from "../components/PathReviewFooterInfo";
 import ListItemMeta from "../components/ListItemMeta";
 import { getDiffItemFailureMessage } from "../utils/diffFailureMessage";
@@ -73,6 +90,7 @@ import {
   getPathReviewUIPhase,
   isSourceCleanupPlanPhase,
 } from "../utils/pathReviewPhase";
+import { isCopyComplete } from "../utils/copyStatus";
 import "../App.css";
 import "./PathReview.css";
 
@@ -180,6 +198,9 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
   const { densityStyle, setListViewportElement } = useListDensity();
   const treeListRef = useRef<HTMLDivElement | null>(null);
   const [activeTab, setActiveTab] = useState<"tree" | "list">("tree");
+  const [issuesPanelOpen, setIssuesPanelOpen] = useState(false);
+  const [listJumpToken, setListJumpToken] = useState(0);
+  const [listJumpTarget, setListJumpTarget] = useState<PathReviewListJumpTarget | null>(null);
   const activeTabRef = useRef<"tree" | "list">(activeTab);
   activeTabRef.current = activeTab;
   const [items, setItems] = useState<DiffItem[]>([]);
@@ -192,17 +213,45 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
   const [checkedItems, setPendingItems] = useState<Set<string>>(new Set());
   const [retryItems, setRetryItems] = useState<Set<string>>(new Set()); // Items marked for retry
   const [hasRunningTasks, setHasRunningTasks] = useState(false); // Track if background tasks are running
-  const [hoveredItemId, setHoveredItemId] = useState<string | null>(null);
-  const [hoverPosition, setHoverPosition] = useState<{ x: number; y: number } | null>(null);
+  const [inspectorItem, setInspectorItem] = useState<DiffItem | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
-  const [confirmDialogType, setConfirmDialogType] = useState<"copy" | "retry" | "delete" | "delete-retry">("copy");
-  const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [confirmDialogType, setConfirmDialogType] = useState<
+    "copy" | "retry" | "delete" | "delete-retry" | "ignore-remaining"
+  >("copy");
+  const [pathIssues, setPathIssues] = useState<PathIssue[]>([]);
+  const [pathIssuesRemainingCount, setPathIssuesRemainingCount] = useState(0);
+  const activePathIssues = useMemo(
+    () => pathIssues.filter((i) => !i.ignored),
+    [pathIssues]
+  );
+  const [renameTarget, setRenameTarget] = useState<DiffItem | null>(null);
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    item: DiffItem;
+  } | null>(null);
+  const [pathBusyMessage, setPathBusyMessage] = useState<string | null>(null);
   const statsPollingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isPollingStatsRef = useRef<boolean>(false);
   const pendingRetryUpdatesRef = useRef<Map<string, boolean>>(new Map());
   const pendingUpdatesRef = useRef<Map<string, boolean>>(new Map());
-  
+
+  useEffect(() => {
+    // Keep inspector in sync with path-issue overlays and current tree page.
+    setInspectorItem((prev) => {
+      if (!prev) return prev;
+      const fromTree = items.find((i) => i.id === prev.id);
+      if (fromTree) {
+        return applyPathIssuesToDiffItems([fromTree], pathIssues)[0];
+      }
+      if (activeTab === "tree") {
+        return null;
+      }
+      return applyPathIssuesToDiffItems([prev], pathIssues)[0];
+    });
+  }, [items, pathIssues, activeTab]);
+
   useEffect(() => {
     if (activeTab === "tree") {
       setListViewportElement(treeListRef.current);
@@ -248,6 +297,19 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
   };
   
   const [searchParams, setSearchParams] = useSearchParams();
+
+  const fetchPathIssues = async (): Promise<PathIssue[]> => {
+    if (!migrationId) return [];
+    try {
+      const res = await listPathIssues(migrationId);
+      const issues = res.issues || [];
+      setPathIssues(issues);
+      return issues;
+    } catch (err) {
+      console.error("Failed to fetch destination name issues:", err);
+      return [];
+    }
+  };
 
   const fetchPendingWork = async () => {
     if (!migrationId) return;
@@ -345,6 +407,9 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
     
     // Fetch pending work on startup to load state
     fetchPendingWork();
+
+    // Destination name review queue (plain-language path issues)
+    void fetchPathIssues();
     
     // Fetch stats on startup
     fetchStats();
@@ -567,9 +632,44 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
 
   const getDisplayPhase = () =>
     getPathReviewDisplayPhase(migrationStatus, reviewView);
+  const showCompatUI =
+    !isSourceCleanupView && !isDeletePhase(migrationStatus);
 
   const isAwaitingCopyReview =
     getMigrationPhase(migrationStatus) === "awaiting-copy-review";
+
+  const manualReviewCount = activePathIssues.filter(
+    (i) => i.status === "manual_review"
+  ).length;
+  const pathIssueSummary = useMemo(
+    () => summarizePathIssues(activePathIssues),
+    [activePathIssues]
+  );
+  const issuesAttentionCount =
+    (stats?.failedCount ?? 0) +
+    (!isSourceCleanupView &&
+    !isDeletePhase(migrationStatus) &&
+    !isCopyPhase(migrationStatus)
+      ? manualReviewCount
+      : 0);
+  const issuesWarningCount =
+    !isSourceCleanupView &&
+    !isDeletePhase(migrationStatus) &&
+    !isCopyPhase(migrationStatus)
+      ? pathIssueSummary.suggestionCount
+      : 0;
+
+  const openIssuesPanel = () => {
+    setIssuesPanelOpen(true);
+    setInspectorItem(null);
+  };
+
+  const handleIssuesJump = (target: PathReviewListJumpTarget) => {
+    setListJumpTarget(target);
+    setListJumpToken((n) => n + 1);
+    setActiveTab("list");
+    setIssuesPanelOpen(true);
+  };
 
   // Determine if we're in traversal review mode (for backwards compatibility)
   const isTraversalReviewMode = () => {
@@ -607,7 +707,7 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
       
       // Copy phase status logic:
       // 1. Failed = src.copyStatus === "failed" (copy failed)
-      // 2. Successful = src.copyStatus === "successful" (got brought over) OR item is dst-only
+      // 2. Successful = copy complete (successful / already_existed) OR item is dst-only
       // 3. Pending = src.copyStatus === "pending" (didn't get brought over - treat same as failed)
       // 4. Excluded = copy status excluded (visible but read-only in copy phase; cannot unexclude here)
       const isExcluded =
@@ -615,8 +715,8 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
         copyStatus === "exclusion_inherited" ||
         copyStatus === "excluded";
       const isPending = copyStatus === "pending";
-      const isSuccessful = copyStatus === "successful" || existsOnlyOnDst;
-      const existsOnBoth = copyStatus === "successful"; // Successful copyStatus means it exists on both
+      const isSuccessful = isCopyComplete(copyStatus) || existsOnlyOnDst;
+      const existsOnBoth = isCopyComplete(copyStatus); // Copy complete means it exists on both
       
       return {
         isExcluded,
@@ -632,14 +732,14 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
       const isFailed = item.src?.traversalStatus === "failed" || item.dst?.traversalStatus === "failed" || item.traversalStatus === "failed";
       const existsOnlyOnDst = item.traversalStatus === "not_on_src" || item.dst?.traversalStatus === "not_on_src";
       // Traversal phase: Failed = traversal failed. Excluded = copy status excluded (editable: can unexclude).
-      // Pending = copy pending. Pending retry = traversal pending. Successful = copy successful.
+      // Pending = copy pending. Pending retry = traversal pending. Successful = copy complete.
       const isExcluded =
         copyStatus === "exclusion_explicit" ||
         copyStatus === "exclusion_inherited" ||
         copyStatus === "excluded";
       const isPending = copyStatus === "pending";
-      const isSuccessful = copyStatus === "successful";
-      const existsOnBoth = isSuccessful; // Successful copyStatus means it exists on both
+      const isSuccessful = isCopyComplete(copyStatus);
+      const existsOnBoth = isSuccessful; // Copy complete means it exists on both
       
       return {
         isExcluded,
@@ -734,7 +834,7 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
         setRetryItems(initialRetry);
       }
 
-      setItems(filteredItems);
+      setItems(applyPathIssuesToDiffItems(filteredItems, await fetchPathIssues()));
       setPagination(response.pagination);
     } catch (err) {
       setError(
@@ -784,6 +884,8 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
     if (status.existsOnlyOnDst && item.type === "folder") {
       return;
     }
+
+    setInspectorItem(null);
     
     // Save current page for the current folder before navigating
     const currentLocationPath = breadcrumbs.length > 0 
@@ -805,6 +907,7 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
   };
 
   const handleBack = () => {
+    setInspectorItem(null);
     // Save current page for the current folder before going back
     const currentLocationPath = breadcrumbs.length > 0 
       ? breadcrumbs[breadcrumbs.length - 1].path 
@@ -831,6 +934,7 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
   };
 
   const handleBreadcrumbClick = (index: number) => {
+    setInspectorItem(null);
     // Save current page for the current folder before navigating
     const currentLocationPath = breadcrumbs.length > 0 
       ? breadcrumbs[breadcrumbs.length - 1].path 
@@ -902,6 +1006,7 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
     
     // Highlight the item for 2 seconds
     setHighlightedItemId(item.id);
+    setInspectorItem(applyPathIssuesToDiffItems([item], pathIssues)[0]);
     setTimeout(() => {
       setHighlightedItemId(null);
     }, 2000);
@@ -1273,6 +1378,8 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
       if (Object.keys(merged).length > 0) {
         handleApplyStatsDeltas(merged);
       }
+      // Exclude also ignores naming warnings; unexclude restores them.
+      await refreshAfterPathChange();
       if (activeTabRef.current === "tree") {
         setTreeListRefreshToken((n) => n + 1);
       }
@@ -1311,28 +1418,58 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
     }
   };
 
-  const handleItemHover = (itemId: string, event: React.MouseEvent) => {
-    if (hoverTimeoutRef.current) {
-      clearTimeout(hoverTimeoutRef.current);
-    }
-
-    // Capture the element reference before the timeout
-    const element = event.currentTarget as HTMLElement;
-    
-    hoverTimeoutRef.current = setTimeout(() => {
-      const rect = element.getBoundingClientRect();
-      setHoverPosition({ x: rect.right + 10, y: rect.top });
-      setHoveredItemId(itemId);
-    }, 250);
+  const selectInspectorItem = (item: DiffItem) => {
+    setIssuesPanelOpen(false);
+    setInspectorItem(applyPathIssuesToDiffItems([item], pathIssues)[0]);
   };
 
-  const handleItemLeave = () => {
-    if (hoverTimeoutRef.current) {
-      clearTimeout(hoverTimeoutRef.current);
-      hoverTimeoutRef.current = null;
+  const handleItemContextMenu = (item: DiffItem, event: React.MouseEvent) => {
+    if (!showCompatUI) return;
+    if (!item.pathIssueStatus && !item.proposedPath) return;
+    event.preventDefault();
+    setContextMenu({ x: event.clientX, y: event.clientY, item });
+  };
+
+  const refreshAfterPathChange = async () => {
+    const issues = await fetchPathIssues();
+    setItems((prev) => applyPathIssuesToDiffItems(prev, issues));
+    await fetchStats();
+  };
+
+
+  const handleIgnoreRemainingAndCopy = async () => {
+    setShowConfirmDialog(false);
+    if (!migrationId) return;
+    setIsTriggeringSweep(true);
+    try {
+      const ignored = await ignoreRemainingPathIssues(migrationId);
+      if (!ignored.success) {
+        setToast({
+          message: ignored.message || "Could not dismiss name warnings.",
+          type: "error",
+        });
+        setIsTriggeringSweep(false);
+        return;
+      }
+      await fetchPathIssues();
+      const result = await changePhase(migrationId, "copy");
+      if (!result.success) {
+        setToast({
+          message: result.error || PATH_REVIEW_COPY.someNeedAttention,
+          type: "error",
+        });
+        setIsTriggeringSweep(false);
+        return;
+      }
+      setIsTriggeringSweep(false);
+      navigate(`/progress-monitor/${migrationId}?mode=copy`);
+    } catch (err) {
+      setToast({
+        message: err instanceof Error ? err.message : "Failed to start copy phase",
+        type: "error",
+      });
+      setIsTriggeringSweep(false);
     }
-    setHoveredItemId(null);
-    setHoverPosition(null);
   };
 
   // Items are now white by default, no color coding needed
@@ -1404,10 +1541,9 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
 
   const handleConfirmCopy = async () => {
     setShowConfirmDialog(false);
-    
+
     if (!migrationId) return;
-    
-    // Check for running tasks before starting copy
+
     const hasRunning = await checkRunningTasks();
     if (hasRunning) {
       setToast({
@@ -1416,13 +1552,41 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
       });
       return;
     }
-    
+
     setIsTriggeringSweep(true);
     try {
-      // Use phase-change endpoint which handles exclusion sweep automatically
+      // Default: apply auto-suggested destination names before entering copy.
+      // Manual-review items (empty proposed path) are skipped by accept-all.
+      const pendingSuggestions = activePathIssues.filter(
+        (i) => i.status === "pending" && !!i.proposedPath
+      ).length;
+      if (!isCopyPhase(migrationStatus) && pendingSuggestions > 0) {
+        setPathBusyMessage(PATH_REVIEW_COPY.updatingRelatedPaths);
+        const accepted = await acceptAllPathProposals(migrationId);
+        setPathBusyMessage(null);
+        if (!accepted.success) {
+          setToast({
+            message:
+              accepted.message || "Could not apply suggested destination names.",
+            type: "error",
+          });
+          setIsTriggeringSweep(false);
+          return;
+        }
+        await fetchPathIssues();
+      }
+
       const result = await changePhase(migrationId, "copy");
-      
+
       if (!result.success) {
+        if (result.errorCode === "PATH_ISSUES_REMAINING") {
+          setPathIssuesRemainingCount(result.count ?? result.issues?.length ?? 0);
+          if (result.issues) setPathIssues(result.issues);
+          setConfirmDialogType("ignore-remaining");
+          setShowConfirmDialog(true);
+          setIsTriggeringSweep(false);
+          return;
+        }
         setToast({
           message: result.error || "Failed to start copy phase",
           type: "error",
@@ -1437,12 +1601,10 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
         `/progress-monitor/${migrationId}?mode=copy${copyRetry ? "&retry=1" : ""}`
       );
     } catch (err) {
-      const errorMessage =
-        err instanceof Error
-          ? err.message
-          : "Failed to start copy phase";
+      setPathBusyMessage(null);
       setToast({
-        message: errorMessage,
+        message:
+          err instanceof Error ? err.message : "Failed to start copy phase",
         type: "error",
       });
       setIsTriggeringSweep(false);
@@ -1580,25 +1742,52 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
     setShowConfirmDialog(false);
   };
 
-  const hoveredItem = items.find((item) => item.id === hoveredItemId);
-
   const formatBytes = (bytes: number): string => {
     if (bytes === 0) return "0 Bytes";
     const k = 1024;
     const sizes = ["Bytes", "KB", "MB", "GB", "TB"];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return Math.round(bytes / Math.pow(k, i) * 100) / 100 + " " + sizes[i];
+    return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + " " + sizes[i];
   };
+
+  const inspectorStatus = inspectorItem ? getItemStatus(inspectorItem) : null;
+  const inspectorMarkedForRetry = inspectorItem
+    ? getCurrentPhase() === "delete"
+      ? (inspectorItem.src?.deleteStatus || "") === "pending" ||
+        (retryItems.has(inspectorItem.id) &&
+          (inspectorItem.src?.deleteStatus || "") !== "deleted")
+      : isTraversalRetryPending(inspectorItem) ||
+        (retryItems.has(inspectorItem.id) && !hasTraversalFailure(inspectorItem))
+    : false;
+  const inspectorCanRetry = Boolean(
+    inspectorItem && (inspectorStatus?.isFailed || inspectorMarkedForRetry)
+  );
+  const inspectorCanExclude = Boolean(
+    inspectorItem &&
+      !isCopyPhase(migrationStatus) &&
+      !isDeletePhase(migrationStatus) &&
+      !isSourceCleanupView &&
+      !(
+        inspectorItem.type === "folder" &&
+        (inspectorStatus?.existsOnBoth || inspectorStatus?.existsOnlyOnDst)
+      )
+  );
+  const inspectorCanCompatActions = Boolean(
+    inspectorItem &&
+      !isSourceCleanupView &&
+      !isDeletePhase(migrationStatus) &&
+      !isCopyPhase(migrationStatus)
+  );
 
   return (
     <section className="path-review">
       <GlassSurfacePanel className="path-review__content path-review__content--with-button">
-        <PageBackButton
-          onClick={() => navigate(-1)}
-          title="Go back to previous page"
-          className="path-review__back"
-        />
         <header className="path-review__header">
+          <PageBackButton
+            onClick={() => navigate(-1)}
+            title="Go back to previous page"
+            className="path-review__back"
+          />
           <h1>
             {isSourceCleanupView ? (
               <>Plan <span className="path-review__highlight">Source Removal</span></>
@@ -1642,6 +1831,8 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
 
         {error && <div className="path-review__error">{error}</div>}
 
+        <div className="path-review__workspace">
+          <div className="path-review__workspace-main">
         {/* Tree View Content */}
         <div className={activeTab === "tree" ? "path-review__tab-content" : "path-review__tab-content path-review__tab-content--hidden"}>
           <>
@@ -1663,6 +1854,7 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
               type="button"
               className="path-review__breadcrumb-link"
               onClick={() => {
+                setInspectorItem(null);
                 setBreadcrumbs([]);
                 loadItems(undefined);  // undefined for root (children of all roots)
               }}
@@ -1686,16 +1878,25 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
           </div>
         </div>
 
-        {/* Status Legend with Pagination */}
+        {/* Icon help + pagination */}
         {!loading && items.length > 0 && (
           <div className="path-review-list__legend-wrapper">
-            <PathReviewLegend
-              zoomLevel={1}
-              className="path-review__legend--compact"
-              phase={getDisplayPhase()}
-              showDestinationOnly={includeDestinationOnly}
-            />
-            {pagination && (
+            <div className="path-review-list__legend-toolbar">
+              <div className="path-review-list__legend-start">
+                <PathReviewIssuesButton
+                  issueCount={issuesAttentionCount}
+                  warningCount={issuesWarningCount}
+                  active={issuesPanelOpen}
+                  onClick={openIssuesPanel}
+                />
+                <PathReviewLegend
+                  zoomLevel={1}
+                  phase={getDisplayPhase()}
+                  showDestinationOnly={includeDestinationOnly}
+                  showCompatibility={showCompatUI && activePathIssues.length > 0}
+                />
+              </div>
+              {pagination && (
               <div className="path-review-list__page-nav">
                 <div className="path-review-list__items-per-page-compact" ref={treeItemsPerPageDropdownRef}>
                   <button
@@ -1788,7 +1989,8 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
                   <ChevronRight size={18} />
                 </button>
               </div>
-            )}
+              )}
+            </div>
           </div>
         )}
 
@@ -1815,8 +2017,6 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
                       : isTraversalRetryPending(item) ||
                         (retryItems.has(item.id) && !hasTraversalFailure(item));
                   const isHighlighted = highlightedItemId === item.id;
-                  // isChecked is based on copyStatus: not excluded and not successful
-                  const isChecked = !status.isExcluded && !status.isSuccessful;
                   const failureMessage = getDiffItemFailureMessage(item);
                   const isDeleteReview = getCurrentPhase() === "delete";
                   const canOpenFolder = isFolder && (
@@ -1824,15 +2024,22 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
                       ? !status.isFailed && !isMarkedForRetry
                       : !status.isExcluded && !status.isFailed && !isMarkedForRetry && !status.existsOnlyOnDst
                   );
+                  const isSelected = inspectorItem?.id === item.id;
 
                   return (
                     <div
                       key={item.id}
-                      className={`path-review__item ${status.isExcluded ? "path-review__item--excluded" : ""} ${status.isDeleted ? "path-review__item--deleted" : ""} ${isHighlighted ? "path-review__item--highlighted" : ""}`}
-                      onMouseEnter={(e) => handleItemHover(item.id, e)}
-                      onMouseLeave={handleItemLeave}
+                      className={`path-review__item ${status.isExcluded ? "path-review__item--excluded" : ""} ${status.isDeleted ? "path-review__item--deleted" : ""} ${isHighlighted ? "path-review__item--highlighted" : ""} ${isSelected ? "path-review__item--selected" : ""} ${showCompatUI && item.pathIssueStatus === "manual_review" && !item.pathIssueIgnored ? "path-review__item--path-issue" : ""}`}
+                      onClick={() => selectInspectorItem(item)}
+                      onDoubleClick={() => {
+                        if (canOpenFolder) handleFolderClick(item);
+                      }}
+                      onContextMenu={(e) => handleItemContextMenu(item, e)}
                     >
-                      <div className="path-review__item-status-icon-container">
+                      <div
+                        className="path-review__item-status-icon-container"
+                        onClick={(e) => e.stopPropagation()}
+                      >
                         <PathReviewStatusIcon
                           item={item}
                           isMarkedForRetry={isMarkedForRetry}
@@ -1855,16 +2062,30 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
 
                       <div
                         className={`path-review__item-name-col ${isFolder ? "path-review__item-name--folder" : ""}`}
-                        onClick={() => {
-                          if (canOpenFolder) {
-                            handleFolderClick(item);
-                          }
-                        }}
-                        style={{
-                          cursor: canOpenFolder ? "pointer" : "default",
-                        }}
                       >
-                        <div className="path-review__item-name">{item.name}</div>
+                        <div className="path-review__item-name-row">
+                          <div className="path-review__item-name">{item.name}</div>
+                          {showCompatUI &&
+                            !item.pathIssueIgnored &&
+                            (item.pathIssueStatus || item.proposedPath) && (
+                            <CompatibilityCaution item={item} compact />
+                          )}
+                          {showCompatUI && item.pathIssueIgnored ? (
+                            <span
+                              className="path-review__item-ignored"
+                              title={PATH_REVIEW_COPY.compatibilityIgnoredLabel}
+                              aria-label={PATH_REVIEW_COPY.compatibilityIgnoredLabel}
+                            >
+                              <EyeOff size={14} aria-hidden />
+                            </span>
+                          ) : null}
+                        </div>
+                        {showCompatUI ? (
+                          <DestinationRenameHint
+                            item={item}
+                            phase={getDisplayPhase()}
+                          />
+                        ) : null}
                         {failureMessage && (
                           <div
                             className="path-review__item-failure-message"
@@ -1887,7 +2108,19 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
                       />
 
                       {isFolder ? (
-                        <ChevronRight size={16} className="path-review__item-arrow" />
+                        <button
+                          type="button"
+                          className="path-review__item-arrow-button"
+                          disabled={!canOpenFolder}
+                          title={canOpenFolder ? "Open folder" : "Cannot open folder"}
+                          aria-label={canOpenFolder ? "Open folder" : "Cannot open folder"}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (canOpenFolder) handleFolderClick(item);
+                          }}
+                        >
+                          <ChevronRight size={16} className="path-review__item-arrow" />
+                        </button>
                       ) : (
                         <span className="path-review__item-arrow-spacer" aria-hidden="true" />
                       )}
@@ -1917,6 +2150,17 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
               showDestinationOnly={showDestinationOnly}
               onShowDestinationOnlyChange={handleShowDestinationOnlyChange}
               onListDataMutated={handleListDataMutated}
+              pathIssues={pathIssues}
+              issuesAttentionCount={issuesAttentionCount}
+              issuesWarningCount={issuesWarningCount}
+              issuesPanelOpen={issuesPanelOpen}
+              onOpenIssuesPanel={openIssuesPanel}
+              listJumpToken={listJumpToken}
+              listJumpTarget={listJumpTarget}
+              onPathIssuesChange={setPathIssues}
+              onOpenRename={(item) => setRenameTarget(item)}
+              inspectorItemId={inspectorItem?.id ?? null}
+              onInspectorSelect={selectInspectorItem}
               onItemUpdate={() => {
                 startStatsPolling();
               }}
@@ -1929,17 +2173,123 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
             />
           </div>
         )}
+          </div>
 
-        {/* Hover Card */}
-        {hoveredItem && hoverPosition && (
-          <ItemHoverCard
-            item={hoveredItem}
-            position={hoverPosition}
-            onClose={() => {
-              setHoveredItemId(null);
-              setHoverPosition(null);
+          {issuesPanelOpen ? (
+            <PathReviewIssuesPanel
+              failedCount={stats?.failedCount ?? 0}
+              pathIssues={
+                !isSourceCleanupView &&
+                !isDeletePhase(migrationStatus) &&
+                !isCopyPhase(migrationStatus)
+                  ? activePathIssues
+                  : []
+              }
+              onClose={() => setIssuesPanelOpen(false)}
+              onJump={handleIssuesJump}
+            />
+          ) : (
+          <PathReviewInspector
+            item={inspectorItem}
+            phase={getDisplayPhase()}
+            busy={!!pathBusyMessage}
+            canExclude={inspectorCanExclude}
+            canRetry={inspectorCanRetry}
+            isExcluded={!!inspectorStatus?.isExcluded}
+            isMarkedForRetry={inspectorMarkedForRetry}
+            canRename={
+              inspectorCanCompatActions &&
+              !!(inspectorItem?.pathIssueStatus || inspectorItem?.proposedPath)
+            }
+            canToggleIgnoreWarning={
+              inspectorCanCompatActions &&
+              !!(inspectorItem?.pathIssueStatus || inspectorItem?.proposedPath)
+            }
+            onRename={() => {
+              if (inspectorItem) setRenameTarget(inspectorItem);
+            }}
+            onToggleIgnoreWarning={async () => {
+              if (!migrationId || !inspectorItem) return;
+              const restoring = !!inspectorItem.pathIssueIgnored;
+              setPathBusyMessage(PATH_REVIEW_COPY.updatingRelatedPaths);
+              try {
+                const res = restoring
+                  ? await unignorePathIssueSubtree(migrationId, inspectorItem.id)
+                  : await ignorePathIssueSubtree(migrationId, inspectorItem.id);
+                if (!res.success) {
+                  setToast({
+                    message:
+                      res.message ||
+                      (restoring
+                        ? "Could not restore this warning."
+                        : "Could not dismiss this warning."),
+                    type: "error",
+                  });
+                  return;
+                }
+                await refreshAfterPathChange();
+                setToast({
+                  message: restoring
+                    ? PATH_REVIEW_COPY.warningRestoredSubtree
+                    : PATH_REVIEW_COPY.warningDismissedSubtree,
+                  type: "success",
+                });
+              } catch (err) {
+                setToast({
+                  message:
+                    err instanceof Error
+                      ? err.message
+                      : restoring
+                        ? "Could not restore this warning."
+                        : "Could not dismiss this warning.",
+                  type: "error",
+                });
+              } finally {
+                setPathBusyMessage(null);
+              }
+            }}
+            onExclude={() => {
+              if (inspectorItem) {
+                void handleCheckboxChange(
+                  inspectorItem,
+                  !inspectorStatus?.isExcluded
+                );
+              }
+            }}
+            onRetry={() => {
+              if (inspectorItem) void handleRetryClick(inspectorItem);
             }}
           />
+          )}
+        </div>
+
+        {contextMenu && (
+          <PathReviewContextMenu
+            x={contextMenu.x}
+            y={contextMenu.y}
+            onRename={() => setRenameTarget(contextMenu.item)}
+            onClose={() => setContextMenu(null)}
+          />
+        )}
+
+        {renameTarget && migrationId && (
+          <PathRenameEditor
+            migrationId={migrationId}
+            item={renameTarget}
+            issue={pathIssues.find((i) => i.nodeId === renameTarget.id) || null}
+            onClose={() => setRenameTarget(null)}
+            onApplied={() => {
+              void refreshAfterPathChange();
+            }}
+            onBusy={setPathBusyMessage}
+            onError={(message) => setToast({ message, type: "error" })}
+          />
+        )}
+
+        {pathBusyMessage && (
+          <div className="path-review__path-busy" role="status">
+            {pathBusyMessage}
+          </div>
         )}
 
         {/* Footer with Stats, Zoom Control, Sweep Buttons, and Start Copying Button */}
@@ -1973,7 +2323,11 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
                   },
                 },
                 { label: "Pending", value: stats.pendingCount.toLocaleString() },
-                { label: "Failed", value: stats.failedCount.toLocaleString() },
+                {
+                  label: "Failed",
+                  value: stats.failedCount.toLocaleString(),
+                  ...(stats.failedCount > 0 ? { highlight: "failed" as const } : {}),
+                },
                 { label: "Excluded", value: stats.excludedCount.toLocaleString() },
                 { label: "Pending Retry", value: (stats.pendingRetriesCount ?? 0).toLocaleString() },
               ]}
@@ -1987,6 +2341,14 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
                   label: "Showing",
                   value: `${listPagination.offset + 1} to ${Math.min(listPagination.offset + listItemsPerPage, listPagination.total)} of ${listPagination.total.toLocaleString()} item${listPagination.total !== 1 ? "s" : ""}`,
                 },
+                ...((stats?.failedCount ?? 0) > 0
+                  ? [{
+                      label: "Failed",
+                      value: (stats?.failedCount ?? 0).toLocaleString(),
+                      highlight: "failed" as const,
+                    }]
+                  : []),
+
               ]}
             />
           )}
@@ -1998,6 +2360,7 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
                 Review {reviewIteration}
               </div>
             )}
+
             
             {/* Retry Copying, Review Deletion Plan, or Start Copying */}
             {isSourceCleanupView ? (
@@ -2099,9 +2462,11 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
               ? "Retry Source Removal"
               : confirmDialogType === "delete"
               ? "Begin Source Removal"
+              : confirmDialogType === "ignore-remaining"
+              ? PATH_REVIEW_COPY.ignoreRemainingTitle
               : isCopyPhase(migrationStatus)
               ? "Retry Copying"
-              : "Confirm Copy"
+              : PATH_REVIEW_COPY.confirmCopyTitle
           }
           message={
             confirmDialogType === "retry"
@@ -2112,12 +2477,45 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
               ? deleteSummary
                 ? `This will permanently remove ${deleteSummary.pending.toLocaleString()} item${deleteSummary.pending !== 1 ? "s" : ""} from ${deleteSummary.sourceHost ? `${deleteSummary.sourceHost}:` : ""}${deleteSummary.sourceRootPath}. Items you excluded from the plan will be kept. Would you like to proceed?`
                 : "This will permanently remove copied items from the source. Would you like to proceed?"
+              : confirmDialogType === "ignore-remaining"
+              ? PATH_REVIEW_COPY.ignoreRemainingConfirm(pathIssuesRemainingCount)
               : isCopyPhase(migrationStatus)
               ? "We'll retry copying the failed and pending items. We'll send you back here to review the results when the process is complete. Would you like to proceed?"
-              : "Are you sure you'd like to copy over these selected items?"
+              : (() => {
+                  const pendingSuggestionCount = activePathIssues.filter(
+                    (i) => i.status === "pending" && !!i.proposedPath
+                  ).length;
+                  const manualReviewIssueCount = activePathIssues.filter(
+                    (i) => i.status === "manual_review"
+                  ).length;
+                  if (pendingSuggestionCount > 0) {
+                    return PATH_REVIEW_COPY.confirmCopyWithSuggestions(
+                      pendingSuggestionCount
+                    );
+                  }
+                  if (manualReviewIssueCount > 0) {
+                    return PATH_REVIEW_COPY.confirmCopyWithManualOnly(
+                      manualReviewIssueCount
+                    );
+                  }
+                  return PATH_REVIEW_COPY.confirmCopyMessage;
+                })()
           }
-          confirmLabel="Yes"
+          confirmLabel={
+            confirmDialogType === "copy" &&
+            !isCopyPhase(migrationStatus) &&
+            pathIssues.some((i) => !i.ignored && i.status === "pending" && !!i.proposedPath)
+              ? PATH_REVIEW_COPY.confirmCopyAcceptLabel
+              : "Yes"
+          }
           cancelLabel="No"
+          secondaryLabel={
+            confirmDialogType === "copy" &&
+            !isCopyPhase(migrationStatus) &&
+            activePathIssues.length > 0
+              ? PATH_REVIEW_COPY.confirmCopyIgnoreLabel
+              : undefined
+          }
           onConfirm={
             confirmDialogType === "retry"
               ? handleConfirmRetry
@@ -2125,7 +2523,16 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
               ? handleConfirmDeleteRetry
               : confirmDialogType === "delete"
               ? handleConfirmDelete
+              : confirmDialogType === "ignore-remaining"
+              ? handleIgnoreRemainingAndCopy
               : handleConfirmCopy
+          }
+          onSecondary={
+            confirmDialogType === "copy" &&
+            !isCopyPhase(migrationStatus) &&
+            activePathIssues.length > 0
+              ? handleIgnoreRemainingAndCopy
+              : undefined
           }
           onCancel={() => setShowConfirmDialog(false)}
         />

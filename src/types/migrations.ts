@@ -44,6 +44,8 @@ export interface StartMigrationPayload {
     logAddress?: string;
     logLevel?: string;
     enableLoggingTerminal?: boolean;
+    /** Destination name rules: "none" | "auto" | provider id (e.g. "windows") */
+    pathCheckTarget?: string;
   };
 }
 
@@ -264,6 +266,8 @@ export interface ListMigrationsResponse {
     destinationId: string;
     startedAt: string;
     status: string;
+    phase?: string;
+    live?: boolean;
     completedAt: string | null;
     error: string;
     result?: MigrationStatusResponse["result"];
@@ -321,6 +325,8 @@ export interface QueueMetrics {
   round: number;
   pending: number;
   inProgress: number;
+  /** Snake_case from API ExternalQueueMetrics JSON. */
+  in_progress?: number;
   totalTracked?: number;
   workers: number;
   // Traversal phase fields
@@ -335,6 +341,7 @@ export interface QueueMetrics {
   items_per_second?: number;
   total_pending?: number;
   bytes?: number;
+  bytes_per_second?: number;
   bytes_copied_total?: number;
   total_bytes_copied?: number;
   bytes_total?: number;
@@ -344,6 +351,21 @@ export interface QueueMetrics {
   possible_stall?: boolean;
   /** Engine-computed copy/delete progress 0–100. */
   progress_percent?: number;
+  /** Current round expected/completed (console progress counters). */
+  round_expected?: number;
+  round_completed?: number;
+  /** Copy pass: 1=folders, 2=files. */
+  copy_pass?: number;
+  /** Active FS rate-limit window end (RFC3339) for source adapter. */
+  rate_limited_until_src?: string;
+  /** Active FS rate-limit window end (RFC3339) for destination adapter. */
+  rate_limited_until_dst?: string;
+  /** Remaining ms for source rate-limit at poll time. */
+  rate_limited_remaining_ms_src?: number;
+  /** Remaining ms for destination rate-limit at poll time. */
+  rate_limited_remaining_ms_dst?: number;
+  /** AIMD inter-op pacing delay in ms (workers slowed after throttle). */
+  inter_op_delay_ms?: number;
 }
 
 export interface MigrationQueueMetricsResponse {

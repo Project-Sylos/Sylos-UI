@@ -58,6 +58,42 @@ export interface ChildrenResponse {
   pagination?: PaginationInfo;
 }
 
+export interface SpectraChaosCallLimit {
+  calls_per_second: number;
+  burst?: number;
+}
+
+export interface SpectraChaosConfig {
+  enabled: boolean;
+  rate_limits: {
+    poll_interval_ms: number;
+    global: SpectraChaosCallLimit;
+    operations: Record<string, SpectraChaosCallLimit>;
+    bandwidth: {
+      bytes_per_second: number;
+      burst_bytes?: number;
+    };
+  };
+  backoff: {
+    base_retry_after_ms: number;
+    exponential_factor: number;
+  };
+  latency: {
+    list_children_ms: number;
+    jitter_ms: number;
+  };
+  packet_loss: {
+    probability: number;
+    retry_after_ms: number;
+  };
+}
+
+export interface SpectraAuthConfig {
+  enabled: boolean;
+  /** -1 = never expire; > 0 = TTL in seconds */
+  access_token_ttl_seconds: number;
+}
+
 export interface SpectraConfig {
   mode: "ephemeral" | "persistent";
   seed: {
@@ -74,8 +110,6 @@ export interface SpectraConfig {
     max_files: number;
     file_backoff_factor?: number;
     file_depth_decay_factor?: number;
-    // Cache configuration (optional, defaults to false)
-    enable_cache?: boolean;
     diverging_tree_mode?: boolean;
   };
   api: {
@@ -83,21 +117,58 @@ export interface SpectraConfig {
     port: number;
   };
   secondary_tables: Record<string, number>;
+  chaos?: SpectraChaosConfig;
+  auth?: SpectraAuthConfig;
 }
+
+export const DEFAULT_SPECTRA_CHAOS: SpectraChaosConfig = {
+  enabled: false,
+  rate_limits: {
+    poll_interval_ms: 1000,
+    global: { calls_per_second: 0, burst: 0 },
+    operations: {
+      list_children: { calls_per_second: 5000, burst: 5000 },
+      get_node: { calls_per_second: 5000, burst: 5000 },
+      get_file_data: { calls_per_second: 1000, burst: 1000 },
+      create_folder: { calls_per_second: 5000, burst: 5000 },
+      upload_file: { calls_per_second: 1000, burst: 1000 },
+    },
+    bandwidth: {
+      bytes_per_second: 1073741824,
+      burst_bytes: 1073741824,
+    },
+  },
+  backoff: {
+    base_retry_after_ms: 100,
+    exponential_factor: 2,
+  },
+  latency: {
+    list_children_ms: 0,
+    jitter_ms: 0,
+  },
+  packet_loss: {
+    probability: 0,
+    retry_after_ms: 500,
+  },
+};
+
+export const DEFAULT_SPECTRA_AUTH: SpectraAuthConfig = {
+  enabled: false,
+  access_token_ttl_seconds: 3600,
+};
 
 export const DEFAULT_SPECTRA_CONFIG: SpectraConfig = {
   mode: "ephemeral",
   seed: {
-    max_depth: 4,
-    max_folders: 8,
-    folder_backoff_factor: 0.5,
-    folder_depth_decay_factor: 0.8,
-    max_files: 20,
-    file_backoff_factor: 0.5,
-    file_depth_decay_factor: 0.8,
+    max_depth: 6,
+    max_folders: 20,
+    folder_backoff_factor: 0.9,
+    folder_depth_decay_factor: 0.9,
+    max_files: 50,
+    file_backoff_factor: 0.9,
+    file_depth_decay_factor: 0.9,
     seed: 0,
     db_path: "./spectra.db",
-    enable_cache: true,
     diverging_tree_mode: true,
   },
   api: {
@@ -107,4 +178,6 @@ export const DEFAULT_SPECTRA_CONFIG: SpectraConfig = {
   secondary_tables: {
     s1: 0.9,
   },
+  chaos: { ...DEFAULT_SPECTRA_CHAOS },
+  auth: { ...DEFAULT_SPECTRA_AUTH },
 };

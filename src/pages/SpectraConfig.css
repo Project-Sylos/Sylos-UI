@@ -3,12 +3,30 @@
 @import "../styles/components/text-styles.css";
 @import "../styles/glass-button.css";
 
+/* Fill the viewport; avoid centering a 90vh panel inside padded 100vh (that clips). */
+.spectra-config.page-container {
+  height: 100vh;
+  max-height: 100vh;
+  overflow: hidden;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(1rem, 3vw, 2rem);
+}
+
 .spectra-config__content {
   max-width: min(800px, 100%);
+  width: 100%;
   gap: 1rem !important;
-  max-height: 90vh;
+  /* Match padded viewport so the panel never sits taller than the window. */
+  max-height: calc(100vh - 2 * clamp(1rem, 3vw, 2rem));
+  min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-gutter: stable;
+  contain: paint;
+  transform: translateZ(0);
   padding: clamp(1.5rem, 4vw, 2rem) clamp(1.5rem, 4vw, 2.5rem) !important;
 }
 

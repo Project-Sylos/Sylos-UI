@@ -27,7 +27,9 @@ import {
   isMigrationFailed,
 } from "../types/migrations";
 import { useSelection } from "../context/SelectionContext";
+import { usePreferences } from "../contexts/PreferencesContext";
 import { formatMigrationPath } from "../utils/migrationRoots";
+import type { QueueMetrics } from "../types/migrations";
 import HelpTooltip from "../components/HelpTooltip";
 import ConfirmDialog from "../components/ConfirmDialog";
 import Toast from "../components/Toast";
@@ -44,6 +46,106 @@ function clampProgressPercent(raw: unknown): number {
   if (!Number.isFinite(n) || n <= 0) return 0;
   if (n >= 100) return 100;
   return n;
+}
+
+/**
+ * Seconds left on a rate-limit window.
+ * Uses remaining_ms when provided; otherwise until − now.
+ * Applies a 1s poll-staleness fudge only when remaining > 2s so short windows still show.
+ */
+function rateLimitCountdownSeconds(
+  untilIso?: string | null,
+  remainingMs?: number | null
+): number | null {
+  let remaining = 0;
+  if (typeof remainingMs === "number" && Number.isFinite(remainingMs) && remainingMs > 0) {
+    remaining = remainingMs;
+  } else if (untilIso) {
+    const until = Date.parse(untilIso);
+    if (!Number.isFinite(until)) return null;
+    remaining = until - Date.now();
+  } else {
+    return null;
+  }
+  if (remaining <= 0) return null;
+  let secs = Math.ceil(remaining / 1000);
+  if (secs > 2) secs -= 1; // poll staleness fudge for longer waits
+  if (secs < 1) secs = 1;
+  return secs;
+}
+
+function formatRateLimitCountdown(secs: number): string {
+  if (secs >= 60) {
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    return `${m}m ${s.toString().padStart(2, "0")}s`;
+  }
+  return `${secs}s`;
+}
+
+function RateLimitBadge({
+  untilIso,
+  remainingMs,
+  interOpDelayMs,
+}: {
+  untilIso?: string | null;
+  remainingMs?: number | null;
+  interOpDelayMs?: number | null;
+}) {
+  const secs = rateLimitCountdownSeconds(untilIso, remainingMs);
+  if (secs != null) {
+    return (
+      <span
+        className="progress-monitor__rate-limit"
+        title={`Rate limited. Waiting about ${formatRateLimitCountdown(secs)}`}
+      >
+        Rate limited · {formatRateLimitCountdown(secs)}
+      </span>
+    );
+  }
+  if (typeof interOpDelayMs === "number" && interOpDelayMs > 0) {
+    const delaySecs = Math.max(1, Math.ceil(interOpDelayMs / 1000));
+    return (
+      <span
+        className="progress-monitor__rate-limit progress-monitor__rate-limit--pacing"
+        title={`Throttle pacing: ${interOpDelayMs}ms inter-op delay`}
+      >
+        Pacing · {formatRateLimitCountdown(delaySecs)}
+      </span>
+    );
+  }
+  return null;
+}
+
+/** Console-style queue line for developer mode (matches ME progress ticker). */
+function formatSideDebug(label: string, m?: QueueMetrics | null): string | null {
+  if (!m) return null;
+  const round = m.round ?? 0;
+  const exp = m.round_expected ?? 0;
+  const comp = m.round_completed ?? 0;
+  const pend = m.pending ?? 0;
+  const workers = m.workers ?? 0;
+  return `${label}: Round ${round} (Exp:${exp} Comp:${comp} Pend:${pend} W:${workers})`;
+}
+
+function formatPhaseDebug(
+  label: string,
+  m?: QueueMetrics | null,
+  opts?: { pass?: number }
+): string | null {
+  if (!m) return null;
+  const round = m.round ?? 0;
+  const exp = m.round_expected ?? 0;
+  const comp = m.round_completed ?? 0;
+  const pend = m.pending ?? 0;
+  const inProg = m.in_progress ?? m.inProgress ?? 0;
+  const workers = m.workers ?? 0;
+  const pass = opts?.pass ?? m.copy_pass;
+  if (pass && pass > 0) {
+    const passName = pass === 2 ? "files" : "folders";
+    return `${label}: Pass ${pass} (${passName}) Round ${round} | Exp:${exp} Comp:${comp} | Pend:${pend} InProg:${inProg} | Workers:${workers}`;
+  }
+  return `${label}: Round ${round} | Exp:${exp} Comp:${comp} | Pend:${pend} InProg:${inProg} | Workers:${workers}`;
 }
 
 /** Stop response: engine accepted soft suspend; UI should poll until *-suspended and not live. */
@@ -78,6 +180,8 @@ export default function ProgressMonitor() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { source, destination, services, applyServerRoots } = useSelection();
+  const { preferences } = usePreferences();
+  const developerMode = preferences.developer?.enabled === true;
 
   const [status, setStatus] = useState<any>(null);
   const [queueMetrics, setQueueMetrics] = useState<any>(null);
@@ -94,6 +198,8 @@ export default function ProgressMonitor() {
   const [failureTooltipOpen, setFailureTooltipOpen] = useState(false);
   const [failureCopied, setFailureCopied] = useState(false);
   const [stallTooltipOpen, setStallTooltipOpen] = useState(false);
+  /** Local tick so rate-limit countdowns update between 1s metrics polls. */
+  const [, setRateLimitTick] = useState(0);
 
   /** After a retry sweep, status can briefly still say "review" before the run starts - require run activity before re-enabling review. */
   const isRetryRun = searchParams.get("retry") === "1";
@@ -335,6 +441,49 @@ export default function ProgressMonitor() {
     };
   }, [migrationId, navigate, fetchStatus, fetchQueueMetrics]);
 
+  const rateLimitSrcUntil =
+    queueMetrics?.copy?.rate_limited_until_src ||
+    queueMetrics?.delete?.rate_limited_until_src ||
+    queueMetrics?.srcTraversal?.rate_limited_until_src ||
+    null;
+  const rateLimitDstUntil =
+    queueMetrics?.copy?.rate_limited_until_dst ||
+    queueMetrics?.dstTraversal?.rate_limited_until_dst ||
+    null;
+  const rateLimitSrcRemaining =
+    queueMetrics?.copy?.rate_limited_remaining_ms_src ||
+    queueMetrics?.delete?.rate_limited_remaining_ms_src ||
+    queueMetrics?.srcTraversal?.rate_limited_remaining_ms_src ||
+    null;
+  const rateLimitDstRemaining =
+    queueMetrics?.copy?.rate_limited_remaining_ms_dst ||
+    queueMetrics?.dstTraversal?.rate_limited_remaining_ms_dst ||
+    null;
+  const pacingActive = Boolean(
+    (queueMetrics?.copy?.inter_op_delay_ms ?? 0) > 0 ||
+      (queueMetrics?.delete?.inter_op_delay_ms ?? 0) > 0 ||
+      (queueMetrics?.srcTraversal?.inter_op_delay_ms ?? 0) > 0 ||
+      (queueMetrics?.dstTraversal?.inter_op_delay_ms ?? 0) > 0
+  );
+
+  useEffect(() => {
+    const active =
+      rateLimitCountdownSeconds(rateLimitSrcUntil, rateLimitSrcRemaining) != null ||
+      rateLimitCountdownSeconds(rateLimitDstUntil, rateLimitDstRemaining) != null ||
+      pacingActive;
+    if (!active) return;
+    const id = window.setInterval(() => {
+      setRateLimitTick((n) => n + 1);
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [
+    rateLimitSrcUntil,
+    rateLimitDstUntil,
+    rateLimitSrcRemaining,
+    rateLimitDstRemaining,
+    pacingActive,
+  ]);
+
   const phase = status ? getMigrationPhase(status) : "";
   const inAwaitingReview =
     phase === "awaiting-traversal-review" ||
@@ -379,6 +528,20 @@ export default function ProgressMonitor() {
   const showPhaseProgressBar = showCopyUI || showDeleteUI;
   const phaseProgressLabel = showDeleteUI ? "Source removal progress" : "Copy progress";
   const phaseProgressDisplay = Math.round(phaseProgressPercent);
+
+  const developerQueueDebug = useMemo(() => {
+    if (!developerMode || !queueMetrics) return null;
+    if (showCopyUI) {
+      return formatPhaseDebug("Copy", queueMetrics.copy);
+    }
+    if (showDeleteUI) {
+      return formatPhaseDebug("Delete", queueMetrics.delete);
+    }
+    const src = formatSideDebug("Src", queueMetrics.srcTraversal);
+    const dst = formatSideDebug("Dst", queueMetrics.dstTraversal);
+    if (src && dst) return `${src} | ${dst}`;
+    return src || dst;
+  }, [developerMode, queueMetrics, showCopyUI, showDeleteUI]);
 
   const failureErrorText =
     (status?.error && String(status.error).trim()) || "Unknown error";
@@ -650,6 +813,11 @@ export default function ProgressMonitor() {
             {actionError}
           </div>
         )}
+        {developerQueueDebug && (
+          <div className="progress-monitor__dev-metrics" title="Developer mode queue metrics">
+            {developerQueueDebug}
+          </div>
+        )}
 
         {/* Metrics Section */}
         <div className="progress-monitor__metrics">
@@ -663,6 +831,11 @@ export default function ProgressMonitor() {
                         <div className="progress-monitor__metric-service">
                           {getServiceIcon(getSourceServiceType())}
                           <span>{source?.service?.displayName || status?.sourceId || "Unknown"}</span>
+                          <RateLimitBadge
+                            untilIso={queueMetrics?.copy?.rate_limited_until_src}
+                            remainingMs={queueMetrics?.copy?.rate_limited_remaining_ms_src}
+                            interOpDelayMs={queueMetrics?.copy?.inter_op_delay_ms}
+                          />
                         </div>
                         <h3 className="progress-monitor__metric-title progress-monitor__metric-title--source">
                           Source
@@ -689,6 +862,11 @@ export default function ProgressMonitor() {
                         <div className="progress-monitor__metric-service">
                           {getServiceIcon(getDestinationServiceType())}
                           <span>{destination?.service?.displayName || status?.destinationId || "Unknown"}</span>
+                          <RateLimitBadge
+                            untilIso={queueMetrics?.copy?.rate_limited_until_dst}
+                            remainingMs={queueMetrics?.copy?.rate_limited_remaining_ms_dst}
+                            interOpDelayMs={queueMetrics?.copy?.inter_op_delay_ms}
+                          />
                         </div>
                         <h3 className="progress-monitor__metric-title progress-monitor__metric-title--destination">
                           Destination
@@ -710,12 +888,29 @@ export default function ProgressMonitor() {
                   </div>
                 </>
               ) : (
-                // Traversal phase: normal header
+                // Traversal / delete: source header
                 <>
                   <div className="progress-monitor__metric-header">
                     <div className="progress-monitor__metric-service">
                       {getServiceIcon(getSourceServiceType())}
                       <span>{source?.service?.displayName || status?.sourceId || "Unknown"}</span>
+                      <RateLimitBadge
+                        untilIso={
+                          showDeleteUI
+                            ? queueMetrics?.delete?.rate_limited_until_src
+                            : queueMetrics?.srcTraversal?.rate_limited_until_src
+                        }
+                        remainingMs={
+                          showDeleteUI
+                            ? queueMetrics?.delete?.rate_limited_remaining_ms_src
+                            : queueMetrics?.srcTraversal?.rate_limited_remaining_ms_src
+                        }
+                        interOpDelayMs={
+                          showDeleteUI
+                            ? queueMetrics?.delete?.inter_op_delay_ms
+                            : queueMetrics?.srcTraversal?.inter_op_delay_ms
+                        }
+                      />
                     </div>
                     <h3 className="progress-monitor__metric-title progress-monitor__metric-title--source">
                       Source
@@ -751,6 +946,24 @@ export default function ProgressMonitor() {
                       <span>Total:</span>
                       <span>{(queueMetrics.copy.total || 0).toLocaleString()}</span>
                     </div>
+                    {(queueMetrics.copy.in_progress ?? queueMetrics.copy.inProgress ?? 0) > 0 && (
+                      <div className="progress-monitor__metric-row">
+                        <span>In progress:</span>
+                        <span>
+                          {(
+                            queueMetrics.copy.in_progress ??
+                            queueMetrics.copy.inProgress ??
+                            0
+                          ).toLocaleString()}
+                        </span>
+                      </div>
+                    )}
+                    {(queueMetrics.copy.total_failed ?? 0) > 0 && (
+                      <div className="progress-monitor__metric-row">
+                        <span>Failed:</span>
+                        <span>{(queueMetrics.copy.total_failed || 0).toLocaleString()}</span>
+                      </div>
+                    )}
                     {/* Total bytes moved - API may not return this yet, show 0 if not available */}
                     <div className="progress-monitor__metric-row">
                       <span>Bytes:</span>
@@ -771,9 +984,10 @@ export default function ProgressMonitor() {
                     <div className="progress-monitor__metric-row">
                       <span>Bytes/sec:</span>
                       <span>{formatBytesPerSec(
-                        queueMetrics.copy.bytes_per_sec || 
-                        queueMetrics.copy.copy_rate_bytes_per_sec || 
-                        queueMetrics.copy.bytes_copied_per_sec || 
+                        queueMetrics.copy.bytes_per_second ??
+                        queueMetrics.copy.bytes_per_sec ??
+                        queueMetrics.copy.copy_rate_bytes_per_sec ??
+                        queueMetrics.copy.bytes_copied_per_sec ??
                         0
                       )}</span>
                     </div>
@@ -797,8 +1011,16 @@ export default function ProgressMonitor() {
                       <span>{(queueMetrics.delete.total || 0).toLocaleString()}</span>
                     </div>
                     <div className="progress-monitor__metric-row">
+                      <span>Bytes removed:</span>
+                      <span>{formatBytes(queueMetrics.delete.bytes ?? 0)}</span>
+                    </div>
+                    <div className="progress-monitor__metric-row">
                       <span>Items/sec:</span>
                       <span>{(queueMetrics.delete.items_per_second || 0).toFixed(1)}</span>
+                    </div>
+                    <div className="progress-monitor__metric-row">
+                      <span>Bytes/sec:</span>
+                      <span>{formatBytesPerSec(queueMetrics.delete.bytes_per_second ?? 0)}</span>
                     </div>
                     {(queueMetrics.delete.total_pending ?? 0) > 0 && (
                       <div className="progress-monitor__metric-row">
@@ -830,7 +1052,9 @@ export default function ProgressMonitor() {
                             position="above"
                             content={
                               <p>
-                                The discovery rate shows how many files and folders are being discovered per second. This is an exponentially weighted moving average (EMA) that smooths out short-term fluctuations to give you a more stable view of the discovery progress.
+                                Discovery rate is how many folder list operations complete per second
+                                (EMA-smoothed). It tracks traversal work even when folders have few or
+                                no new children to discover.
                               </p>
                             }
                           />
@@ -893,6 +1117,11 @@ export default function ProgressMonitor() {
                   <div className="progress-monitor__metric-service">
                     {getServiceIcon(getDestinationServiceType())}
                     <span>{destination?.service?.displayName || status?.destinationId || "Unknown"}</span>
+                    <RateLimitBadge
+                      untilIso={queueMetrics?.dstTraversal?.rate_limited_until_dst}
+                      remainingMs={queueMetrics?.dstTraversal?.rate_limited_remaining_ms_dst}
+                      interOpDelayMs={queueMetrics?.dstTraversal?.inter_op_delay_ms}
+                    />
                   </div>
                   <h3 className="progress-monitor__metric-title progress-monitor__metric-title--destination">
                     Destination
@@ -922,7 +1151,9 @@ export default function ProgressMonitor() {
                             position="above"
                             content={
                               <p>
-                                The discovery rate shows how many files and folders are being discovered per second. This is an exponentially weighted moving average (EMA) that smooths out short-term fluctuations to give you a more stable view of the discovery progress.
+                                Discovery rate is how many folder list operations complete per second
+                                (EMA-smoothed). It tracks traversal work even when folders have few or
+                                no new children to discover.
                               </p>
                             }
                           />

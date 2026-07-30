@@ -1,9 +1,9 @@
-import React from "react";
-import { Clock, X, Check, AlertCircle, RotateCw } from "lucide-react";
+import { Clock, X, Check, AlertCircle, RotateCw, Trash2, Ban } from "lucide-react";
 import { DiffItem } from "../api/services";
 import {
   hasTraversalFailure,
   isTraversalRetryPending,
+  isTraversalSkipped,
 } from "../utils/pathReviewTraversalStatus";
 import { isCopyComplete } from "../utils/copyStatus";
 
@@ -76,7 +76,7 @@ export default function PathReviewStatusIcon({
       );
     }
     return (
-      <Clock
+      <Trash2
         size={iconSize}
         className={`${baseClass} ${baseClass}--pending`}
         onClick={() => onSkipDeleteClick?.(item)}
@@ -154,7 +154,7 @@ export default function PathReviewStatusIcon({
         />
       );
     }
-    
+
     // 2. Pending copyStatus - show retry icon (didn't get brought over, treat same as failed/retry)
     if (copyStatus === "pending") {
       return (
@@ -203,7 +203,21 @@ export default function PathReviewStatusIcon({
     // Traversal phase: retry/failed icons follow SRC queue; DST pending is not retry.
     const hasFailedStatus = hasTraversalFailure(item);
     const hasPendingRetry = isTraversalRetryPending(item);
-    
+    const skippedDiscovery = isTraversalSkipped(item);
+
+    // 0. Root-pick / traversal-skipped (before copy-excluded X)
+    if (skippedDiscovery) {
+      return (
+        <Ban
+          size={iconSize}
+          className={`${baseClass} ${baseClass}--traversal-skipped`}
+          onClick={() => onRetryClick?.(item)}
+          style={{ cursor: "pointer" }}
+          title="Skipped at root pick. Click to mark for discovery retry."
+        />
+      );
+    }
+
     // 1. Failed traversalStatus (from either src or dst) - show failed icon (prioritize failed over pending)
     if (hasFailedStatus) {
       return (

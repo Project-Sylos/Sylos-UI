@@ -13,6 +13,9 @@ export type MigrationStateSnapshot = {
   ready: boolean;
   spectraLocked?: boolean;
   spectraPrimaryRole?: "source" | "destination";
+  sourceRootPrepared?: boolean;
+  destinationRootPrepared?: boolean;
+  sourceRootChildNames?: string[];
 };
 
 export type PersistedEndpoint = {

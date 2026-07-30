@@ -46,9 +46,10 @@ export interface Drive {
 export interface PaginationInfo {
   offset: number;
   limit: number;
-  total: number;
-  totalFolders: number;
-  totalFiles: number;
+  /** Present when known; omit when the server did not compute a count. */
+  total?: number;
+  totalFolders?: number;
+  totalFiles?: number;
   hasMore: boolean;
 }
 

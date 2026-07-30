@@ -1,0 +1,83 @@
+.settings-throughput__enable {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.75rem 0;
+  font-size: 0.92rem;
+  cursor: pointer;
+}
+
+.settings-throughput__warning {
+  margin: 0 0 0.85rem;
+  padding: 0.7rem 0.85rem;
+  border-radius: 8px;
+  border: 1px solid rgba(220, 140, 40, 0.45);
+  background: rgba(220, 140, 40, 0.1);
+  font-size: 0.88rem;
+  line-height: 1.4;
+}
+
+.settings-throughput__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.settings-throughput__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.settings-throughput__name {
+  font-weight: 600;
+  font-size: 0.92rem;
+}
+
+.settings-throughput__meta {
+  font-size: 0.78rem;
+  opacity: 0.7;
+  margin-top: 0.15rem;
+}
+
+.settings-throughput__btn {
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.06);
+  color: inherit;
+  padding: 0.35rem 0.7rem;
+  font-size: 0.82rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.settings-throughput__btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.settings-throughput__subhead {
+  margin: 1.1rem 0 0.5rem;
+  font-size: 0.95rem;
+  font-weight: 650;
+}
+
+.settings-throughput__message {
+  margin: 0.65rem 0 0;
+  font-size: 0.85rem;
+  color: #8fd49a;
+}
+
+.settings-throughput__error {
+  margin: 0.65rem 0 0;
+  font-size: 0.85rem;
+  color: #ff8d8d;
+}

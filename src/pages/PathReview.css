@@ -24,8 +24,8 @@
   position: relative;
   z-index: 1;
   width: min(1480px, 100%);
-  height: min(780px, calc(100vh - 5rem));
-  max-height: calc(100vh - 5rem);
+  height: min(840px, calc(100vh - 4.5rem));
+  max-height: calc(100vh - 4.5rem);
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
@@ -242,11 +242,11 @@
 
 .path-review-list__legend-wrapper {
   display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: calc(0.65rem * var(--zoom, 1));
-  padding: calc(0.15rem * var(--zoom, 1)) 0;
-  margin-bottom: calc(0.15rem * var(--zoom, 1));
+  flex-direction: column;
+  align-items: stretch;
+  gap: calc(0.3rem * var(--zoom, 1));
+  padding: calc(0.2rem * var(--zoom, 1)) 0 calc(0.35rem * var(--zoom, 1));
+  margin-bottom: calc(0.1rem * var(--zoom, 1));
   width: 100%;
   min-width: 0;
   /* Keep visible so the page-size dropdown is not clipped. */
@@ -264,7 +264,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 0.45rem;
-  flex: 1 1 auto;
+  width: 100%;
   min-width: 0;
   padding-right: 0.25rem;
 }
@@ -277,16 +277,89 @@
   flex: 1 1 auto;
 }
 
+.path-review-list__legend-end {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex-shrink: 0;
+  min-width: 0;
+}
+
+/* Full-width icon legend band (own line, like footer stats). */
+.path-review-list__legend-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-width: 0;
+  padding: calc(0.25rem * var(--zoom, 1)) 0.25rem;
+  border-top: 1px solid color-mix(in srgb, var(--text-disabled) 35%, transparent);
+}
+
+.path-review-list__count-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.15rem;
+  min-width: 0;
+  max-width: 16rem;
+}
+
+.path-review-list__count-button {
+  padding: 0.35rem 0.7rem;
+  border-radius: 8px;
+  font-size: calc(0.78rem * var(--zoom, 1));
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid var(--text-disabled);
+  background: transparent;
+  color: var(--text-secondary);
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.path-review-list__count-button:hover:not(:disabled) {
+  background: var(--accent-cyan-opacity-10);
+  border-color: var(--accent-cyan-opacity-20);
+  color: var(--text-primary);
+}
+
+.path-review-list__count-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.path-review-list__count-result {
+  font-size: calc(0.78rem * var(--zoom, 1));
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.path-review-list__count-error {
+  font-size: calc(0.72rem * var(--zoom, 1));
+  color: var(--ui-alert-danger-fg);
+}
+
+.path-review-list__count-stale-note {
+  font-size: calc(0.7rem * var(--zoom, 1));
+  color: var(--text-tertiary);
+  text-align: right;
+  line-height: 1.25;
+}
+
+.path-review-list__search-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .path-review__legend {
   display: flex;
   align-items: center;
-  justify-content: flex-start;
-  gap: calc(0.75rem * var(--zoom, 1));
-  flex: 1 1 auto;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: calc(0.35rem * var(--zoom, 1)) calc(0.85rem * var(--zoom, 1));
+  width: 100%;
   min-width: 0;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: thin;
   font-size: calc(0.8rem * var(--zoom, 1));
   background: transparent;
   border: none;
@@ -666,6 +739,20 @@
   box-shadow: none;
 }
 
+.path-review__item--destination-only {
+  opacity: 0.45;
+}
+
+.path-review__item--destination-only .path-review__item-name,
+.path-review__item--destination-only .path-review__item-meta,
+.path-review__item--destination-only .path-review__item-path-col {
+  color: var(--text-muted);
+}
+
+.path-review__item--destination-only .path-review__item-icon svg {
+  color: var(--text-muted) !important;
+}
+
 .path-review__item--deleted {
   opacity: 0.55;
 }
@@ -798,6 +885,20 @@
 
 .path-review__item-status-icon--excluded {
   color: rgba(239, 68, 68, 0.9);
+}
+
+.path-review__item-status-icon--traversal-skipped,
+.path-review__legend-icon--traversal-skipped {
+  color: rgba(160, 160, 160, 0.95);
+}
+
+.path-review__item--traversal-skipped {
+  opacity: 0.55;
+}
+
+.path-review__item--traversal-skipped .path-review__item-name,
+.path-review__item--traversal-skipped .path-review__item-meta {
+  color: var(--text-muted);
 }
 
 .path-review__legend-icon--deleted,
@@ -2101,6 +2202,65 @@
   font-size: 0.95rem;
 }
 
+.path-review-list__empty--prompt {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  max-width: 28rem;
+  margin: 0 auto;
+}
+
+.path-review-list__empty-title {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.path-review-list__empty-body {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.path-review-list__empty-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-top: 0.35rem;
+}
+
+.path-review-list__empty-suggestion {
+  padding: 0.45rem 0.9rem;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid color-mix(in srgb, var(--accent-cyan) 35%, transparent);
+  background: var(--accent-cyan-opacity-10);
+  color: var(--text-primary);
+  transition: all 0.2s ease;
+}
+
+.path-review-list__empty-suggestion:hover {
+  background: var(--accent-cyan-opacity-20);
+  border-color: var(--accent-cyan-opacity-20);
+}
+
+.path-review-list__empty-suggestion--secondary {
+  background: transparent;
+  border-color: var(--text-disabled);
+  color: var(--text-secondary);
+}
+
+.path-review-list__empty-suggestion--secondary:hover {
+  background: var(--accent-cyan-opacity-10);
+  color: var(--text-primary);
+}
+
 .path-review-list__error {
   color: var(--ui-alert-danger-fg);
   background: var(--ui-alert-danger-bg);
@@ -2147,8 +2307,32 @@
   opacity: 0.5;
 }
 
+.path-review-list__item--traversal-skipped {
+  opacity: 0.55;
+}
+
+.path-review-list__item--traversal-skipped .path-review-list__item-name,
+.path-review-list__item--traversal-skipped .path-review-list__item-meta,
+.path-review-list__item--traversal-skipped .path-review-list__item-path {
+  color: var(--text-muted);
+}
+
 .path-review-list__item--deleted {
   opacity: 0.55;
+}
+
+.path-review-list__item--destination-only {
+  opacity: 0.45;
+}
+
+.path-review-list__item--destination-only .path-review-list__item-name,
+.path-review-list__item--destination-only .path-review-list__item-meta,
+.path-review-list__item--destination-only .path-review-list__item-path {
+  color: var(--text-muted);
+}
+
+.path-review-list__item--destination-only .path-review-list__item-icon svg {
+  color: var(--text-muted) !important;
 }
 
 .path-review-list__item--selected {
@@ -2212,6 +2396,10 @@
 
 .path-review-list__item-status-icon--excluded {
   color: rgba(239, 68, 68, 0.9);
+}
+
+.path-review-list__item-status-icon--traversal-skipped {
+  color: rgba(160, 160, 160, 0.95);
 }
 
 .path-review-list__item-status-icon--deleted {

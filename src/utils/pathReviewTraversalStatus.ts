@@ -13,6 +13,11 @@ export function hasTraversalFailure(item: DiffItem): boolean {
   );
 }
 
+/** Root-pick / traversal-skipped: subtree was never explored. */
+export function isTraversalSkipped(item: DiffItem): boolean {
+  return item.src?.traversalStatus === "excluded";
+}
+
 /** Item should show the pending-retry icon during traversal review. */
 export function isTraversalRetryPending(item: DiffItem): boolean {
   return isSrcTraversalRetryPending(item) && !hasTraversalFailure(item);
@@ -24,6 +29,9 @@ export function getTraversalRetryNodeId(item: DiffItem): string | null {
   const dstStatus = item.dst?.traversalStatus;
 
   if (srcStatus === "failed" && item.src?.id) {
+    return item.src.id;
+  }
+  if (srcStatus === "excluded" && item.src?.id) {
     return item.src.id;
   }
   if (dstStatus === "failed" && item.dst?.id) {

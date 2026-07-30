@@ -93,3 +93,16 @@ export function resolvePathCheckTargetFromEndpoints(args: {
   if (src && dst && src === dst) return "none";
   return "auto";
 }
+
+/** Soft cloud destinations that support opt-in Windows desktop-sync overlays. */
+export function supportsWindowsCompatOverlay(providerId: string): boolean {
+  const p = normalizeProviderKey(providerId);
+  if (!p || p.includes("spectra")) return false;
+  if (p.includes("dropbox")) return true;
+  if (p.includes("egnyte") || p.includes("sharefile") || p.includes("share_file")) {
+    return true;
+  }
+  // Box but not Dropbox (already handled)
+  if (p === "box" || p.endsWith("_box") || p.startsWith("box_")) return true;
+  return false;
+}

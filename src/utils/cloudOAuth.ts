@@ -23,7 +23,11 @@ export interface OAuthTokenResponse {
 }
 
 export function getOAuthRedirectUri(): string {
-  return `${window.location.origin}${window.location.pathname}`;
+  // Stable app root only — never include React route path or hash.
+  // Providers (especially Dropbox) require an exact pre-registered match;
+  // trailing slash is part of that match. Register e.g. http://localhost:8086/
+  const origin = window.location.origin.replace(/\/$/, "");
+  return `${origin}/`;
 }
 
 export function createOAuthState(): string {

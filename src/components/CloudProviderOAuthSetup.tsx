@@ -51,6 +51,8 @@ export default function CloudProviderOAuthSetup({
   const [app, setApp] = useState<OAuthAppSummary | null>(null);
   const [clientId, setClientId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
+  const [tenantId, setTenantId] = useState("");
+  const [alsoApplyToSibling, setAlsoApplyToSibling] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -58,6 +60,21 @@ export default function CloudProviderOAuthSetup({
   const [editOpen, setEditOpen] = useState(false);
   const [testMessage, setTestMessage] = useState<string | null>(null);
   const [removing, setRemoving] = useState(false);
+
+  const isMicrosoftProvider =
+    providerId === "onedrive" || providerId === "sharepoint";
+  const microsoftSiblingId =
+    providerId === "onedrive"
+      ? "sharepoint"
+      : providerId === "sharepoint"
+        ? "onedrive"
+        : null;
+  const microsoftSiblingLabel =
+    microsoftSiblingId === "sharepoint"
+      ? "SharePoint"
+      : microsoftSiblingId === "onedrive"
+        ? "OneDrive"
+        : null;
 
   // Labels per provider
   const clientIdLabel =
@@ -67,13 +84,16 @@ export default function CloudProviderOAuthSetup({
   const providerCredentialText =
     providerId === "dropbox"
       ? "App Key and App Secret"
-      : "Client ID and Client Secret";
+      : isMicrosoftProvider
+        ? "Client ID, Client Secret, and optional Tenant ID"
+        : "Client ID and Client Secret";
 
   const refreshApp = useCallback(async () => {
     const apps = await listOAuthApps();
     const match = apps.find((item) => item.providerId === providerId) ?? null;
     setApp(match);
     setClientId(match?.clientId ?? "");
+    setTenantId(match?.tenantId ?? "");
     return match;
   }, [providerId]);
 
@@ -104,6 +124,8 @@ export default function CloudProviderOAuthSetup({
   const openEdit = () => {
     setClientId(app?.clientId ?? "");
     setClientSecret("");
+    setTenantId(app?.tenantId ?? "");
+    setAlsoApplyToSibling(false);
     setError(null);
     setEditOpen(true);
   };
@@ -111,6 +133,7 @@ export default function CloudProviderOAuthSetup({
   const closeEdit = () => {
     setEditOpen(false);
     setClientSecret("");
+    setAlsoApplyToSibling(false);
     setError(null);
   };
 
@@ -124,6 +147,7 @@ export default function CloudProviderOAuthSetup({
       await testOAuthApp(providerId, {
         clientId: clientId.trim() || app?.clientId,
         clientSecret: clientSecret.trim() || undefined,
+        tenantId: isMicrosoftProvider ? tenantId.trim() || undefined : undefined,
       });
       setTestMessage("Connection test passed.");
       await refreshApp();
@@ -147,6 +171,8 @@ export default function CloudProviderOAuthSetup({
       await refreshApp();
       setEditOpen(false);
       setClientSecret("");
+      setTenantId("");
+      setAlsoApplyToSibling(false);
       onConfigured?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to remove credentials");
@@ -165,10 +191,16 @@ export default function CloudProviderOAuthSetup({
       await saveOAuthApp(providerId, {
         clientId: clientId.trim(),
         clientSecret: clientSecret.trim(),
+        tenantId: isMicrosoftProvider ? tenantId.trim() : undefined,
         displayName,
+        alsoApplyTo:
+          isMicrosoftProvider && alsoApplyToSibling && microsoftSiblingId
+            ? microsoftSiblingId
+            : undefined,
       });
       await refreshApp();
       setClientSecret("");
+      setAlsoApplyToSibling(false);
       setEditOpen(false);
       onConfigured?.();
     } catch (err) {
@@ -283,10 +315,16 @@ export default function CloudProviderOAuthSetup({
               </p>
             )}
 
-            <p className="cloud-oauth-setup__redirect">
-              <span className="cloud-oauth-setup__redirect-label">Redirect URI</span>
-              <code>{getOAuthRedirectUri()}</code>
-            </p>
+            <label className="cloud-oauth-setup__field">
+              <span>Redirect URI to register at the provider</span>
+              <input
+                type="text"
+                readOnly
+                value={getOAuthRedirectUri()}
+                onFocus={(event) => event.currentTarget.select()}
+                aria-label="OAuth redirect URI"
+              />
+            </label>
 
             <form className="cloud-oauth-edit__form" onSubmit={(e) => void handleSave(e)}>
               <label className="cloud-oauth-setup__field">
@@ -310,6 +348,34 @@ export default function CloudProviderOAuthSetup({
                   autoComplete="new-password"
                 />
               </label>
+
+              {isMicrosoftProvider && (
+                <>
+                  <label className="cloud-oauth-setup__field">
+                    <span>Directory (tenant) ID</span>
+                    <input
+                      type="text"
+                      value={tenantId}
+                      onChange={(e) => setTenantId(e.target.value)}
+                      placeholder="Required for single-tenant apps; leave blank for multi-tenant"
+                      autoComplete="off"
+                      spellCheck={false}
+                    />
+                  </label>
+                  {microsoftSiblingId && microsoftSiblingLabel && (
+                    <label className="cloud-oauth-setup__field cloud-oauth-setup__field--checkbox">
+                      <input
+                        type="checkbox"
+                        checked={alsoApplyToSibling}
+                        onChange={(e) => setAlsoApplyToSibling(e.target.checked)}
+                      />
+                      <span>
+                        Also apply these credentials to {microsoftSiblingLabel}
+                      </span>
+                    </label>
+                  )}
+                </>
+              )}
 
               {error && <p className="cloud-oauth-setup__error">{error}</p>}
 

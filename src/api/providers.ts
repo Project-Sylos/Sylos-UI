@@ -139,6 +139,12 @@ export async function fetchProviders(): Promise<ProviderDescriptor[]> {
         : item.oauth_client_id != null
           ? String(item.oauth_client_id)
           : undefined,
+    oauthTenantId:
+      item.oauthTenantId != null
+        ? String(item.oauthTenantId)
+        : item.oauth_tenant_id != null
+          ? String(item.oauth_tenant_id)
+          : undefined,
   }));
 }
 
@@ -208,7 +214,12 @@ export async function postProviderCredentials(
 export async function exchangeOAuthCode(
   providerId: string,
   connectionId: string,
-  payload: { code: string; redirect_uri: string; scopes?: string[] }
+  payload: {
+    code: string;
+    redirect_uri: string;
+    scopes?: string[];
+    microsoft_account_type?: string;
+  }
 ): Promise<ConnectionTokenResponse> {
   const response = await apiFetch(
     `/api/providers/${providerId}/connections/${connectionId}/oauth/exchange`,

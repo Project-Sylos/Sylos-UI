@@ -16,6 +16,8 @@ import {
 } from "../types/migrations";
 import { ServiceDescriptor, Drive, ChildrenResponse, Folder } from "../types/services";
 import { UserPreferences, DEFAULT_PREFERENCES, normalizeAppTheme } from "../types/preferences";
+import { finiteNonNeg } from "../utils/formatBytes";
+import { parseOptionalTotal } from "../utils/listSearch";
 import { apiFetch, getAuthToken, readErrorMessage } from "./client";
 
 const fallbackServices: ServiceDescriptor[] = [
@@ -350,6 +352,45 @@ export async function listDrives(
     : [];
 }
 
+export interface StorageInfo {
+  available: boolean;
+  unlimited?: boolean;
+  totalBytes?: number;
+  usedBytes?: number;
+  freeBytes?: number;
+  source?: string;
+}
+
+/** Best-effort free/total capacity for a service root or cloud account. */
+export async function getStorageInfo(
+  serviceId: string,
+  options?: {
+    path?: string;
+    connectionId?: string;
+    rootType?: string;
+    driveId?: string;
+    role?: string;
+  }
+): Promise<StorageInfo> {
+  const params = new URLSearchParams();
+  if (options?.path) params.set("path", options.path);
+  if (options?.connectionId) params.set("connectionId", options.connectionId);
+  if (options?.rootType) params.set("rootType", options.rootType);
+  if (options?.driveId) params.set("driveId", options.driveId);
+  if (options?.role) params.set("role", options.role);
+  const qs = params.toString();
+  const response = await apiFetch(
+    `/api/services/${encodeURIComponent(serviceId)}/storage${qs ? `?${qs}` : ""}`
+  );
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(
+      `Failed to get storage info (${response.status}): ${message || "Unknown error"}`
+    );
+  }
+  return (await response.json()) as StorageInfo;
+}
+
 export async function mountDrive(
   serviceId: string,
   device: string
@@ -628,7 +669,7 @@ export interface PathNodeItem {
   type: string;               // "folder" or "file"
   size?: number;              // File size in bytes (only present for files)
   traversalStatus: "pending" | "successful" | "failed" | "excluded" | "not_on_src";
-  copyStatus?: string;        // "pending", "successful", or "failed" (for future copy phase)
+  copyStatus?: string;        // "pending", "successful", "failed", …
   deleteStatus?: string;      // delete phase: pending, deleted, failed
   failureLogId?: string;
   failureMessage?: string;
@@ -644,9 +685,10 @@ export interface PathNodes {
 export interface PaginationInfo {
   offset: number;       // Current pagination offset
   limit: number;        // Current pagination limit
-  total: number;        // Total number of items (folders + files, or just folders if foldersOnly=true)
-  totalFolders: number; // Total number of folders across all pages
-  totalFiles: number;   // Total number of files across all pages
+  /** Total matches when known; omit/undefined when the server skipped counting. */
+  total?: number;
+  totalFolders?: number; // Total folders when counted
+  totalFiles?: number;   // Total files when counted
   hasMore: boolean;     // Whether there are more items beyond the current page
 }
 
@@ -1114,7 +1156,6 @@ export async function unmarkNodeForRetryCopy(
   return data;
 }
 
-
 // Phase change API types and functions
 export interface PhaseChangeRequest {
   phase: "traversal" | "copy";
@@ -1199,6 +1240,8 @@ export async function changePhase(
 export interface PathIssue {
   nodeId: string;
   path: string;
+  /** Stored display basename of the node the issue is about. */
+  name?: string;
   proposedPath: string;
   status: string;
   category?: string;
@@ -1253,6 +1296,7 @@ export async function listPathIssues(
 export interface PathCheckTargetResponse {
   pathCheckTarget: string;
   pathChecksEnabled: boolean;
+  windowsCompat?: boolean;
 }
 
 export async function getPathCheckTarget(
@@ -1269,13 +1313,20 @@ export async function getPathCheckTarget(
 
 export async function setPathCheckTarget(
   migrationId: string,
-  pathCheckTarget: string
+  pathCheckTarget: string,
+  windowsCompat?: boolean
 ): Promise<PathCheckTargetResponse> {
+  const body: { pathCheckTarget: string; windowsCompat?: boolean } = {
+    pathCheckTarget,
+  };
+  if (windowsCompat !== undefined) {
+    body.windowsCompat = windowsCompat;
+  }
   const response = await apiFetch(
     `/api/migrations/${migrationId}/path-check-target`,
     {
       method: "POST",
-      body: JSON.stringify({ pathCheckTarget }),
+      body: JSON.stringify(body),
     }
   );
   if (!response.ok) {
@@ -1342,6 +1393,24 @@ export async function remapPathManual(
     return {
       success: false,
       message: data.message || data.error || "Could not rename destination.",
+    };
+  }
+  return data;
+}
+
+export async function resetPathRemap(
+  migrationId: string,
+  nodeId: string
+): Promise<PathIssuesMutationResponse> {
+  const response = await apiFetch(
+    `/api/migrations/${migrationId}/path-issues/${encodeURIComponent(nodeId)}/reset`,
+    { method: "POST" }
+  );
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    return {
+      success: false,
+      message: data.message || data.error || "Could not reset destination name.",
     };
   }
   return data;
@@ -1619,6 +1688,7 @@ interface PathReviewStatsRaw {
   totalFileSize?: {
     src?: number;
     dst?: number;
+    selected?: number;
   };
 }
 
@@ -1635,6 +1705,7 @@ export interface PathReviewStats {
   totalFileSize: {
     src: number;
     dst: number;
+    selected: number;
   };
 }
 
@@ -1658,8 +1729,9 @@ function normalizePathReviewStats(
       foldersRatio: flat.foldersRatio ?? 0,
       filesRatio: flat.filesRatio ?? 0,
       totalFileSize: {
-        src: flat.totalFileSize?.src ?? 0,
-        dst: flat.totalFileSize?.dst ?? 0,
+        src: finiteNonNeg(flat.totalFileSize?.src),
+        dst: finiteNonNeg(flat.totalFileSize?.dst),
+        selected: finiteNonNeg(flat.totalFileSize?.selected),
       },
     };
   }
@@ -1679,8 +1751,9 @@ function normalizePathReviewStats(
       foldersRatio: legacy.foldersRatio ?? 0,
       filesRatio: legacy.filesRatio ?? 0,
       totalFileSize: {
-        src: (legacy.totalFileSize?.src ?? 0) as number,
-        dst: (legacy.totalFileSize?.dst ?? 0) as number,
+        src: finiteNonNeg(legacy.totalFileSize?.src),
+        dst: finiteNonNeg(legacy.totalFileSize?.dst),
+        selected: finiteNonNeg(legacy.totalFileSize?.selected),
       },
     };
   }
@@ -1694,8 +1767,9 @@ function normalizePathReviewStats(
     foldersRatio: legacy.foldersRatio ?? 0,
     filesRatio: legacy.filesRatio ?? 0,
     totalFileSize: {
-      src: (legacy.totalFileSize?.src ?? 0) as number,
-      dst: (legacy.totalFileSize?.dst ?? 0) as number,
+      src: finiteNonNeg(legacy.totalFileSize?.src),
+      dst: finiteNonNeg(legacy.totalFileSize?.dst),
+      selected: finiteNonNeg(legacy.totalFileSize?.selected),
     },
   };
 }
@@ -1764,7 +1838,7 @@ export interface SearchOptions {
   /** Compatibility finding category (InvalidChar, EmptyPart, …) */
   pathIssueCategoryFilter?: string | null;
   statusSearchType?: "traversal" | "copy" | "delete" | "both"; // Controls which status conditions are processed
-  phase?: "traversal" | "copy"; // Phase to determine which status counts to use in stats transformation
+  phase?: "traversal" | "copy" | "delete"; // Phase to determine which status counts to use in stats transformation
   includeDestinationOnly?: boolean; // When false, hide destination-only rows server-side
 }
 
@@ -1778,8 +1852,170 @@ export interface SearchRequest {
   includeDestinationOnly?: boolean;
 }
 
+/** Build the POST body shared by /search and /search/count. */
+export function buildSearchRequest(options?: SearchOptions): SearchRequest {
+  const requestBody: SearchRequest = {
+    conditions: [],
+  };
+
+  const searchField = options?.searchField || "path";
+  if (options?.query !== undefined && options.query.trim() !== "") {
+    requestBody.conditions!.push({
+      field: searchField,
+      value: options.query.trim(),
+    });
+  }
+
+  const typeFilter =
+    options?.typeFilter || (options?.foldersOnly ? "folder" : "both");
+  if (typeFilter !== "both") {
+    requestBody.conditions!.push({
+      field: "type",
+      value: typeFilter,
+    });
+  }
+
+  if (
+    options?.depthFilter !== undefined &&
+    options.depthFilter !== null &&
+    !isNaN(options.depthFilter)
+  ) {
+    requestBody.conditions!.push({
+      field: "depth",
+      operator: options.depthOperator || "equals",
+      value: options.depthFilter,
+    });
+  }
+
+  if (
+    options?.sizeFilter !== undefined &&
+    options.sizeFilter !== null &&
+    !isNaN(options.sizeFilter) &&
+    typeFilter !== "folder"
+  ) {
+    requestBody.conditions!.push({
+      field: "size",
+      operator: options.sizeOperator || "equals",
+      value: options.sizeFilter,
+    });
+  }
+
+  let statusSearchType: "traversal" | "copy" | "delete" | "both" | undefined =
+    undefined;
+  const hasTraversalFilter =
+    options?.traversalStatusFilter !== undefined &&
+    options.traversalStatusFilter !== null &&
+    options.traversalStatusFilter !== "";
+  const hasCopyFilter =
+    options?.copyStatusFilter !== undefined &&
+    options.copyStatusFilter !== null &&
+    options.copyStatusFilter !== "";
+  const hasDeleteFilter =
+    options?.deleteStatusFilter !== undefined &&
+    options.deleteStatusFilter !== null &&
+    options.deleteStatusFilter !== "";
+
+  if (hasTraversalFilter && hasCopyFilter) {
+    statusSearchType = options?.statusSearchType || "both";
+  } else if (hasTraversalFilter) {
+    statusSearchType = options?.statusSearchType || "traversal";
+  } else if (hasCopyFilter) {
+    statusSearchType = options?.statusSearchType || "copy";
+  } else if (hasDeleteFilter) {
+    statusSearchType = options?.statusSearchType || "delete";
+  } else if (options?.statusSearchType) {
+    statusSearchType = options.statusSearchType;
+  }
+
+  if (hasTraversalFilter) {
+    requestBody.conditions!.push({
+      field: "traversalStatus",
+      value: options!.traversalStatusFilter!,
+    });
+  }
+
+  if (hasCopyFilter) {
+    requestBody.conditions!.push({
+      field: "copyStatus",
+      value: options!.copyStatusFilter!,
+    });
+  }
+
+  if (hasDeleteFilter) {
+    requestBody.conditions!.push({
+      field: "deleteStatus",
+      value: options!.deleteStatusFilter!,
+    });
+  }
+
+  const hasPathIssueFilter =
+    options?.pathIssueStatusFilter !== undefined &&
+    options.pathIssueStatusFilter !== null &&
+    options.pathIssueStatusFilter !== "";
+  if (hasPathIssueFilter) {
+    requestBody.conditions!.push({
+      field: "pathIssueStatus",
+      value: options!.pathIssueStatusFilter!,
+    });
+  }
+
+  const hasPathIssueCategoryFilter =
+    options?.pathIssueCategoryFilter !== undefined &&
+    options.pathIssueCategoryFilter !== null &&
+    options.pathIssueCategoryFilter !== "";
+  if (hasPathIssueCategoryFilter) {
+    requestBody.conditions!.push({
+      field: "pathIssueCategory",
+      value: options!.pathIssueCategoryFilter!,
+    });
+  }
+
+  if (statusSearchType) {
+    requestBody.statusSearchType = statusSearchType;
+  }
+
+  if (options?.includeDestinationOnly !== undefined) {
+    requestBody.includeDestinationOnly = options.includeDestinationOnly;
+  }
+
+  if (requestBody.conditions!.length === 0) {
+    requestBody.conditions = undefined;
+  }
+
+  return requestBody;
+}
+
+function normalizeSearchPagination(
+  raw: Record<string, unknown> | undefined,
+  fallback: { offset: number; limit: number; itemCount: number }
+): PaginationInfo {
+  if (!raw) {
+    return {
+      offset: fallback.offset,
+      limit: fallback.limit,
+      total: fallback.itemCount,
+      totalFolders: undefined,
+      totalFiles: undefined,
+      hasMore: false,
+    };
+  }
+
+  const total = parseOptionalTotal(raw.Total ?? raw.total);
+  const totalFolders = parseOptionalTotal(raw.TotalFolders ?? raw.totalFolders);
+  const totalFiles = parseOptionalTotal(raw.TotalFiles ?? raw.totalFiles);
+
+  return {
+    offset: Number(raw.Offset ?? raw.offset ?? fallback.offset) || 0,
+    limit: Number(raw.Limit ?? raw.limit ?? fallback.limit) || fallback.limit,
+    ...(total !== undefined ? { total } : {}),
+    ...(totalFolders !== undefined ? { totalFolders } : {}),
+    ...(totalFiles !== undefined ? { totalFiles } : {}),
+    hasMore: Boolean(raw.HasMore ?? raw.hasMore ?? false),
+  };
+}
+
 /**
- * Search path review items (lists all items when no search criteria provided)
+ * Search path review items. Requires at least one filter condition (UI-enforced).
  * @param migrationId The ID of the migration
  * @param options Search and pagination options
  * @returns Promise resolving to items and pagination info
@@ -1796,7 +2032,6 @@ export async function searchPathReviewItems(
   if (options?.limit !== undefined) {
     params.append("limit", options.limit.toString());
   }
-  // Note: foldersOnly is now handled via conditions in the request body
   if (options?.sortField) {
     params.append("sortField", options.sortField);
   }
@@ -1804,129 +2039,7 @@ export async function searchPathReviewItems(
     params.append("sortDir", options.sortDir);
   }
 
-  // Build request body with conditions
-  const requestBody: SearchRequest = {
-    conditions: [],
-  };
-
-  // Add search query condition (searches specified field - operator is optional/ignored for text fields)
-  const searchField = options?.searchField || "path"; // Default to "path"
-  if (options?.query !== undefined && options.query.trim() !== "") {
-    requestBody.conditions!.push({
-      field: searchField,
-      value: options.query.trim(),
-      // operator is optional for name/path fields - always uses substring matching
-    });
-  }
-
-  // Add type filter condition (operator is optional/ignored for type field)
-  const typeFilter = options?.typeFilter || (options?.foldersOnly ? "folder" : "both"); // Support deprecated foldersOnly
-  if (typeFilter !== "both") {
-    requestBody.conditions!.push({
-      field: "type",
-      value: typeFilter,
-      // operator is optional for type field - always uses exact match (case-insensitive)
-    });
-  }
-
-  // Add depth filter condition (numeric comparison)
-  if (options?.depthFilter !== undefined && options.depthFilter !== null && !isNaN(options.depthFilter)) {
-    requestBody.conditions!.push({
-      field: "depth",
-      operator: options.depthOperator || "equals",
-      value: options.depthFilter,
-    });
-  }
-
-  // Add size filter condition (numeric comparison) - only if not filtering folders only
-  if (options?.sizeFilter !== undefined && options.sizeFilter !== null && !isNaN(options.sizeFilter) && typeFilter !== "folder") {
-    requestBody.conditions!.push({
-      field: "size",
-      operator: options.sizeOperator || "equals",
-      value: options.sizeFilter,
-    });
-  }
-
-  // Determine statusSearchType based on which filters are being used
-  let statusSearchType: "traversal" | "copy" | "both" | undefined = undefined;
-  const hasTraversalFilter = options?.traversalStatusFilter !== undefined && options.traversalStatusFilter !== null && options.traversalStatusFilter !== "";
-  const hasCopyFilter = options?.copyStatusFilter !== undefined && options.copyStatusFilter !== null && options.copyStatusFilter !== "";
-  const hasDeleteFilter = options?.deleteStatusFilter !== undefined && options?.deleteStatusFilter !== null && options.deleteStatusFilter !== "";
-  
-  if (hasTraversalFilter && hasCopyFilter) {
-    statusSearchType = options?.statusSearchType || "both";
-  } else if (hasTraversalFilter) {
-    statusSearchType = options?.statusSearchType || "traversal";
-  } else if (hasCopyFilter) {
-    statusSearchType = options?.statusSearchType || "copy";
-  } else if (hasDeleteFilter) {
-    statusSearchType = options?.statusSearchType || "delete";
-  } else if (options?.statusSearchType) {
-    statusSearchType = options.statusSearchType;
-  }
-
-  // Add traversal status filter condition (operator is optional/ignored for traversalStatus field)
-  // Note: "excluded" is handled specially by the API to match both exclusion_explicit and exclusion_inherited
-  if (hasTraversalFilter) {
-    requestBody.conditions!.push({
-      field: "traversalStatus",
-      value: options.traversalStatusFilter!,
-      // operator is optional for traversalStatus field - always uses exact match (case-insensitive)
-      // Special: "excluded" value matches both exclusion_explicit and exclusion_inherited on the backend
-    });
-  }
-
-  // Add copy status filter condition (operator is optional/ignored for copyStatus field)
-  if (hasCopyFilter) {
-    requestBody.conditions!.push({
-      field: "copyStatus",
-      value: options.copyStatusFilter!,
-      // operator is optional for copyStatus field - always uses exact match (case-insensitive)
-    });
-  }
-
-  if (hasDeleteFilter) {
-    requestBody.conditions!.push({
-      field: "deleteStatus",
-      value: options.deleteStatusFilter!,
-    });
-  }
-
-  const hasPathIssueFilter =
-    options?.pathIssueStatusFilter !== undefined &&
-    options.pathIssueStatusFilter !== null &&
-    options.pathIssueStatusFilter !== "";
-  if (hasPathIssueFilter) {
-    requestBody.conditions!.push({
-      field: "pathIssueStatus",
-      value: options.pathIssueStatusFilter!,
-    });
-  }
-
-  const hasPathIssueCategoryFilter =
-    options?.pathIssueCategoryFilter !== undefined &&
-    options.pathIssueCategoryFilter !== null &&
-    options.pathIssueCategoryFilter !== "";
-  if (hasPathIssueCategoryFilter) {
-    requestBody.conditions!.push({
-      field: "pathIssueCategory",
-      value: options.pathIssueCategoryFilter!,
-    });
-  }
-
-  // Add statusSearchType to request body if specified
-  if (statusSearchType) {
-    requestBody.statusSearchType = statusSearchType;
-  }
-
-  if (options?.includeDestinationOnly !== undefined) {
-    requestBody.includeDestinationOnly = options.includeDestinationOnly;
-  }
-
-  // If no conditions, set to undefined to send empty object
-  if (requestBody.conditions!.length === 0) {
-    requestBody.conditions = undefined;
-  }
+  const requestBody = buildSearchRequest(options);
 
   const url = `/api/migrations/${migrationId}/search${params.toString() ? `?${params.toString()}` : ""}`;
 
@@ -1954,16 +2067,16 @@ export async function searchPathReviewItems(
     throw new Error("Invalid API response: items not found");
   }
 
-  const paginationData = data.pagination || {
-    offset: options?.offset || 0,
-    limit: options?.limit || 1000,
-    total: Object.keys(itemsMap).length,
-    totalFolders: 0,
-    totalFiles: 0,
-    hasMore: false,
-  };
+  const paginationData = normalizeSearchPagination(
+    data.pagination as Record<string, unknown> | undefined,
+    {
+      offset: options?.offset || 0,
+      limit: options?.limit || 1000,
+      itemCount: Object.keys(itemsMap).length,
+    }
+  );
 
-  // Count folders and files for pagination if not provided
+  // Count folders and files for pagination if pagination object was absent
   if (!data.pagination) {
     let folderCount = 0;
     let fileCount = 0;
@@ -2040,6 +2153,37 @@ export async function searchPathReviewItems(
     pagination: paginationData,
     stats: transformedStats,
   };
+}
+
+/**
+ * Count total matches for the current list-search filters (does not auto-fire from paging).
+ * POST /api/migrations/{id}/search/count — same body as search.
+ */
+export async function countPathReviewSearchMatches(
+  migrationId: string,
+  options?: SearchOptions
+): Promise<DiffsStatsResponse> {
+  const requestBody = buildSearchRequest(options);
+  const response = await apiFetch(`/api/migrations/${migrationId}/search/count`, {
+    method: "POST",
+    body: JSON.stringify(requestBody),
+  });
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(
+      `Failed to count path review matches (${response.status}): ${
+        message || "Unknown error"
+      }`
+    );
+  }
+
+  const data = (await response.json()) as Record<string, unknown>;
+  const total = parseOptionalTotal(data.Total ?? data.total) ?? 0;
+  const totalFolders =
+    parseOptionalTotal(data.TotalFolders ?? data.totalFolders) ?? 0;
+  const totalFiles = parseOptionalTotal(data.TotalFiles ?? data.totalFiles) ?? 0;
+  return { total, totalFolders, totalFiles };
 }
 
 // Bulk exclusion API types and functions

@@ -12,18 +12,30 @@ export function isPathUnderAncestor(itemPath: string, ancestorPath: string): boo
   return itemPath.startsWith(`${ancestorPath}/`);
 }
 
-/** Apply delete_status to one item, or a folder and any visible descendants in the list. */
+/** True when ancestorPath is a strict parent of childPath. */
+export function isStrictAncestorPath(childPath: string, ancestorPath: string): boolean {
+  if (!childPath || !ancestorPath || ancestorPath === "/" || childPath === ancestorPath) {
+    return false;
+  }
+  return childPath.startsWith(`${ancestorPath}/`);
+}
+
+/** Apply delete_status to one item: folders also update descendants; skips also update ancestors. */
 export function applyDeleteStatusInItems(
   items: DiffItem[],
   anchor: DiffItem,
   deleteStatus: "pending" | "skipped"
 ): DiffItem[] {
-  const propagate = anchor.type === "folder";
+  const propagateDown = anchor.type === "folder";
+  const propagateUp = deleteStatus === "skipped";
   return items.map((item) => {
     if (!item.src) return item;
-    if (!propagate) {
-      if (item.id !== anchor.id) return item;
-    } else if (!isPathUnderAncestor(item.locationPath, anchor.locationPath)) {
+    const isSelf = item.id === anchor.id;
+    const isDescendant =
+      propagateDown && isPathUnderAncestor(item.locationPath, anchor.locationPath);
+    const isAncestor =
+      propagateUp && isStrictAncestorPath(anchor.locationPath, item.locationPath);
+    if (!isSelf && !isDescendant && !isAncestor) {
       return item;
     }
     return {

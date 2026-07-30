@@ -18,6 +18,10 @@ function folderFilePercentInts(foldersRatio: number, filesRatio: number): {
     return { folders: 0, files: 0 };
   }
   if (Math.abs(f - fi) < RATIO_TIE_EPS) {
+    // Both zero (or both equal): show matching percents, not a fake 0/100 split.
+    if (f === 0 && fi === 0) {
+      return { folders: 0, files: 0 };
+    }
     const x = Math.round(f);
     const clamped = Math.min(100, Math.max(0, x));
     return { folders: clamped, files: 100 - clamped };

@@ -8,7 +8,7 @@ import "./PathReviewIssuesButton.css";
 type PathReviewIssuesButtonProps = {
   /** Failed + needs manual rename. */
   issueCount: number;
-  /** Suggested renames (auto-fixable naming warnings). */
+  /** Auto-fixable naming warning count (informational). */
   warningCount: number;
   active?: boolean;
   onClick: () => void;

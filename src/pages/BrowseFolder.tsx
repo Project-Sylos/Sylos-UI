@@ -3,20 +3,32 @@ import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import { ChevronRight, ArrowLeft, HardDrive, Network, Loader2, CircleAlert, Copy, Check, FolderPlus, Trash2 } from "lucide-react";
 
 import "../App.css";
-import { listDrives, listChildren, mountDrive as mountDriveApi, createBrowseFolder, deleteBrowseNodes } from "../api/services";
+import { listDrives, listChildren, mountDrive as mountDriveApi, createBrowseFolder, deleteBrowseNodes, setMigrationRoot } from "../api/services";
 import { Drive, Folder, PaginationInfo } from "../types/services";
 import { GlassSurfacePanel } from "../components/GlassSurfacePanel";
 import PageBackButton from "../components/PageBackButton";
 import BrowseDensityControl from "../components/BrowseDensityControl";
 import BrowseFolderItemRow from "../components/BrowseFolderItemRow";
+import BrowseSortControl from "../components/BrowseSortControl";
 import ConfirmDialog from "../components/ConfirmDialog";
 import NewFolderModal from "../components/NewFolderModal";
 import BrowseContextMenu from "../components/BrowseContextMenu";
 import FileBrowserPane, { BROWSE_SELECTION_HELP } from "../components/FileBrowserPane";
 import { BrowseDensityProvider, useBrowseDensity } from "../contexts/BrowseDensityContext";
+import { useSelection } from "../context/SelectionContext";
 import { useAltTextSelect } from "../hooks/useAltTextSelect";
-import { formatBytes } from "../utils/formatBytes";
-import { getBrowseTrailFromFolder } from "../utils/migrationRoots";
+import { useRootIncludeSelection } from "../hooks/useRootIncludeSelection";
+import { getBrowseTrailFromFolder, folderToApiRoot } from "../utils/migrationRoots";
+import {
+  DEFAULT_BROWSE_SORT,
+  BrowseSortState,
+  sortBrowseFoldersAndFiles,
+} from "../utils/browseSort";
+import {
+  clearAccountFields,
+  clearEndpointCloudState,
+} from "../utils/cloudAccountLabel";
+import { isCloudServiceType } from "../utils/cloudProviders";
 import {
   buildDeleteConfirmMessage,
   BrowseSelectableItem,
@@ -24,6 +36,8 @@ import {
   isMultiSelectModifier,
   useBrowseSelection,
 } from "../hooks/useBrowseSelection";
+import StorageMeter from "../components/StorageMeter";
+import { DST_ONLY_BROWSE_HINT } from "../utils/browseDstOnlyHint";
 import "./BrowseFolder.css";
 
 interface BreadcrumbItem {
@@ -60,42 +74,14 @@ function getDriveSubtitle(drive: Drive): string {
 }
 
 function DriveStorageInfo({ drive }: { drive: Drive }) {
-  if (!isDriveMounted(drive)) {
-    if (drive.totalBytes == null || drive.totalBytes <= 0) {
-      return null;
-    }
-    return (
-      <div className="browse-folder__drive-storage">
-        <div className="browse-folder__drive-stats">
-          {formatBytes(drive.totalBytes)} total capacity
-        </div>
-      </div>
-    );
-  }
-
-  const total = drive.totalBytes ?? 0;
-  if (total <= 0) return null;
-
-  const free = drive.freeBytes ?? 0;
-  const used = drive.usedBytes ?? Math.max(0, total - free);
-  const usedPct = Math.min(100, Math.max(0, (used / total) * 100));
-
   return (
-    <div className="browse-folder__drive-storage">
-      <div className="browse-folder__drive-meter" role="presentation" aria-hidden="true">
-        <div
-          className="browse-folder__drive-meter-fill"
-          style={{ width: `${usedPct}%` }}
-        />
-      </div>
-      <div className="browse-folder__drive-stats">
-        <span>{formatBytes(free)} free</span>
-        <span className="browse-folder__drive-stats-sep" aria-hidden="true">·</span>
-        <span>{formatBytes(used)} used</span>
-        <span className="browse-folder__drive-stats-sep" aria-hidden="true">·</span>
-        <span>{formatBytes(total)} total</span>
-      </div>
-    </div>
+    <StorageMeter
+      available
+      mounted={isDriveMounted(drive)}
+      totalBytes={drive.totalBytes}
+      freeBytes={drive.freeBytes}
+      usedBytes={drive.usedBytes}
+    />
   );
 }
 
@@ -106,6 +92,17 @@ function BrowseFolderPage() {
   const serviceIdentifier = searchParams.get("serviceId") || "";
   const role = (searchParams.get("role") as "source" | "destination") || "source";
   const { densityStyle } = useBrowseDensity();
+  const {
+    services,
+    migration,
+    updateMigration,
+    selectSource,
+    selectDestination,
+  } = useSelection();
+  const rootInclude = useRootIncludeSelection();
+  const [browseSort, setBrowseSort] = useState<BrowseSortState>(DEFAULT_BROWSE_SORT);
+  const [includeSubmitting, setIncludeSubmitting] = useState(false);
+  const [pendingRootFolder, setPendingRootFolder] = useState<Folder | null>(null);
 
   const [drives, setDrives] = useState<Drive[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
@@ -175,6 +172,44 @@ function BrowseFolderPage() {
     ],
     [folders, files, hideFiles]
   );
+
+  const sortedListing = useMemo(() => {
+    const sourceFolders = rootInclude.active ? rootInclude.items.filter((i) => i.type !== "file") : folders;
+    const sourceFiles = rootInclude.active
+      ? rootInclude.items.filter((i) => i.type === "file")
+      : files;
+    return sortBrowseFoldersAndFiles(
+      sourceFolders,
+      hideFiles ? [] : sourceFiles,
+      browseSort
+    );
+  }, [rootInclude.active, rootInclude.items, folders, files, hideFiles, browseSort]);
+
+  const sourceNameSet = useMemo(() => {
+    const names = migration.sourceRootChildNames ?? [];
+    return new Set(names.map((n) => n.trim().toLowerCase()).filter(Boolean));
+  }, [migration.sourceRootChildNames]);
+
+  const needsRootIncludeMode =
+    role === "source" || (role === "destination" && Boolean(migration.sourceRootPrepared));
+
+  const loadAllChildrenAt = async (folderId: string): Promise<Folder[]> => {
+    const pageSize = 200;
+    const all: Folder[] = [];
+    let offset = 0;
+    let hasMore = true;
+    while (hasMore) {
+      const response = await listChildren(serviceIdentifier, folderId, role, {
+        offset,
+        limit: pageSize,
+      });
+      all.push(...(response.folders || []), ...(response.files || []));
+      hasMore = Boolean(response.pagination?.hasMore);
+      offset += pageSize;
+      if (!response.pagination) break;
+    }
+    return all;
+  };
 
   const deleteConfirmCopy = useMemo(
     () => buildDeleteConfirmMessage(pendingDeleteItems),
@@ -500,53 +535,24 @@ function BrowseFolderPage() {
     }
   };
 
-  const handleSelectRoot = async () => {
-    if (isDriveView) {
-      setError("Please select a drive first.");
-      return;
+  const buildSelectedFolder = (): Folder | null => {
+    if (isDriveView || !currentPath || breadcrumbs.length === 0) {
+      return null;
     }
 
-    if (!currentPath) {
-      setError("No path selected.");
-      return;
-    }
-
-    if (breadcrumbs.length === 0) {
-      setError("No folder selected.");
-      return;
-    }
-
-    if (role === "source" && pagination && pagination.total === 0) {
-      setError(
-        "You cannot use an empty folder as the source root. There is nothing to migrate."
-      );
-      return;
-    }
-
-    // Build locationPath from breadcrumbs
-    // Drive root is "/", each child is "/{childName}"
     let locationPath = "/";
     if (breadcrumbs.length > 1) {
-      // Skip the first breadcrumb (drive), build path from children
       const childBreadcrumbs = breadcrumbs.slice(1);
-      locationPath = "/" + childBreadcrumbs.map(c => c.name).join("/");
-    } else if (breadcrumbs.length === 1) {
-      // We're at the drive root, locationPath is "/"
-      locationPath = "/";
+      locationPath = "/" + childBreadcrumbs.map((c) => c.name).join("/");
     }
 
-    // Normalize path to OS-native format (Windows uses backslashes)
-    // If the path starts with a drive letter (e.g., "C:"), it's a Windows path
-    // and should use backslashes instead of forward slashes
     let normalizedId = currentPath;
     if (normalizedId && /^[A-Za-z]:/.test(normalizedId)) {
-      // Windows path - convert forward slashes to backslashes
       normalizedId = normalizedId.replace(/\//g, "\\");
     }
 
-    // Normalize parent paths too
-    let normalizedParentId: string | undefined = undefined;
-    let normalizedParentPath: string | undefined = undefined;
+    let normalizedParentId: string | undefined;
+    let normalizedParentPath: string | undefined;
     if (breadcrumbs.length > 1) {
       const parentPath = breadcrumbs[breadcrumbs.length - 2].path;
       if (parentPath && /^[A-Za-z]:/.test(parentPath)) {
@@ -558,35 +564,146 @@ function BrowseFolderPage() {
       }
     }
 
-    // Create folder object from current path
-    // normalizedId is the absolute path in OS-native format (e.g., "C:\Users\golde\Documents")
-    // This comes from the folder.ServiceID or drive.path from the API
     const currentBreadcrumb = breadcrumbs[breadcrumbs.length - 1];
-    const selectedFolder: Folder = {
-      ServiceID: normalizedId, // Absolute path in OS-native format (e.g., "C:\Users\golde\Documents" or "C:\")
+    return {
+      ServiceID: normalizedId,
       Id: normalizedId,
       name: currentBreadcrumb.name,
-      locationPath: locationPath, // Relative path (e.g., "/Users/golde/Documents" or "/" for drive root)
+      locationPath,
       parentId: normalizedParentId,
       parentPath: normalizedParentPath,
       lastUpdated: new Date().toISOString(),
-      depthLevel: breadcrumbs.length - 1, // Depth from drive (drive is 0)
+      depthLevel: breadcrumbs.length - 1,
       type: "folder",
       browseTrail: breadcrumbs,
     };
+  };
 
-    // Return to the matching service picker; it saves the root and returns to setup.
-    if (role === "source") {
-      navigate("/connect", {
-        state: { selectedFolder, serviceId: serviceIdentifier, role: "source" },
+  const handleSelectRoot = async () => {
+    if (isDriveView) {
+      setError("Please select a drive first.");
+      return;
+    }
+    if (!currentPath) {
+      setError("No path selected.");
+      return;
+    }
+    if (breadcrumbs.length === 0) {
+      setError("No folder selected.");
+      return;
+    }
+    if (role === "source" && pagination && pagination.total === 0) {
+      setError(
+        "You cannot use an empty folder as the source root. There is nothing to migrate."
+      );
+      return;
+    }
+
+    const selectedFolder = buildSelectedFolder();
+    if (!selectedFolder) {
+      setError("No folder selected.");
+      return;
+    }
+
+    if (needsRootIncludeMode) {
+      try {
+        setLoading(true);
+        setError(null);
+        const children = await loadAllChildrenAt(selectedFolder.ServiceID);
+        if (role === "source" && children.length === 0) {
+          setError(
+            "You cannot use an empty folder as the source root. There is nothing to migrate."
+          );
+          return;
+        }
+        setPendingRootFolder(selectedFolder);
+        rootInclude.begin(children);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to list root children.");
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
+    navigate("/destination", {
+      state: { selectedFolder, serviceId: serviceIdentifier, role: "destination" },
+    });
+  };
+
+  const handleCancelInclude = () => {
+    rootInclude.cancel();
+    setPendingRootFolder(null);
+  };
+
+  const handleConfirmInclude = async () => {
+    if (!pendingRootFolder) return;
+    const service = services.find((s) => s.id === serviceIdentifier);
+    if (!service) {
+      setError("Service not found.");
+      return;
+    }
+    if (role === "source" && rootInclude.includedCount < 1) {
+      setError("Keep at least one item included.");
+      return;
+    }
+
+    const children = rootInclude.toChildrenPayload({
+      role,
+      sourceChildNames: migration.sourceRootChildNames,
+    });
+
+    try {
+      setIncludeSubmitting(true);
+      setError(null);
+      const response = await setMigrationRoot({
+        migrationId: migration.migrationId,
+        role,
+        serviceId: service.id,
+        root: folderToApiRoot(pendingRootFolder),
+        children,
+        excludedIds:
+          role === "source"
+            ? children.filter((c) => c.excluded).map((c) => c.id)
+            : undefined,
       });
-    } else if (role === "destination") {
-      navigate("/destination", {
-        state: { selectedFolder, serviceId: serviceIdentifier, role: "destination" },
+
+      updateMigration({
+        migrationId: response.migrationId,
+        sourceConnectionId: response.sourceConnectionId,
+        destinationConnectionId: response.destinationConnectionId,
+        ready: response.ready,
+        ...(role === "source"
+          ? {
+              sourceRootPrepared: true,
+              sourceRootChildNames: children.map((c) => c.name),
+              ...(isCloudServiceType(service.type)
+                ? {}
+                : clearEndpointCloudState("source")),
+            }
+          : {
+              destinationRootPrepared: true,
+              ...(isCloudServiceType(service.type)
+                ? {}
+                : clearEndpointCloudState("destination")),
+            }),
       });
-    } else {
-      console.warn("Unknown role, navigating back:", role);
-      navigate(-1 as any, { state: { selectedFolder, serviceId: serviceIdentifier, role } });
+
+      if (role === "source") {
+        selectSource(service, pendingRootFolder);
+      } else {
+        selectDestination(service, pendingRootFolder);
+      }
+      rootInclude.cancel();
+      setPendingRootFolder(null);
+      navigate("/summary");
+    } catch (err) {
+      updateMigration(clearAccountFields(role));
+      setError(
+        err instanceof Error ? err.message : "Failed to confirm root children."
+      );
+    } finally {
+      setIncludeSubmitting(false);
     }
   };
 
@@ -607,7 +724,21 @@ function BrowseFolderPage() {
 
         <header className="browse-folder__header">
           <h1 className="browse-folder__title">
-            {role === "source" ? (
+            {rootInclude.active ? (
+              role === "source" ? (
+                <>
+                  Choose what to include from this{" "}
+                  <span className="browse-folder__highlight--magenta">source</span>{" "}
+                  root
+                </>
+              ) : (
+                <>
+                  Review{" "}
+                  <span className="browse-folder__highlight--cyan">destination</span>{" "}
+                  root children
+                </>
+              )
+            ) : role === "source" ? (
               <>
                 Select your{" "}
                 <span className="browse-folder__highlight--magenta">source</span>{" "}
@@ -621,6 +752,18 @@ function BrowseFolderPage() {
               </>
             )}
           </h1>
+          {rootInclude.active && role === "source" && (
+            <p className="browse-folder__include-hint">
+              Everything is included by default. Uncheck folders to skip their
+              subtrees, or uncheck files to leave them discovered but excluded from copy.
+            </p>
+          )}
+          {rootInclude.active && role === "destination" && migration.sourceRootPrepared && (
+            <p className="browse-folder__include-hint">
+              Items that exist only on the destination are muted; their subtrees
+              will not be traversed.
+            </p>
+          )}
         </header>
 
         {error && (
@@ -648,12 +791,13 @@ function BrowseFolderPage() {
                     type="button"
                     className="browse-folder__breadcrumb-link"
                     onClick={() => {
+                      if (rootInclude.active) return;
                       if (index < breadcrumbs.length - 1) {
                         setCurrentPage(0);
                         loadChildren(crumb.path, crumb.name, { page: 0 });
                       }
                     }}
-                    disabled={index === breadcrumbs.length - 1}
+                    disabled={rootInclude.active || index === breadcrumbs.length - 1}
                   >
                     {crumb.name}
                   </button>
@@ -785,7 +929,13 @@ function BrowseFolderPage() {
             </div>
           ) : (
             <FileBrowserPane
-              pagination={pagination && pagination.total > 0 ? pagination : null}
+              pagination={
+                rootInclude.active
+                  ? null
+                  : pagination && (pagination.total ?? 0) > 0
+                    ? pagination
+                    : null
+              }
               currentPage={currentPage}
               itemsPerPage={itemsPerPage}
               onPageChange={handlePageChange}
@@ -794,6 +944,23 @@ function BrowseFolderPage() {
               helpTooltip={BROWSE_SELECTION_HELP}
               toolbarLeft={
                 <>
+                  <BrowseSortControl sort={browseSort} onChange={setBrowseSort} />
+                  {rootInclude.active && role === "source" && (
+                    <label className="browse-folder__select-all">
+                      <input
+                        type="checkbox"
+                        checked={
+                          rootInclude.items.length > 0 &&
+                          rootInclude.includedCount === rootInclude.items.length
+                        }
+                        onChange={(event) => rootInclude.setAll(event.target.checked)}
+                        aria-label="Include all"
+                      />
+                      Include all
+                    </label>
+                  )}
+                  {!rootInclude.active && (
+                    <>
                   <button
                     type="button"
                     className="browse-folder__drive-toggle"
@@ -823,65 +990,145 @@ function BrowseFolderPage() {
                       Delete ({selectedCount})
                     </button>
                   )}
+                    </>
+                  )}
                 </>
               }
             >
-              {folders.length === 0 && (hideFiles || files.length === 0) ? (
+              {sortedListing.folders.length === 0 &&
+              sortedListing.files.length === 0 ? (
                 <div className="path-review-list__empty">This folder is empty.</div>
               ) : (
                 <>
-                  {folders.map((folder, index) => {
+                  {sortedListing.folders.map((folder, index) => {
                     const item: BrowseSelectableItem = {
                       id: folder.ServiceID,
                       type: "folder",
                       name: folder.name,
                     };
+                    const dstOnly =
+                      rootInclude.active &&
+                      role === "destination" &&
+                      sourceNameSet.size > 0 &&
+                      !sourceNameSet.has((folder.name || "").toLowerCase());
+                    const included = rootInclude.isIncluded(folder.ServiceID);
                     return (
                       <div
                         key={folder.ServiceID}
                         className={`browse-folder__item browse-folder__item--selectable${
                           isSelected(folder.ServiceID) ? " browse-folder__item--selected" : ""
-                        }`}
+                        }${
+                          rootInclude.active && role === "source" && !included
+                            ? " browse-folder__item--unchecked"
+                            : ""
+                        }${dstOnly ? " browse-folder__item--destination-only" : ""}`}
                         onClick={(event) => {
+                          if (rootInclude.active) {
+                            if (role === "source") {
+                              rootInclude.toggle(folder.ServiceID);
+                            }
+                            return;
+                          }
                           if (isMultiSelectModifier(event) || event.shiftKey) {
                             handleItemSelect(item, index, event);
                             return;
                           }
                           handleFolderClick(folder, event);
                         }}
-                        onContextMenu={(event) => handleItemContextMenu(event, item)}
+                        onContextMenu={(event) => {
+                          if (rootInclude.active) return;
+                          handleItemContextMenu(event, item);
+                        }}
                       >
+                        {rootInclude.active && role === "source" && (
+                          <input
+                            type="checkbox"
+                            className="browse-folder__include-checkbox"
+                            checked={included}
+                            onChange={() => rootInclude.toggle(folder.ServiceID)}
+                            onClick={(event) => event.stopPropagation()}
+                            aria-label={`Include ${folder.name}`}
+                          />
+                        )}
+                        {dstOnly && (
+                          <span
+                            className="browse-folder__dst-only-icon"
+                            title={DST_ONLY_BROWSE_HINT}
+                            aria-label={DST_ONLY_BROWSE_HINT}
+                            role="img"
+                          >
+                            <CircleAlert size={16} aria-hidden="true" />
+                          </span>
+                        )}
                         <BrowseFolderItemRow
                           name={folder.name}
                           path={folder.ServiceID}
                           type="folder"
-                          showArrow
+                          showArrow={!rootInclude.active}
                           lastUpdated={folder.lastUpdated}
                         />
                       </div>
                     );
                   })}
-                  {!hideFiles &&
-                    files.map((file, fileIndex) => {
-                    const index = folders.length + fileIndex;
+                  {sortedListing.files.map((file, fileIndex) => {
+                    const index = sortedListing.folders.length + fileIndex;
                     const item: BrowseSelectableItem = {
                       id: file.ServiceID,
                       type: "file",
                       name: file.name,
                     };
+                    const dstOnly =
+                      rootInclude.active &&
+                      role === "destination" &&
+                      sourceNameSet.size > 0 &&
+                      !sourceNameSet.has((file.name || "").toLowerCase());
+                    const included = rootInclude.isIncluded(file.ServiceID);
                     return (
                       <div
                         key={file.ServiceID}
                         className={`browse-folder__item browse-folder__item--file browse-folder__item--selectable${
                           isSelected(file.ServiceID) ? " browse-folder__item--selected" : ""
-                        }`}
+                        }${
+                          rootInclude.active && role === "source" && !included
+                            ? " browse-folder__item--unchecked"
+                            : ""
+                        }${dstOnly ? " browse-folder__item--destination-only" : ""}`}
                         onClick={(event) => {
+                          if (rootInclude.active) {
+                            if (role === "source") {
+                              rootInclude.toggle(file.ServiceID);
+                            }
+                            return;
+                          }
                           if (isMultiSelectModifier(event) || event.shiftKey) {
                             handleItemSelect(item, index, event);
                           }
                         }}
-                        onContextMenu={(event) => handleItemContextMenu(event, item)}
+                        onContextMenu={(event) => {
+                          if (rootInclude.active) return;
+                          handleItemContextMenu(event, item);
+                        }}
                       >
+                        {rootInclude.active && role === "source" && (
+                          <input
+                            type="checkbox"
+                            className="browse-folder__include-checkbox"
+                            checked={included}
+                            onChange={() => rootInclude.toggle(file.ServiceID)}
+                            onClick={(event) => event.stopPropagation()}
+                            aria-label={`Include ${file.name}`}
+                          />
+                        )}
+                        {dstOnly && (
+                          <span
+                            className="browse-folder__dst-only-icon"
+                            title={DST_ONLY_BROWSE_HINT}
+                            aria-label={DST_ONLY_BROWSE_HINT}
+                            role="img"
+                          >
+                            <CircleAlert size={16} aria-hidden="true" />
+                          </span>
+                        )}
                         <BrowseFolderItemRow
                           name={file.name}
                           path={file.ServiceID}
@@ -901,14 +1148,44 @@ function BrowseFolderPage() {
         <div className="browse-folder__footer">
           <BrowseDensityControl />
           <div className="browse-folder__footer-actions">
-            {!isDriveView && currentPath && (
-              <button
-                type="button"
-                className="glass-button"
-                onClick={handleSelectRoot}
-              >
-                Select
-              </button>
+            {rootInclude.active ? (
+              <>
+                <button
+                  type="button"
+                  className="glass-button"
+                  onClick={handleCancelInclude}
+                  disabled={includeSubmitting}
+                >
+                  Back
+                </button>
+                <button
+                  type="button"
+                  className="glass-button"
+                  onClick={() => void handleConfirmInclude()}
+                  disabled={
+                    includeSubmitting ||
+                    (role === "source" && rootInclude.includedCount < 1) ||
+                    rootInclude.items.length === 0
+                  }
+                >
+                  {includeSubmitting
+                    ? "Saving…"
+                    : role === "source"
+                      ? `Confirm (${rootInclude.includedCount} included)`
+                      : "Confirm"}
+                </button>
+              </>
+            ) : (
+              !isDriveView &&
+              currentPath && (
+                <button
+                  type="button"
+                  className="glass-button"
+                  onClick={() => void handleSelectRoot()}
+                >
+                  Select
+                </button>
+              )
             )}
           </div>
         </div>

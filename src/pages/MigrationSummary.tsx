@@ -5,8 +5,9 @@ import { Search, CheckCircle2, Circle, ChevronRight, Pencil } from "lucide-react
 import PageContainer from "../components/PageContainer";
 import CloudConnectionIssues from "../components/CloudConnectionIssues";
 import HelpTooltip from "../components/HelpTooltip";
+import StorageMeter from "../components/StorageMeter";
 import { useSelection } from "../context/SelectionContext";
-import { getMigrationStatus, renameMigration, startMigration, setPathCheckTarget } from "../api/services";
+import { getMigrationStatus, renameMigration, startMigration, setPathCheckTarget, getStorageInfo, StorageInfo } from "../api/services";
 import { ServiceDescriptor, Folder } from "../types/services";
 import {
   CloudConnectionCheckResult,
@@ -32,6 +33,7 @@ import {
   isLocalFilesystemService,
   providerIdFromService,
   resolvePathCheckTargetFromEndpoints,
+  supportsWindowsCompatOverlay,
 } from "../utils/pathCheckTarget";
 import "./MigrationSummary.css";
 
@@ -87,7 +89,7 @@ function computeDefaultName(
 
 export default function MigrationSummary() {
   const navigate = useNavigate();
-  const { source, destination, migration } = useSelection();
+  const { source, destination, migration, updateMigration } = useSelection();
   const [isStarting, setIsStarting] = useState(false);
   const [checkingConnections, setCheckingConnections] = useState(false);
   const [connectionIssues, setConnectionIssues] = useState<CloudConnectionCheckResult[]>([]);
@@ -101,6 +103,9 @@ export default function MigrationSummary() {
   const [destinationLocalOs, setDestinationLocalOs] = useState<LocalOsSubtype>(hostOs);
   const [sourceOsDirty, setSourceOsDirty] = useState(false);
   const [destinationOsDirty, setDestinationOsDirty] = useState(false);
+  const [windowsCompat, setWindowsCompat] = useState(false);
+  const [destStorage, setDestStorage] = useState<StorageInfo | null>(null);
+  const [srcStorage, setSrcStorage] = useState<StorageInfo | null>(null);
 
   const sourceIsLocal = isLocalFilesystemService(source?.service);
   const destinationIsLocal = isLocalFilesystemService(destination?.service);
@@ -138,13 +143,20 @@ export default function MigrationSummary() {
     destinationIsLocal &&
     sourceLocalOs === destinationLocalOs;
 
+  const sourceConfigured = Boolean(source?.root);
+  const destinationConfigured = Boolean(destination?.root);
+
+  const showWindowsCompat =
+    destinationConfigured &&
+    !destinationIsLocal &&
+    supportsWindowsCompatOverlay(destinationProviderId) &&
+    pathCheckTarget !== "none";
+
   const computedDefaultName = useMemo(
     () => computeDefaultName(source, destination),
     [source, destination]
   );
 
-  const sourceConfigured = Boolean(source?.root);
-  const destinationConfigured = Boolean(destination?.root);
   const spectraLocked = migration.spectraLocked === true;
   const spectraPrimaryRole = migration.spectraPrimaryRole ?? "source";
   const spectraLockTitle =
@@ -155,6 +167,68 @@ export default function MigrationSummary() {
     sourceConfigured &&
     destinationConfigured &&
     !hasCloudConnectionIssues;
+
+  useEffect(() => {
+    if (!sourceConfigured || !source?.service?.id) {
+      setSrcStorage(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const info = await getStorageInfo(
+          source.service.id,
+          storageFetchOptions("source", source.root, migration)
+        );
+        if (!cancelled) setSrcStorage(info);
+      } catch {
+        if (!cancelled) setSrcStorage({ available: false });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    sourceConfigured,
+    source?.service?.id,
+    source?.root?.locationPath,
+    source?.root?.ServiceID,
+    source?.root?.type,
+    source?.root?.parentId,
+    migration.sourceConnectionId,
+    migration.migrationId,
+  ]);
+
+  useEffect(() => {
+    if (!destinationConfigured || !destination?.service?.id) {
+      setDestStorage(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const info = await getStorageInfo(
+          destination.service.id,
+          storageFetchOptions("destination", destination.root, migration)
+        );
+        if (!cancelled) setDestStorage(info);
+      } catch {
+        if (!cancelled) setDestStorage({ available: false });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    destinationConfigured,
+    destination?.service?.id,
+    destination?.root?.locationPath,
+    destination?.root?.ServiceID,
+    destination?.root?.type,
+    destination?.root?.parentId,
+    migration.destinationConnectionId,
+    migration.migrationId,
+  ]);
 
   const startDiscoveryTitle = isStarting
     ? "Starting discovery..."
@@ -209,9 +283,15 @@ export default function MigrationSummary() {
     void (async () => {
       try {
         const status = await getMigrationStatus(migrationId);
-        if (!cancelled && status.name) {
+        if (cancelled) return;
+        if (status.name) {
           setServerName(status.name);
         }
+        updateMigration({
+          sourceRootPrepared: Boolean(status.sourceRootPrepared),
+          destinationRootPrepared: Boolean(status.destinationRootPrepared),
+          sourceRootChildNames: status.sourceRootChildNames,
+        });
       } catch {
         // Non-fatal: fall back to the computed default name.
       }
@@ -219,7 +299,7 @@ export default function MigrationSummary() {
     return () => {
       cancelled = true;
     };
-  }, [migration.migrationId]);
+  }, [migration.migrationId, updateMigration]);
 
   // Reset local OS defaults when a local endpoint is (re)selected, until the user edits.
   useEffect(() => {
@@ -283,13 +363,20 @@ export default function MigrationSummary() {
       }
 
       try {
-        await setPathCheckTarget(migration.migrationId, pathCheckTarget);
+        await setPathCheckTarget(
+          migration.migrationId,
+          pathCheckTarget,
+          showWindowsCompat ? windowsCompat : false
+        );
       } catch {
         // Still pass via start options below.
       }
       const run = await startMigration({
         migrationId: migration.migrationId,
-        options: { pathCheckTarget },
+        options: {
+          pathCheckTarget,
+          windowsCompat: showWindowsCompat ? windowsCompat : false,
+        },
       });
       navigate(`/progress-monitor/${run.id}`);
     } catch (err) {
@@ -394,6 +481,8 @@ export default function MigrationSummary() {
           localOsSelectId="source-local-os"
           localOsHelpTipId="migration-source-local-os"
           localOsHelp={LOCAL_OS_SOURCE_HELP}
+          storage={srcStorage}
+          storageTipId="migration-summary-src-storage"
           onSelect={() => void navigateToEndpoint("source", source)}
         />
 
@@ -438,11 +527,36 @@ export default function MigrationSummary() {
               ? LOCAL_OS_CHECKS_OFF_HELP
               : LOCAL_OS_CHECKS_ON_HELP
           }
+          storage={destStorage}
+          storageTipId="migration-summary-dst-storage"
+          storageWarning={
+            destStorage?.available &&
+            !destStorage.unlimited &&
+            typeof destStorage.freeBytes === "number" &&
+            destStorage.freeBytes < 100 * 1024 * 1024
+              ? "Very little room; discovery can still run, but copy may fail later."
+              : null
+          }
           onSelect={() => void navigateToEndpoint("destination", destination)}
         />
       </div>
 
       <CloudConnectionIssues issues={connectionIssues} />
+
+      {showWindowsCompat && (
+        <label className="migration-summary__windows-compat">
+          <input
+            type="checkbox"
+            checked={windowsCompat}
+            onChange={(e) => setWindowsCompat(e.target.checked)}
+          />
+          <span>
+            Also check Windows desktop sync compatibility (trailing dots/spaces
+            and similar). Off by default; does not rename anything unless you
+            accept suggestions later in review.
+          </span>
+        </label>
+      )}
 
       {error && <div className="migration-summary__error">{error}</div>}
 
@@ -478,8 +592,49 @@ type SetupEndpointCardProps = {
   localOsNote?: string;
   localOsHelpTipId?: string;
   localOsHelp?: ReactNode;
+  storage?: StorageInfo | null;
+  storageTipId?: string;
+  storageWarning?: string | null;
   onSelect: () => void;
 };
+
+const FS_STORAGE_TIP = (
+  <p>
+    Capacity reported by the filesystem or cloud account for this service. It is
+    the total free and used space on that drive or account, not the size of the
+    specific folder you selected.
+  </p>
+);
+
+function storageFetchOptions(
+  role: "source" | "destination",
+  root: Folder | undefined,
+  migration: { sourceConnectionId?: string; destinationConnectionId?: string }
+) {
+  const path = root?.locationPath || "";
+  const type = root?.type?.trim() || "";
+  const knownRootType =
+    type === "my_drive" ||
+    type === "shared_with_me" ||
+    type === "shared_drive" ||
+    type === "user_root" ||
+    type === "team_space" ||
+    type === "team_folder" ||
+    type === "shared_folder" ||
+    type === "sharepoint_site" ||
+    type === "sharepoint_drive";
+  return {
+    path: path || undefined,
+    connectionId: connectionIdForRole(role, migration),
+    role,
+    ...(knownRootType
+      ? {
+          rootType: type,
+          ...(root?.parentId ? { driveId: root.parentId } : {}),
+        }
+      : {}),
+  };
+}
 
 function SetupEndpointCard({
   label,
@@ -497,12 +652,16 @@ function SetupEndpointCard({
   localOsNote,
   localOsHelpTipId,
   localOsHelp,
+  storage,
+  storageTipId,
+  storageWarning,
   onSelect,
 }: SetupEndpointCardProps) {
   const StatusIcon = configured ? CheckCircle2 : Circle;
   const editTitle = configured
     ? `Change ${label.toLowerCase()}`
     : `Select ${label.toLowerCase()}`;
+  const showStorage = Boolean(configured && storage?.available);
 
   return (
     <div
@@ -585,6 +744,26 @@ function SetupEndpointCard({
               {localOsNote ? (
                 <p className="migration-summary__os-note">{localOsNote}</p>
               ) : null}
+            </div>
+          ) : null}
+          {showStorage && storage ? (
+            <div className="migration-summary__storage">
+              <div className="migration-summary__storage-label-row">
+                <span className="migration-summary__info-label">Storage</span>
+                {storageTipId ? (
+                  <HelpTooltip
+                    tipId={storageTipId}
+                    category="migration-setup-storage"
+                    position="above"
+                    content={FS_STORAGE_TIP}
+                  />
+                ) : null}
+              </div>
+              <StorageMeter
+                className="storage-meter--endpoint"
+                {...storage}
+                note={storageWarning}
+              />
             </div>
           ) : null}
         </div>

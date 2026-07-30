@@ -39,6 +39,9 @@ type MigrationState = {
   spectraLocked?: boolean;
   /** Which endpoint the user configured when Spectra was chosen. */
   spectraPrimaryRole?: "source" | "destination";
+  sourceRootPrepared?: boolean;
+  destinationRootPrepared?: boolean;
+  sourceRootChildNames?: string[];
 };
 
 type SelectionContextValue = {

@@ -1,4 +1,11 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import {
+  useState,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useCallback,
+  useMemo,
+} from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   FolderOpen,
@@ -9,15 +16,31 @@ import {
   Play,
   AlertCircle,
   ClipboardCopy,
+  ChevronDown,
+  ChevronRight,
+  Pencil,
 } from "lucide-react";
 
 import {
   getMigrationStatus,
   getMigrationQueueMetrics,
+  getMigrationLogs,
   fetchServices,
   stopMigration,
   resumeMigration,
 } from "../api/services";
+import {
+  fetchScalingDefaults,
+  getMigrationScaling,
+  putMigrationScaling,
+  deleteProviderScalingOverrides,
+} from "../api/scaling";
+import WorkerCapOverridesDialog from "../components/WorkerCapOverridesDialog";
+import type {
+  ModeWorkerCaps,
+  ProviderWorkerCaps,
+  WorkerCapMode,
+} from "../types/scaling";
 import {
   getMigrationPhase,
   isCopyReviewPhase,
@@ -25,12 +48,14 @@ import {
   isMigrationLive,
   isMigrationSuspended,
   isMigrationFailed,
+  type LogLevel,
+  type MigrationLog,
 } from "../types/migrations";
 import { useSelection } from "../context/SelectionContext";
-import { usePreferences } from "../contexts/PreferencesContext";
 import { formatMigrationPath } from "../utils/migrationRoots";
 import type { QueueMetrics } from "../types/migrations";
 import HelpTooltip from "../components/HelpTooltip";
+import { useScreenWakeLock } from "../hooks/useScreenWakeLock";
 import ConfirmDialog from "../components/ConfirmDialog";
 import Toast from "../components/Toast";
 import { GlassSurfacePanel } from "../components/GlassSurfacePanel";
@@ -38,7 +63,10 @@ import PageBackButton from "../components/PageBackButton";
 import "./ProgressMonitor.css";
 
 const STATUS_POLL_INTERVAL = 1000;
+const LOG_POLL_INTERVAL = 1000;
+const MAX_LOG_LINES = 1000;
 const SOFT_SUSPEND_POLL_TIMEOUT_MS = 120_000;
+const LOG_LEVELS: LogLevel[] = ["trace", "debug", "info", "warning", "error", "critical"];
 
 /** Clamp engine-reported progress percent for display. */
 function clampProgressPercent(raw: unknown): number {
@@ -46,6 +74,13 @@ function clampProgressPercent(raw: unknown): number {
   if (!Number.isFinite(n) || n <= 0) return 0;
   if (n >= 100) return 100;
   return n;
+}
+
+/** Format current / expected counts for copy/delete metric rows. */
+function formatCountFraction(current: number | undefined, expected: number | undefined): string {
+  const cur = (current ?? 0).toLocaleString();
+  if (expected == null) return cur;
+  return `${cur} / ${expected.toLocaleString()}`;
 }
 
 /**
@@ -95,57 +130,202 @@ function RateLimitBadge({
   const secs = rateLimitCountdownSeconds(untilIso, remainingMs);
   if (secs != null) {
     return (
-      <span
-        className="progress-monitor__rate-limit"
-        title={`Rate limited. Waiting about ${formatRateLimitCountdown(secs)}`}
-      >
-        Rate limited · {formatRateLimitCountdown(secs)}
+      <span className="progress-monitor__rate-limit-wrap">
+        <span
+          className="progress-monitor__rate-limit"
+          title={`Rate limited. Waiting about ${formatRateLimitCountdown(secs)}`}
+        >
+          Rate limited · {formatRateLimitCountdown(secs)}
+        </span>
+        <HelpTooltip
+          tipId="progress-rate-limited"
+          category="progress-rate-limited"
+          position="below"
+          content={
+            <p>
+              The storage service asked Sylos to slow down for a short time. Work
+              resumes automatically when the wait ends. This is normal and helps
+              avoid getting blocked by the provider.
+            </p>
+          }
+        />
       </span>
     );
   }
   if (typeof interOpDelayMs === "number" && interOpDelayMs > 0) {
     const delaySecs = Math.max(1, Math.ceil(interOpDelayMs / 1000));
     return (
-      <span
-        className="progress-monitor__rate-limit progress-monitor__rate-limit--pacing"
-        title={`Throttle pacing: ${interOpDelayMs}ms inter-op delay`}
-      >
-        Pacing · {formatRateLimitCountdown(delaySecs)}
+      <span className="progress-monitor__rate-limit-wrap">
+        <span
+          className="progress-monitor__rate-limit progress-monitor__rate-limit--pacing"
+          title={`Throttle pacing: ${interOpDelayMs}ms inter-op delay`}
+        >
+          Pacing · {formatRateLimitCountdown(delaySecs)}
+        </span>
+        <HelpTooltip
+          tipId="progress-pacing"
+          category="progress-pacing"
+          position="below"
+          content={
+            <p>
+              Sylos is inserting short pauses between operations so it stays within
+              the provider&apos;s limits. Throughput may look slower, but the
+              migration is still making progress.
+            </p>
+          }
+        />
       </span>
     );
   }
   return null;
 }
 
-/** Console-style queue line for developer mode (matches ME progress ticker). */
-function formatSideDebug(label: string, m?: QueueMetrics | null): string | null {
-  if (!m) return null;
-  const round = m.round ?? 0;
-  const exp = m.round_expected ?? 0;
-  const comp = m.round_completed ?? 0;
-  const pend = m.pending ?? 0;
-  const workers = m.workers ?? 0;
-  return `${label}: Round ${round} (Exp:${exp} Comp:${comp} Pend:${pend} W:${workers})`;
+/** Fill percent for the current discovery batch (0-100). */
+function batchProgressPercent(m?: QueueMetrics | null, complete = false): number {
+  if (complete) return 100;
+  if (!m) return 0;
+  const expected = m.round_expected ?? 0;
+  if (expected <= 0) return 0;
+  const completed = m.round_completed ?? 0;
+  return Math.max(0, Math.min(100, (100 * completed) / expected));
 }
 
-function formatPhaseDebug(
-  label: string,
+function isDiscoveryQueueComplete(
   m?: QueueMetrics | null,
-  opts?: { pass?: number }
-): string | null {
-  if (!m) return null;
-  const round = m.round ?? 0;
-  const exp = m.round_expected ?? 0;
-  const comp = m.round_completed ?? 0;
-  const pend = m.pending ?? 0;
-  const inProg = m.in_progress ?? m.inProgress ?? 0;
-  const workers = m.workers ?? 0;
-  const pass = opts?.pass ?? m.copy_pass;
-  if (pass && pass > 0) {
-    const passName = pass === 2 ? "files" : "folders";
-    return `${label}: Pass ${pass} (${passName}) Round ${round} | Exp:${exp} Comp:${comp} | Pend:${pend} InProg:${inProg} | Workers:${workers}`;
+  discoveryPhaseDone = false
+): boolean {
+  if (discoveryPhaseDone) return true;
+  return m?.state === "completed";
+}
+
+/** Left caption for discovery batch bar. No em dashes. */
+function batchProgressCaption(
+  m?: QueueMetrics | null,
+  complete = false
+): string {
+  if (complete) return "Completed";
+  if (!m) return "This batch: starting…";
+  const expected = m.round_expected ?? 0;
+  const completed = m.round_completed ?? 0;
+  if (expected <= 0) {
+    return "This batch: starting…";
   }
-  return `${label}: Round ${round} | Exp:${exp} Comp:${comp} | Pend:${pend} InProg:${inProg} | Workers:${workers}`;
+  return `This batch: ${completed.toLocaleString()} / ${expected.toLocaleString()}`;
+}
+
+function DiscoveryBatchProgressBar({
+  metrics,
+  complete = false,
+}: {
+  metrics: QueueMetrics;
+  complete?: boolean;
+}) {
+  const done = isDiscoveryQueueComplete(metrics, complete);
+  const pct = batchProgressPercent(metrics, done);
+  const etaSeconds =
+    typeof metrics.eta_seconds === "number" && Number.isFinite(metrics.eta_seconds)
+      ? metrics.eta_seconds
+      : null;
+  const showEta =
+    !done && metrics.eta_basis != null && metrics.eta_basis !== "";
+  return (
+    <div
+      className={
+        done
+          ? "progress-monitor__progress progress-monitor__progress--complete"
+          : "progress-monitor__progress"
+      }
+    >
+      <div className="progress-monitor__progress-stack">
+        <div className="progress-monitor__progress-bar-block">
+          <div className="progress-monitor__progress-header">
+            <span className="progress-monitor__progress-label">
+              {batchProgressCaption(metrics, done)}
+            </span>
+            <div className="progress-monitor__progress-header-end">
+              {showEta && (
+                <span
+                  className="progress-monitor__progress-eta"
+                  title="Estimated time remaining for this batch"
+                >
+                  ETA {formatEtaSeconds(etaSeconds)}
+                </span>
+              )}
+              {done ? (
+                <span
+                  className="progress-monitor__progress-complete-mark"
+                  aria-hidden="true"
+                >
+                  ✓
+                </span>
+              ) : null}
+              <span className="progress-monitor__progress-value">
+                {Math.round(pct)}%
+              </span>
+            </div>
+          </div>
+          <div
+            className="progress-monitor__progress-track"
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(pct)}
+            aria-label={done ? "Discovery complete" : "Current batch progress"}
+          >
+            <div
+              className="progress-monitor__progress-fill"
+              style={{
+                clipPath: `inset(0 ${100 - pct}% 0 0)`,
+              }}
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Format remaining duration for ETA display. */
+function formatEtaSeconds(secs: number | null): string {
+  if (secs == null || !Number.isFinite(secs) || secs < 0) return "-";
+  if (secs < 1) return "<1s";
+  if (secs < 60) return `~${Math.ceil(secs)}s`;
+  const m = Math.floor(secs / 60);
+  const s = Math.ceil(secs % 60);
+  if (m < 60) return `~${m}m ${s.toString().padStart(2, "0")}s`;
+  const h = Math.floor(m / 60);
+  const rm = m % 60;
+  return `~${h}h ${rm}m`;
+}
+
+function flattenMigrationLogs(logs: {
+  trace?: MigrationLog[];
+  debug?: MigrationLog[];
+  info?: MigrationLog[];
+  warning?: MigrationLog[];
+  error?: MigrationLog[];
+  critical?: MigrationLog[];
+} | undefined): MigrationLog[] {
+  if (!logs) return [];
+  const out: MigrationLog[] = [];
+  for (const level of LOG_LEVELS) {
+    const arr = logs[level];
+    if (Array.isArray(arr)) out.push(...arr);
+  }
+  out.sort((a, b) => {
+    const ta = a.data?.timestamp ? Date.parse(a.data.timestamp) : 0;
+    const tb = b.data?.timestamp ? Date.parse(b.data.timestamp) : 0;
+    return ta - tb;
+  });
+  return out;
+}
+
+/** Stable key for rolling-window log dedupe (never use per-response index ids). */
+function migrationLogKey(line: MigrationLog): string {
+  const content = `${line.level}|${line.data?.timestamp ?? ""}|${line.data?.message ?? ""}`;
+  // Index-only ids from older API responses are not stable across polls.
+  if (line.id && !/^\d+$/.test(line.id)) return line.id;
+  return content;
 }
 
 /** Stop response: engine accepted soft suspend; UI should poll until *-suspended and not live. */
@@ -180,8 +360,6 @@ export default function ProgressMonitor() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { source, destination, services, applyServerRoots } = useSelection();
-  const { preferences } = usePreferences();
-  const developerMode = preferences.developer?.enabled === true;
 
   const [status, setStatus] = useState<any>(null);
   const [queueMetrics, setQueueMetrics] = useState<any>(null);
@@ -200,6 +378,21 @@ export default function ProgressMonitor() {
   const [stallTooltipOpen, setStallTooltipOpen] = useState(false);
   /** Local tick so rate-limit countdowns update between 1s metrics polls. */
   const [, setRateLimitTick] = useState(0);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [logFilter, setLogFilter] = useState<LogLevel | "all">("all");
+  const [logLines, setLogLines] = useState<MigrationLog[]>([]);
+  const [logsPaused, setLogsPaused] = useState(false);
+  const [workerCapDialogOpen, setWorkerCapDialogOpen] = useState(false);
+  const [workerCapBusy, setWorkerCapBusy] = useState(false);
+  const [workerCapError, setWorkerCapError] = useState<string | null>(null);
+  const [workerCapDefaults, setWorkerCapDefaults] = useState<
+    Partial<Record<WorkerCapMode, ModeWorkerCaps>>
+  >({});
+  const [workerCapModes, setWorkerCapModes] = useState<
+    Partial<Record<WorkerCapMode, number>>
+  >({});
+  const logIdsRef = useRef<Set<string>>(new Set());
+  const logTerminalRef = useRef<HTMLDivElement | null>(null);
 
   /** After a retry sweep, status can briefly still say "review" before the run starts - require run activity before re-enabling review. */
   const isRetryRun = searchParams.get("retry") === "1";
@@ -485,6 +678,7 @@ export default function ProgressMonitor() {
   ]);
 
   const phase = status ? getMigrationPhase(status) : "";
+  const discoveryPhaseDone = phase === "awaiting-traversal-review";
   const inAwaitingReview =
     phase === "awaiting-traversal-review" ||
     phase === "awaiting-copy-review" ||
@@ -497,6 +691,7 @@ export default function ProgressMonitor() {
   const isFailed = status ? isMigrationFailed(status) : false;
   const explicitlyNotLive = status ? isLiveExplicitlyFalse(status) : false;
   const live = status ? isMigrationLive(status) : false;
+  useScreenWakeLock(live);
   const stoppedMidRun = inRunPhase && !live;
   const showStopButton = Boolean(
     status &&
@@ -520,28 +715,140 @@ export default function ProgressMonitor() {
       queueMetrics?.possibleStall
   );
 
-  const phaseProgressPercent = showDeleteUI
-    ? clampProgressPercent(queueMetrics?.delete?.progress_percent)
+  const phaseMetrics = showDeleteUI
+    ? queueMetrics?.delete
     : showCopyUI
-      ? clampProgressPercent(queueMetrics?.copy?.progress_percent)
-      : 0;
+      ? queueMetrics?.copy
+      : null;
+  const itemsProgressPercent = clampProgressPercent(
+    phaseMetrics?.items_progress_percent ?? phaseMetrics?.progress_percent
+  );
+  const bytesProgressPercent = clampProgressPercent(phaseMetrics?.bytes_progress_percent);
+  const itemsFailedPercent = Math.min(
+    itemsProgressPercent,
+    clampProgressPercent(phaseMetrics?.items_failed_percent)
+  );
+  const bytesFailedPercent = Math.min(
+    bytesProgressPercent,
+    clampProgressPercent(phaseMetrics?.bytes_failed_percent)
+  );
   const showPhaseProgressBar = showCopyUI || showDeleteUI;
-  const phaseProgressLabel = showDeleteUI ? "Source removal progress" : "Copy progress";
-  const phaseProgressDisplay = Math.round(phaseProgressPercent);
+  const phaseProgressComplete = itemsProgressPercent >= 100 && bytesProgressPercent >= 100;
+  const itemsFractionLabel = `${(phaseMetrics?.items_completed ?? 0).toLocaleString()} / ${(phaseMetrics?.items_total ?? 0).toLocaleString()}`;
+  const bytesDone = phaseMetrics?.bytes ?? 0;
+  const bytesFailed = phaseMetrics?.bytes_failed ?? 0;
+  const bytesTotal = phaseMetrics?.bytes_total ?? 0;
+  const dataFractionLabel =
+    bytesFailed > 0
+      ? `${formatBytes(bytesDone)} moved · ${formatBytes(bytesFailed)} failed / ${formatBytes(bytesTotal)}`
+      : `${formatBytes(bytesDone)} / ${formatBytes(bytesTotal)}`;
+  const copyPass = phaseMetrics?.copy_pass ?? 0;
+  const workerCapHighlightMode: WorkerCapMode = showDeleteUI
+    ? "delete"
+    : showCopyUI
+      ? copyPass === 1
+        ? "copy_folders"
+        : "copy_files"
+      : "traversal";
+  const persistProviderId = String(
+    status?.destinationRoot?.serviceId ||
+      status?.destinationId ||
+      status?.sourceRoot?.serviceId ||
+      status?.sourceId ||
+      "generic"
+  );
+  // Engine-owned ETA: UI only renders eta_seconds / eta_basis from queue-metrics.
+  const etaSeconds =
+    typeof phaseMetrics?.eta_seconds === "number" && Number.isFinite(phaseMetrics.eta_seconds)
+      ? phaseMetrics.eta_seconds
+      : null;
+  const etaBasis = phaseMetrics?.eta_basis ?? "";
+  const etaIsFolders =
+    etaBasis === "items" &&
+    ((showCopyUI && copyPass === 1) || (showDeleteUI && copyPass === 2));
+  const etaLabel = etaIsFolders
+    ? "ETA (folders)"
+    : etaBasis === "bytes"
+      ? "ETA (data)"
+      : etaBasis === "items"
+        ? "ETA (items)"
+        : "ETA";
+  const etaTitle =
+    etaBasis === "bytes"
+      ? "Estimated time remaining from engine byte transfer rate"
+      : etaBasis === "items"
+        ? etaIsFolders
+          ? "Estimated time remaining from engine folder/item completion rate"
+          : "Estimated time remaining from engine item completion rate"
+        : "Estimated time remaining from the migration engine";
 
-  const developerQueueDebug = useMemo(() => {
-    if (!developerMode || !queueMetrics) return null;
-    if (showCopyUI) {
-      return formatPhaseDebug("Copy", queueMetrics.copy);
-    }
-    if (showDeleteUI) {
-      return formatPhaseDebug("Delete", queueMetrics.delete);
-    }
-    const src = formatSideDebug("Src", queueMetrics.srcTraversal);
-    const dst = formatSideDebug("Dst", queueMetrics.dstTraversal);
-    if (src && dst) return `${src} | ${dst}`;
-    return src || dst;
-  }, [developerMode, queueMetrics, showCopyUI, showDeleteUI]);
+  const scrollLogTerminalToBottom = useCallback(() => {
+    const el = logTerminalRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, []);
+
+  // Reset log buffer when switching migrations.
+  useEffect(() => {
+    setLogLines([]);
+    logIdsRef.current = new Set();
+    setLogsPaused(false);
+  }, [migrationId]);
+
+  const toggleLogsPaused = useCallback(() => {
+    setLogsPaused((paused) => !paused);
+  }, []);
+
+  // Live logs while Advanced is open (rolling ~1K window, client-side dedupe).
+  useEffect(() => {
+    if (!advancedOpen || !migrationId || logsPaused) return;
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const res = await getMigrationLogs(migrationId);
+        if (cancelled || !res.success || !res.logs) return;
+        const incoming = flattenMigrationLogs(res.logs);
+        if (incoming.length === 0) return;
+        setLogLines((prev) => {
+          const ids = logIdsRef.current;
+          const merged = [...prev];
+          for (const line of incoming) {
+            const id = migrationLogKey(line);
+            if (ids.has(id)) continue;
+            ids.add(id);
+            merged.push({ ...line, id });
+          }
+          if (merged.length > MAX_LOG_LINES) {
+            const drop = merged.length - MAX_LOG_LINES;
+            for (let i = 0; i < drop; i++) {
+              ids.delete(merged[i].id);
+            }
+            return merged.slice(drop);
+          }
+          return merged;
+        });
+      } catch {
+        // Non-fatal: keep last snapshot.
+      }
+    };
+    void poll();
+    const id = window.setInterval(() => void poll(), LOG_POLL_INTERVAL);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [advancedOpen, migrationId, logsPaused]);
+
+  const filteredLogLines = useMemo(() => {
+    if (logFilter === "all") return logLines;
+    return logLines.filter((l) => l.level === logFilter);
+  }, [logLines, logFilter]);
+
+  // Pin to the live tail unless paused. Layout effect so the jump happens before paint
+  // (a post-paint scroll shows the old position for a frame, which reads as jank).
+  useLayoutEffect(() => {
+    if (!advancedOpen || logsPaused) return;
+    scrollLogTerminalToBottom();
+  }, [filteredLogLines, advancedOpen, logsPaused, scrollLogTerminalToBottom]);
 
   const failureErrorText =
     (status?.error && String(status.error).trim()) || "Unknown error";
@@ -793,6 +1100,7 @@ export default function ProgressMonitor() {
           title="Back to home"
           className="progress-monitor__back"
         />
+        <div className="progress-monitor__scroll">
         <header className="progress-monitor__header">
           <h1>
             {showDeleteUI ? (
@@ -811,11 +1119,6 @@ export default function ProgressMonitor() {
         {actionError && (
           <div className="progress-monitor__error progress-monitor__error--action">
             {actionError}
-          </div>
-        )}
-        {developerQueueDebug && (
-          <div className="progress-monitor__dev-metrics" title="Developer mode queue metrics">
-            {developerQueueDebug}
           </div>
         )}
 
@@ -936,15 +1239,15 @@ export default function ProgressMonitor() {
                     {/* Totals */}
                     <div className="progress-monitor__metric-row">
                       <span>Folders:</span>
-                      <span>{(queueMetrics.copy.folders || 0).toLocaleString()}</span>
+                      <span>{formatCountFraction(queueMetrics.copy.folders, queueMetrics.copy.folders_expected)}</span>
                     </div>
                     <div className="progress-monitor__metric-row">
                       <span>Files:</span>
-                      <span>{(queueMetrics.copy.files || 0).toLocaleString()}</span>
+                      <span>{formatCountFraction(queueMetrics.copy.files, queueMetrics.copy.files_expected)}</span>
                     </div>
                     <div className="progress-monitor__metric-row">
                       <span>Total:</span>
-                      <span>{(queueMetrics.copy.total || 0).toLocaleString()}</span>
+                      <span>{formatCountFraction(queueMetrics.copy.total, queueMetrics.copy.total_expected)}</span>
                     </div>
                     {(queueMetrics.copy.in_progress ?? queueMetrics.copy.inProgress ?? 0) > 0 && (
                       <div className="progress-monitor__metric-row">
@@ -964,14 +1267,12 @@ export default function ProgressMonitor() {
                         <span>{(queueMetrics.copy.total_failed || 0).toLocaleString()}</span>
                       </div>
                     )}
-                    {/* Total bytes moved - API may not return this yet, show 0 if not available */}
                     <div className="progress-monitor__metric-row">
                       <span>Bytes:</span>
                       <span>{formatBytes(
                         queueMetrics.copy.bytes ??
                           queueMetrics.copy.bytes_copied_total ??
                           queueMetrics.copy.total_bytes_copied ??
-                          queueMetrics.copy.bytes_total ??
                           0
                       )}</span>
                     </div>
@@ -980,7 +1281,6 @@ export default function ProgressMonitor() {
                       <span>Items/sec:</span>
                       <span>{(queueMetrics.copy.items_per_second || 0).toFixed(1)}</span>
                     </div>
-                    {/* Bytes per second - API may not return this yet, show 0 if not available */}
                     <div className="progress-monitor__metric-row">
                       <span>Bytes/sec:</span>
                       <span>{formatBytesPerSec(
@@ -999,19 +1299,19 @@ export default function ProgressMonitor() {
                 queueMetrics?.delete ? (
                   <div className="progress-monitor__metric-details">
                     <div className="progress-monitor__metric-row">
-                      <span>Folders removed:</span>
-                      <span>{(queueMetrics.delete.folders || 0).toLocaleString()}</span>
+                      <span>Folders:</span>
+                      <span>{formatCountFraction(queueMetrics.delete.folders, queueMetrics.delete.folders_expected)}</span>
                     </div>
                     <div className="progress-monitor__metric-row">
-                      <span>Files removed:</span>
-                      <span>{(queueMetrics.delete.files || 0).toLocaleString()}</span>
+                      <span>Files:</span>
+                      <span>{formatCountFraction(queueMetrics.delete.files, queueMetrics.delete.files_expected)}</span>
                     </div>
                     <div className="progress-monitor__metric-row">
-                      <span>Total removed:</span>
-                      <span>{(queueMetrics.delete.total || 0).toLocaleString()}</span>
+                      <span>Total:</span>
+                      <span>{formatCountFraction(queueMetrics.delete.total, queueMetrics.delete.total_expected)}</span>
                     </div>
                     <div className="progress-monitor__metric-row">
-                      <span>Bytes removed:</span>
+                      <span>Bytes:</span>
                       <span>{formatBytes(queueMetrics.delete.bytes ?? 0)}</span>
                     </div>
                     <div className="progress-monitor__metric-row">
@@ -1062,6 +1362,23 @@ export default function ProgressMonitor() {
                         <span>{queueMetrics.srcTraversal.discovery_rate_items_per_sec.toFixed(1)} items/sec</span>
                       </div>
                     )}
+                    <div className="progress-monitor__metric-row">
+                      <span>
+                        Batch:
+                        <HelpTooltip
+                          tipId="discovery-batch-explanation"
+                          category="discovery-batch"
+                          position="above"
+                          content={
+                            <p>
+                              Current scan chunk. The bar and ETA reset when the next batch starts;
+                              totals keep growing.
+                            </p>
+                          }
+                        />
+                      </span>
+                      <span>{(queueMetrics.srcTraversal.round ?? 0).toLocaleString()}</span>
+                    </div>
                     {queueMetrics.srcTraversal.folders_discovered_total !== undefined && (
                       <div className="progress-monitor__metric-row">
                         <span>Folders Discovered:</span>
@@ -1080,31 +1397,99 @@ export default function ProgressMonitor() {
                         <span>{queueMetrics.srcTraversal.total_discovered.toLocaleString()}</span>
                       </div>
                     )}
+                    <DiscoveryBatchProgressBar
+                      metrics={queueMetrics.srcTraversal}
+                      complete={discoveryPhaseDone}
+                    />
                   </div>
                 ) : (
                   <div className="progress-monitor__metric-empty">Not started</div>
                 )
               )}
               {showPhaseProgressBar && (
-                <div className="progress-monitor__progress">
-                  <div className="progress-monitor__progress-header">
-                    <span className="progress-monitor__progress-label">{phaseProgressLabel}</span>
-                    <span className="progress-monitor__progress-value">{phaseProgressDisplay}%</span>
-                  </div>
-                  <div
-                    className="progress-monitor__progress-track"
-                    role="progressbar"
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                    aria-valuenow={phaseProgressDisplay}
-                    aria-label={phaseProgressLabel}
-                  >
-                    <div
-                      className="progress-monitor__progress-fill"
-                      style={{
-                        clipPath: `inset(0 ${100 - phaseProgressPercent}% 0 0)`,
-                      }}
-                    />
+                <div
+                  className={
+                    phaseProgressComplete
+                      ? "progress-monitor__progress progress-monitor__progress--complete"
+                      : "progress-monitor__progress"
+                  }
+                >
+                  <div className="progress-monitor__progress-stack">
+                    <div className="progress-monitor__progress-bar-block">
+                      <div className="progress-monitor__progress-header">
+                        <span className="progress-monitor__progress-label">
+                          Items: {itemsFractionLabel}
+                        </span>
+                        <div className="progress-monitor__progress-header-end">
+                          <span
+                            className="progress-monitor__progress-eta"
+                            title={etaTitle}
+                          >
+                            {etaLabel} {formatEtaSeconds(etaSeconds)}
+                          </span>
+                          {phaseProgressComplete && (
+                            <span className="progress-monitor__progress-complete-mark" aria-hidden="true">
+                              ✓
+                            </span>
+                          )}
+                          <span className="progress-monitor__progress-value">
+                            {Math.round(itemsProgressPercent)}%
+                          </span>
+                        </div>
+                      </div>
+                      <div
+                        className="progress-monitor__progress-track"
+                        role="progressbar"
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-valuenow={Math.round(itemsProgressPercent)}
+                        aria-label="Items progress"
+                      >
+                        <div
+                          className="progress-monitor__progress-fill"
+                          style={{
+                            clipPath: `inset(0 ${100 - itemsProgressPercent}% 0 0)`,
+                          }}
+                        />
+                        {itemsFailedPercent > 0 && (
+                          <div
+                            className="progress-monitor__progress-fill progress-monitor__progress-fill--failed"
+                            style={{ width: `${itemsFailedPercent}%` }}
+                          />
+                        )}
+                      </div>
+                    </div>
+                    <div className="progress-monitor__progress-bar-block">
+                      <div className="progress-monitor__progress-header">
+                        <span className="progress-monitor__progress-label">
+                          Data: {dataFractionLabel}
+                        </span>
+                        <span className="progress-monitor__progress-value">
+                          {Math.round(bytesProgressPercent)}%
+                        </span>
+                      </div>
+                      <div
+                        className="progress-monitor__progress-track"
+                        role="progressbar"
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-valuenow={Math.round(bytesProgressPercent)}
+                        aria-label="Data progress"
+                      >
+                        <div
+                          className="progress-monitor__progress-fill"
+                          style={{
+                            clipPath: `inset(0 ${100 - bytesProgressPercent}% 0 0)`,
+                          }}
+                        />
+                        {bytesFailedPercent > 0 && (
+                          <div
+                            className="progress-monitor__progress-fill progress-monitor__progress-fill--failed"
+                            style={{ width: `${bytesFailedPercent}%` }}
+                          />
+                        )}
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}
@@ -1161,6 +1546,23 @@ export default function ProgressMonitor() {
                         <span>{queueMetrics.dstTraversal.discovery_rate_items_per_sec.toFixed(1)} items/sec</span>
                       </div>
                     )}
+                    <div className="progress-monitor__metric-row">
+                      <span>
+                        Batch:
+                        <HelpTooltip
+                          tipId="discovery-batch-explanation-dst"
+                          category="discovery-batch"
+                          position="above"
+                          content={
+                            <p>
+                              Current scan chunk. The bar and ETA reset when the next batch starts;
+                              totals keep growing.
+                            </p>
+                          }
+                        />
+                      </span>
+                      <span>{(queueMetrics.dstTraversal.round ?? 0).toLocaleString()}</span>
+                    </div>
                     {queueMetrics.dstTraversal.folders_discovered_total !== undefined && (
                       <div className="progress-monitor__metric-row">
                         <span>Folders Discovered:</span>
@@ -1189,6 +1591,10 @@ export default function ProgressMonitor() {
                         <span>{queueMetrics.dstTraversal.total_discovered.toLocaleString()}</span>
                       </div>
                     )}
+                    <DiscoveryBatchProgressBar
+                      metrics={queueMetrics.dstTraversal}
+                      complete={discoveryPhaseDone}
+                    />
                   </div>
                 ) : (
                   <div className="progress-monitor__metric-empty">Not started</div>
@@ -1358,6 +1764,193 @@ export default function ProgressMonitor() {
           </div>
         </div>
 
+        <details
+          className="progress-monitor__advanced"
+          open={advancedOpen}
+          onToggle={(e) => setAdvancedOpen((e.target as HTMLDetailsElement).open)}
+        >
+          <summary className="progress-monitor__advanced-summary">
+            {advancedOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+            Advanced info
+          </summary>
+          <div className="progress-monitor__advanced-body">
+            <div className="progress-monitor__worker-caps">
+              <div className="progress-monitor__workers-row">
+                <span className="progress-monitor__workers-label">Workers:</span>
+                <span className="progress-monitor__workers-value">
+                  {(
+                    (showDeleteUI
+                      ? queueMetrics?.delete?.workers
+                      : showCopyUI
+                        ? queueMetrics?.copy?.workers
+                        : queueMetrics?.srcTraversal?.workers) ?? 0
+                  ).toLocaleString()}
+                </span>
+                <button
+                  type="button"
+                  className="progress-monitor__workers-edit"
+                  disabled={workerCapBusy || !migrationId}
+                  title="Override worker limits"
+                  aria-label="Override worker limits"
+                  onClick={async () => {
+                    if (!migrationId) return;
+                    setWorkerCapError(null);
+                    try {
+                      setWorkerCapBusy(true);
+                      const [defaultsMap, scaling] = await Promise.all([
+                        fetchScalingDefaults(),
+                        getMigrationScaling(migrationId),
+                      ]);
+                      const providerDefaults =
+                        (defaultsMap[persistProviderId] as ProviderWorkerCaps | undefined) ||
+                        defaultsMap.generic ||
+                        defaultsMap.local;
+                      setWorkerCapDefaults(providerDefaults?.modes || {});
+                      setWorkerCapModes(scaling.modes || {});
+                      setWorkerCapDialogOpen(true);
+                    } catch (err) {
+                      setWorkerCapError(
+                        err instanceof Error ? err.message : "Failed to load worker limits"
+                      );
+                    } finally {
+                      setWorkerCapBusy(false);
+                    }
+                  }}
+                >
+                  <Pencil size={14} />
+                </button>
+              </div>
+              {workerCapError && !workerCapDialogOpen ? (
+                <p className="progress-monitor__worker-caps-error">{workerCapError}</p>
+              ) : null}
+            </div>
+            <div className="progress-monitor__logs-toolbar">
+              <label className="progress-monitor__logs-filter">
+                Level
+                <select
+                  value={logFilter}
+                  onChange={(e) => setLogFilter(e.target.value as LogLevel | "all")}
+                >
+                  <option value="all">all</option>
+                  {LOG_LEVELS.map((lvl) => (
+                    <option key={lvl} value={lvl}>
+                      {lvl}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                className="progress-monitor__logs-pause"
+                onClick={toggleLogsPaused}
+              >
+                {logsPaused ? "Resume logs" : "Pause logs"}
+              </button>
+              <span className="progress-monitor__logs-count">
+                {filteredLogLines.length.toLocaleString()} lines
+              </span>
+            </div>
+            <div ref={logTerminalRef} className="progress-monitor__logs-terminal">
+              {filteredLogLines.length === 0 ? (
+                <div className="progress-monitor__logs-empty">
+                  {advancedOpen ? "Waiting for log entries…" : "Open Advanced to stream logs."}
+                </div>
+              ) : (
+                filteredLogLines.map((line) => (
+                  <div
+                    key={line.id}
+                    className={`progress-monitor__log-line progress-monitor__log-line--${line.level}`}
+                  >
+                    <span className="progress-monitor__log-level">{line.level}</span>
+                    <span className="progress-monitor__log-time">
+                      {line.data?.timestamp
+                        ? new Date(line.data.timestamp).toLocaleTimeString()
+                        : ""}
+                    </span>
+                    <span className="progress-monitor__log-msg">
+                      {line.data?.message ?? JSON.stringify(line.data)}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </details>
+
+        {workerCapDialogOpen && (
+          <WorkerCapOverridesDialog
+            title="Override worker hard caps"
+            defaults={workerCapDefaults}
+            initialModes={workerCapModes}
+            highlightMode={workerCapHighlightMode}
+            busy={workerCapBusy}
+            error={workerCapError}
+            showPersist
+            onClose={() => {
+              setWorkerCapDialogOpen(false);
+              setWorkerCapError(null);
+            }}
+            onApply={async (modes) => {
+              if (!migrationId) return;
+              try {
+                setWorkerCapBusy(true);
+                setWorkerCapError(null);
+                const view = await putMigrationScaling(migrationId, { modes });
+                setWorkerCapModes(view.modes || {});
+                setToast({ message: "Worker limits applied to this migration.", type: "success" });
+                setWorkerCapDialogOpen(false);
+              } catch (err) {
+                setWorkerCapError(err instanceof Error ? err.message : "Apply failed");
+              } finally {
+                setWorkerCapBusy(false);
+              }
+            }}
+            onPersist={async (modes) => {
+              if (!migrationId) return;
+              try {
+                setWorkerCapBusy(true);
+                setWorkerCapError(null);
+                const view = await putMigrationScaling(migrationId, {
+                  modes,
+                  persist: true,
+                  persistTarget: "provider",
+                  persistKey: persistProviderId,
+                });
+                setWorkerCapModes(view.modes || {});
+                setToast({
+                  message: `Saved as default for ${persistProviderId} and applied live.`,
+                  type: "success",
+                });
+                setWorkerCapDialogOpen(false);
+              } catch (err) {
+                setWorkerCapError(err instanceof Error ? err.message : "Save failed");
+              } finally {
+                setWorkerCapBusy(false);
+              }
+            }}
+            onResetAll={async () => {
+              if (!migrationId) return;
+              try {
+                setWorkerCapBusy(true);
+                setWorkerCapError(null);
+                await putMigrationScaling(migrationId, { modes: {} });
+                try {
+                  await deleteProviderScalingOverrides(persistProviderId);
+                } catch {
+                  // Session clear still succeeded; persisted default may not exist.
+                }
+                setWorkerCapModes({});
+                setToast({ message: "Worker limits reset to shipped defaults.", type: "info" });
+                setWorkerCapDialogOpen(false);
+              } catch (err) {
+                setWorkerCapError(err instanceof Error ? err.message : "Reset failed");
+              } finally {
+                setWorkerCapBusy(false);
+              }
+            }}
+          />
+        )}
+
         {confirmKind === "stop" && (
           <ConfirmDialog
             title="Stop migration?"
@@ -1384,6 +1977,7 @@ export default function ProgressMonitor() {
             onConfirm={() => void handleConfirmResume()}
           />
         )}
+        </div>
       </GlassSurfacePanel>
       {toast && (
         <Toast

@@ -5,6 +5,7 @@ import {
   buildMicrosoftAuthUrl,
   DEFAULT_ONEDRIVE_SCOPES,
   DEFAULT_SHAREPOINT_SCOPES,
+  MicrosoftAccountType,
 } from "./microsoftOAuth";
 
 const DEFAULT_GOOGLE_SCOPES = ["https://www.googleapis.com/auth/drive"];
@@ -89,6 +90,8 @@ export function buildCloudProviderAuthUrl(
     redirectUri: string;
     scopes: string[];
     state: string;
+    tenantId?: string;
+    microsoftAccountType?: MicrosoftAccountType;
   }
 ): string {
   switch (providerId) {
@@ -105,7 +108,14 @@ export function buildCloudProviderAuthUrl(
     }
     case "onedrive":
     case "sharepoint":
-      return buildMicrosoftAuthUrl(params);
+      return buildMicrosoftAuthUrl({
+        clientId: params.clientId,
+        redirectUri: params.redirectUri,
+        scopes: params.scopes,
+        state: params.state,
+        tenantId: params.tenantId,
+        accountType: params.microsoftAccountType,
+      });
     case "box":
       return buildBoxAuthUrl(params);
     case "google_drive":

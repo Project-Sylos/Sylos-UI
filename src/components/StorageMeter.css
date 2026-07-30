@@ -1,0 +1,72 @@
+.storage-meter {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 0.15rem;
+  min-width: 0;
+}
+
+.storage-meter__track {
+  width: 100%;
+  height: 7px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(
+    var(--color-base-slate-r),
+    var(--color-base-slate-g),
+    var(--color-base-slate-b),
+    0.18
+  );
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.storage-meter__fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(
+    90deg,
+    var(--accent-cyan) 0%,
+    color-mix(in srgb, var(--accent-cyan) 70%, var(--accent-magenta)) 100%
+  );
+  transition: width 0.35s ease;
+}
+
+.storage-meter__stats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  color: var(--text-tertiary);
+}
+
+.storage-meter__sep {
+  color: var(--text-muted);
+}
+
+.storage-meter__note {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+:root[data-theme="quartz"] .storage-meter__track {
+  background: rgba(
+    var(--color-base-slate-r),
+    var(--color-base-slate-g),
+    var(--color-base-slate-b),
+    0.12
+  );
+  box-shadow: inset 0 1px 2px rgba(26, 26, 46, 0.06);
+}
+
+/* Compact footer placement in browse panes */
+.storage-meter--footer {
+  flex: 1;
+  margin-top: 0;
+  max-width: 28rem;
+}
+
+.storage-meter--endpoint {
+  margin-top: 0.15rem;
+  width: 100%;
+}

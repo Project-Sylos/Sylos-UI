@@ -1,18 +1,23 @@
 import { useEffect } from "react";
-import { PATH_REVIEW_COPY } from "../utils/pathReviewCopy";
 import "./PathReviewContextMenu.css";
+
+export type PathReviewContextAction = {
+  key: string;
+  label: string;
+  onClick: () => void;
+};
 
 interface PathReviewContextMenuProps {
   x: number;
   y: number;
-  onRename: () => void;
+  actions: PathReviewContextAction[];
   onClose: () => void;
 }
 
 export default function PathReviewContextMenu({
   x,
   y,
-  onRename,
+  actions,
   onClose,
 }: PathReviewContextMenuProps) {
   useEffect(() => {
@@ -30,22 +35,29 @@ export default function PathReviewContextMenu({
     };
   }, [onClose]);
 
+  if (actions.length === 0) return null;
+
   return (
     <div
       className="path-review-context-menu"
       style={{ top: y, left: x }}
       onClick={(e) => e.stopPropagation()}
+      role="menu"
     >
-      <button
-        type="button"
-        className="path-review-context-menu__item"
-        onClick={() => {
-          onRename();
-          onClose();
-        }}
-      >
-        {PATH_REVIEW_COPY.renameDestination}
-      </button>
+      {actions.map((action) => (
+        <button
+          key={action.key}
+          type="button"
+          className="path-review-context-menu__item"
+          role="menuitem"
+          onClick={() => {
+            action.onClick();
+            onClose();
+          }}
+        >
+          {action.label}
+        </button>
+      ))}
     </div>
   );
 }

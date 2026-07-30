@@ -1,0 +1,117 @@
+/**
+ * Pure helpers for Path Review list search: predicate gating, optional totals,
+ * and hasMore-based pagination.
+ */
+
+export interface ListSearchPredicateInput {
+  query?: string | null;
+  typeFilter?: "both" | "folder" | "file" | null;
+  depthFilter?: string | number | null;
+  sizeFilter?: string | number | null;
+  traversalStatusFilter?: string | null;
+  copyStatusFilter?: string | null;
+  deleteStatusFilter?: string | null;
+  pathIssueStatusFilter?: string | null;
+  pathIssueCategoryFilter?: string | null;
+}
+
+/** True when the request would include at least one search condition. */
+export function hasListSearchPredicate(input: ListSearchPredicateInput): boolean {
+  if (typeof input.query === "string" && input.query.trim() !== "") {
+    return true;
+  }
+  if (input.typeFilter && input.typeFilter !== "both") {
+    return true;
+  }
+  if (hasNumericFilterValue(input.depthFilter)) {
+    return true;
+  }
+  if (hasNumericFilterValue(input.sizeFilter)) {
+    return true;
+  }
+  if (nonEmpty(input.traversalStatusFilter)) {
+    return true;
+  }
+  if (nonEmpty(input.copyStatusFilter)) {
+    return true;
+  }
+  if (nonEmpty(input.deleteStatusFilter)) {
+    return true;
+  }
+  if (nonEmpty(input.pathIssueStatusFilter)) {
+    return true;
+  }
+  if (nonEmpty(input.pathIssueCategoryFilter)) {
+    return true;
+  }
+  return false;
+}
+
+function nonEmpty(value: string | null | undefined): boolean {
+  return typeof value === "string" && value.trim() !== "";
+}
+
+function hasNumericFilterValue(value: string | number | null | undefined): boolean {
+  if (value === null || value === undefined) return false;
+  if (typeof value === "number") return !Number.isNaN(value);
+  return value.trim() !== "";
+}
+
+export interface OptionalTotalPagination {
+  offset: number;
+  limit: number;
+  /** Present when known; omit/undefined when the server did not count. */
+  total?: number;
+  hasMore: boolean;
+}
+
+/**
+ * Parse a raw pagination total from API JSON.
+ * Distinguishes known 0 from unknown/omitted (never coerce missing → 0).
+ */
+export function parseOptionalTotal(raw: unknown): number | undefined {
+  if (raw === null || raw === undefined) return undefined;
+  if (typeof raw === "number" && Number.isFinite(raw) && raw >= 0) {
+    return raw;
+  }
+  if (typeof raw === "string" && raw.trim() !== "") {
+    const n = Number(raw);
+    if (Number.isFinite(n) && n >= 0) return n;
+  }
+  return undefined;
+}
+
+/** Whether Next should be enabled given optional total vs hasMore. */
+export function canGoToNextPage(
+  pagination: OptionalTotalPagination,
+  currentPage: number,
+  itemsPerPage: number
+): boolean {
+  if (pagination.total !== undefined) {
+    if (pagination.total <= 0) return false;
+    const totalPages = Math.max(1, Math.ceil(pagination.total / itemsPerPage));
+    return currentPage < totalPages - 1;
+  }
+  return Boolean(pagination.hasMore);
+}
+
+/** Footer / range label for list search results. */
+export function formatListShowingRange(
+  pagination: OptionalTotalPagination,
+  itemsPerPage: number
+): string {
+  const start = pagination.offset + 1;
+  if (pagination.total !== undefined) {
+    if (pagination.total <= 0) {
+      return "0 items";
+    }
+    const end = Math.min(pagination.offset + itemsPerPage, pagination.total);
+    const noun = pagination.total === 1 ? "item" : "items";
+    return `${start} to ${end} of ${pagination.total.toLocaleString()} ${noun}`;
+  }
+  const end = pagination.offset + itemsPerPage;
+  if (pagination.hasMore) {
+    return `${start} to ${end}+`;
+  }
+  return `${start} to ${end}`;
+}

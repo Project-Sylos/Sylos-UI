@@ -4,8 +4,12 @@ export const PATH_REVIEW_COPY = {
   nameAlreadyUsed: "Name already used in this folder",
   fixDestinationName: "Fix destination name",
   renameDestination: "Rename destination…",
+  showInTreeView: "Show in Tree View",
+  openFolder: "Open folder",
   acceptSuggestedName: "Accept suggested name",
+  acceptRenameExisting: "Rename existing destination item",
   ignoreWarning: "Ignore this error",
+  ignoreKeepExistingName: "Keep current destination name",
   unignoreWarning: "Show this error again",
   useNameAnyway: "Use this name anyway",
   updatingRelatedPaths: "Updating related paths…",
@@ -38,6 +42,11 @@ export const PATH_REVIEW_COPY = {
   forceTitle: "Use this name anyway?",
   forceConfirm:
     "This name may cause problems on the destination. We’ll keep it and dismiss warnings for this item and everything inside it.",
+  forceConfirmSoft:
+    "This name still has destination naming problems. Keep it anyway? Warnings will be dismissed for this item and everything inside it.",
+  resetDestinationName: "Reset to original name",
+  resetDestinationNameTip:
+    "Clear the destination rename and check the original name again.",
   /** Heads-up when a suggested rename will be applied automatically. */
   compatAutoHandledSummary: (issueCount: number, resolution: string) => {
     const issues =
@@ -48,6 +57,8 @@ export const PATH_REVIEW_COPY = {
   },
   compatAutoHandledDetail:
     "No action needed. The suggested name is applied automatically when you start copying. You can still rename it or ignore the warning if you prefer.",
+  alreadyExistedAcceptHelp:
+    "This name already exists on the destination. Accepting renames that existing item to the suggested name. Ignoring keeps the current destination name.",
   compatibilityLabel: "Compatibility",
   compatibilityWarningLabel: "Naming warning",
   compatibilityNeedsActionLabel: "Needs attention",
@@ -56,13 +67,13 @@ export const PATH_REVIEW_COPY = {
     "This naming warning is hidden for copy. The original name will be kept. Click the eye icon to show it again.",
   compatibilityFilterLabel: "Compatibility",
   compatibilityFilterAll: "All",
-  compatibilityFilterIssues: "Suggested renames",
+  compatibilityFilterIssues: "All naming warnings",
   compatibilityFilterManual: "Needs manual rename",
   compatibilityFilterRejected: "Rejected",
   compatibilityFilterNone: "No compatibility issues",
   compatibilityFilterByType: "By warning type",
   compatibilityLegendTip:
-    "Info marks names that will be auto-corrected on copy. Yellow caution marks names that need a manual rename. Select a row for details. Open Icons for the full status-icon guide.",
+    "Info marks names that will be auto-corrected on copy. Yellow caution marks names that need a manual rename. Select a row for details. Hover the status legend for icon meanings.",
   compatibilityLegendAutoTip:
     "Destination name will be adjusted automatically when you start copying (unless you ignore the warning or rename it yourself).",
   compatibilityLegendManualTip:
@@ -85,7 +96,7 @@ export const PATH_REVIEW_COPY = {
   issuesHelpFailed:
     "These items failed during discovery or copy. Open list view to inspect them and mark retries if needed.",
   issuesHelpReference:
-    "Suggested renames are applied automatically when you start copying. Use these links if you want to review them first.",
+    "These names will be adjusted automatically when you start copying. Use these links if you want to review them first.",
   issuesHelpCategories:
     "Counts by destination naming rule. Jump to list view to browse items with that warning type.",
   manualReviewRequired: (n: number) =>

@@ -8,7 +8,9 @@ import { usePreferences } from "../contexts/PreferencesContext";
 import { useAuth } from "../contexts/AuthContext";
 import CloudProviderOAuthSetup from "../components/CloudProviderOAuthSetup";
 import SettingsSftpHostsSection from "../components/SettingsSftpHostsSection";
+import SettingsThroughputSection from "../components/SettingsThroughputSection";
 import "../components/CloudProviderOAuthSetup.css";
+import "../components/SettingsThroughputSection.css";
 import { clearAllMigrations, wipeInstall } from "../api/admin";
 import {
   fetchOAuthHealthSettings,
@@ -539,6 +541,7 @@ export default function Settings() {
               </div>
 
               <SettingsSftpHostsSection canManage={Boolean(user)} />
+              <SettingsThroughputSection canManage={Boolean(user)} />
             </div>
           )}
 

@@ -327,12 +327,16 @@ export default function PathReviewInspector({
                 title={
                   warningIgnored
                     ? PATH_REVIEW_COPY.unignoreWarning
-                    : PATH_REVIEW_COPY.ignoreWarning
+                    : item.copyStatus === "already_existed"
+                      ? PATH_REVIEW_COPY.ignoreKeepExistingName
+                      : PATH_REVIEW_COPY.ignoreWarning
                 }
                 aria-label={
                   warningIgnored
                     ? PATH_REVIEW_COPY.unignoreWarning
-                    : PATH_REVIEW_COPY.ignoreWarning
+                    : item.copyStatus === "already_existed"
+                      ? PATH_REVIEW_COPY.ignoreKeepExistingName
+                      : PATH_REVIEW_COPY.ignoreWarning
                 }
                 aria-pressed={warningIgnored}
               >

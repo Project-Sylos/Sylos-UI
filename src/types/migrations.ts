@@ -12,6 +12,16 @@ export interface MigrationRootRequestRoot {
   type?: string;
 }
 
+export interface MigrationRootChild {
+  id: string;
+  name: string;
+  type: string;
+  size?: number;
+  mtime?: string;
+  excluded?: boolean;
+  dstOnly?: boolean;
+}
+
 export interface MigrationRootRequest {
   migrationId?: string;
   role: "source" | "destination";
@@ -19,6 +29,10 @@ export interface MigrationRootRequest {
   connectionId?: string;
   root: MigrationRootRequestRoot;
   config?: any;  // Can be SpectraConfig or other config types
+  /** Immediate children from root-pick review (no DuckDB write until Start). */
+  children?: MigrationRootChild[];
+  /** Source-only; ids not in children are ignored. */
+  excludedIds?: string[];
 }
 
 export interface MigrationRootResponse {
@@ -30,6 +44,8 @@ export interface MigrationRootResponse {
   };
   sourceConnectionId?: string;
   destinationConnectionId?: string;
+  sourceRootPrepared?: boolean;
+  destinationRootPrepared?: boolean;
 }
 
 export interface StartMigrationPayload {
@@ -46,6 +62,8 @@ export interface StartMigrationPayload {
     enableLoggingTerminal?: boolean;
     /** Destination name rules: "none" | "auto" | provider id (e.g. "windows") */
     pathCheckTarget?: string;
+    /** Soft-cloud Windows desktop-sync overlays (Dropbox/Box/Egnyte/ShareFile). */
+    windowsCompat?: boolean;
   };
 }
 
@@ -178,6 +196,9 @@ export interface MigrationStatusResponse extends MigrationResponse {
   completedAt?: string | null;
   sourceRoot?: RootInfo;
   destinationRoot?: RootInfo;
+  sourceRootPrepared?: boolean;
+  destinationRootPrepared?: boolean;
+  sourceRootChildNames?: string[];
   /** Stop API: engine accepted soft suspend; poll until phase is *-suspended and not live. */
   softSuspendRequested?: boolean;
   SoftSuspendRequested?: boolean;
@@ -329,6 +350,8 @@ export interface QueueMetrics {
   in_progress?: number;
   totalTracked?: number;
   workers: number;
+  /** Queue lifecycle: running | paused | stopped | waiting | completed. */
+  state?: string;
   // Traversal phase fields
   files_discovered_total?: number;
   folders_discovered_total?: number;
@@ -344,13 +367,27 @@ export interface QueueMetrics {
   bytes_per_second?: number;
   bytes_copied_total?: number;
   total_bytes_copied?: number;
+  /** Fixed migration-wide eligible file size (copy/delete Data bar denominator). */
   bytes_total?: number;
+  /** Permanently failed eligible file bytes (touched, not transferred). */
+  bytes_failed?: number;
+  /** Failed share of items bar 0–100 (painted red at start). */
+  items_failed_percent?: number;
+  /** Failed share of bytes bar 0–100 (painted red at start). */
+  bytes_failed_percent?: number;
   bytes_per_sec?: number;
   copy_rate_bytes_per_sec?: number;
   bytes_copied_per_sec?: number;
   possible_stall?: boolean;
-  /** Engine-computed copy/delete progress 0–100. */
+  /** Engine-computed copy/delete items progress 0–100 (alias of items_progress_percent). */
   progress_percent?: number;
+  items_completed?: number;
+  items_total?: number;
+  items_progress_percent?: number;
+  bytes_progress_percent?: number;
+  folders_expected?: number;
+  files_expected?: number;
+  total_expected?: number;
   /** Current round expected/completed (console progress counters). */
   round_expected?: number;
   round_completed?: number;
@@ -366,6 +403,10 @@ export interface QueueMetrics {
   rate_limited_remaining_ms_dst?: number;
   /** AIMD inter-op pacing delay in ms (workers slowed after throttle). */
   inter_op_delay_ms?: number;
+  /** Engine-owned remaining seconds (0 = done). */
+  eta_seconds?: number;
+  /** Which clock the engine used: "items" | "bytes". */
+  eta_basis?: string;
 }
 
 export interface MigrationQueueMetricsResponse {

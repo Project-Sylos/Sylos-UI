@@ -135,6 +135,8 @@ export default function Destination() {
 
     try {
       setIsSubmitting(true);
+      // Browse handles include/review when source was prepared. Dest-first and
+      // non-browse handoffs set the root here without a child plan.
       const response = await setMigrationRoot({
         migrationId: migration.migrationId,
         role: "destination",
@@ -148,6 +150,7 @@ export default function Destination() {
         sourceConnectionId: response.sourceConnectionId,
         destinationConnectionId: response.destinationConnectionId,
         ready: response.ready,
+        destinationRootPrepared: Boolean(response.destinationRootPrepared),
         ...(isCloudServiceType(destinationService.type)
           ? {}
           : clearEndpointCloudState("destination")),

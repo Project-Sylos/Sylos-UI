@@ -48,7 +48,7 @@ export default function FileBrowserPane({
   children,
 }: FileBrowserPaneProps) {
   const { densityStyle, setListViewportElement } = useBrowseDensity();
-  const showPagination = pagination != null && pagination.total > 0;
+  const showPagination = pagination != null && (pagination.total ?? 0) > 0;
   const showHelp = helpTooltip != null;
   const showToolbarRow = Boolean(toolbarLeft || showHelp || showPagination);
 

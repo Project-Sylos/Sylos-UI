@@ -388,6 +388,7 @@ export default function ConnectCloudAccount() {
         redirectUri: getOAuthRedirectUri(),
         scopes,
         state,
+        tenantId: provider?.oauthTenantId,
       });
 
       persistSelections(

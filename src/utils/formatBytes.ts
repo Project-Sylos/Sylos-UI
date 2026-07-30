@@ -15,3 +15,10 @@ export function formatBytes(bytes: number): string {
 
   return `${value.toFixed(decimals)} ${sizes[i]}`;
 }
+
+/** Coerce to a finite number ≥ 0 (NaN / Infinity / negatives → fallback). */
+export function finiteNonNeg(value: unknown, fallback = 0): number {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n) || n < 0) return fallback;
+  return n;
+}

@@ -79,13 +79,13 @@ export default function PathReviewIssuesPanel({
   onClose,
   onJump,
 }: PathReviewIssuesPanelProps) {
-  const { manualCount, suggestionCount, categoryDetails } = useMemo(
+  const { manualCount, categoryDetails } = useMemo(
     () => summarizePathIssues(pathIssues),
     [pathIssues]
   );
 
   const attentionTotal = failedCount + manualCount;
-  const hasReference = suggestionCount > 0 || categoryDetails.length > 0;
+  const hasReference = categoryDetails.length > 0;
 
   return (
     <aside className="path-review-issues-panel" aria-label="Issues overview">
@@ -168,18 +168,6 @@ export default function PathReviewIssuesPanel({
                 />
               </span>
             </div>
-
-            {suggestionCount > 0 ? (
-              <IssueRow
-                tone="compat"
-                label={PATH_REVIEW_COPY.compatibilityFilterIssues}
-                count={suggestionCount}
-                tipId="path-review-issues-suggested-renames"
-                tipCategory="path-review-issues-suggested-renames"
-                tipContent={<p>{PATH_REVIEW_COPY.issuesHelpReference}</p>}
-                onJump={() => onJump({ pathIssueStatus: "issues" })}
-              />
-            ) : null}
 
             {categoryDetails.map((detail) => (
               <IssueRow

@@ -11,44 +11,78 @@ export interface HelpTooltipProps {
   position?: "above" | "right" | "left" | "below";
 }
 
-function getBubblePosition(rect: DOMRect, position: HelpTooltipProps["position"]): CSSProperties {
-  const gap = 8;
-  const base: CSSProperties = {
-    position: "fixed",
-    zIndex: 100000,
-  };
+const VIEWPORT_MARGIN = 8;
+const GAP = 8;
+const ESTIMATED_WIDTH = 360;
+const ESTIMATED_HEIGHT = 120;
+
+function resolvePosition(
+  iconRect: DOMRect,
+  bubbleW: number,
+  bubbleH: number,
+  preferred: HelpTooltipProps["position"]
+): NonNullable<HelpTooltipProps["position"]> {
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  let position = preferred ?? "above";
+
+  if (position === "above" && iconRect.top - GAP - bubbleH < VIEWPORT_MARGIN) {
+    position = "below";
+  } else if (position === "below" && iconRect.bottom + GAP + bubbleH > vh - VIEWPORT_MARGIN) {
+    position = "above";
+  } else if (position === "right" && iconRect.right + GAP + bubbleW > vw - VIEWPORT_MARGIN) {
+    position = "left";
+  } else if (position === "left" && iconRect.left - GAP - bubbleW < VIEWPORT_MARGIN) {
+    position = "right";
+  }
+
+  return position;
+}
+
+function getBubblePosition(
+  iconRect: DOMRect,
+  bubbleSize: { width: number; height: number } | null,
+  preferred: HelpTooltipProps["position"]
+): CSSProperties {
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const bubbleW = bubbleSize?.width && bubbleSize.width > 0 ? bubbleSize.width : Math.min(ESTIMATED_WIDTH, vw - VIEWPORT_MARGIN * 2);
+  const bubbleH = bubbleSize?.height && bubbleSize.height > 0 ? bubbleSize.height : ESTIMATED_HEIGHT;
+  const position = resolvePosition(iconRect, bubbleW, bubbleH, preferred);
+
+  let top = 0;
+  let left = 0;
 
   switch (position) {
     case "below":
-      return {
-        ...base,
-        top: rect.bottom + gap,
-        left: rect.left + rect.width / 2,
-        transform: "translate(-50%, 0)",
-      };
+      top = iconRect.bottom + GAP;
+      left = iconRect.left + iconRect.width / 2 - bubbleW / 2;
+      break;
     case "right":
-      return {
-        ...base,
-        top: rect.top + rect.height / 2,
-        left: rect.right + gap,
-        transform: "translate(0, -50%)",
-      };
+      top = iconRect.top + iconRect.height / 2 - bubbleH / 2;
+      left = iconRect.right + GAP;
+      break;
     case "left":
-      return {
-        ...base,
-        top: rect.top + rect.height / 2,
-        left: rect.left - gap,
-        transform: "translate(-100%, -50%)",
-      };
+      top = iconRect.top + iconRect.height / 2 - bubbleH / 2;
+      left = iconRect.left - GAP - bubbleW;
+      break;
     case "above":
     default:
-      return {
-        ...base,
-        top: rect.top - gap,
-        left: rect.left + rect.width / 2,
-        transform: "translate(-50%, -100%)",
-      };
+      top = iconRect.top - GAP - bubbleH;
+      left = iconRect.left + iconRect.width / 2 - bubbleW / 2;
+      break;
   }
+
+  left = Math.min(Math.max(VIEWPORT_MARGIN, left), vw - VIEWPORT_MARGIN - bubbleW);
+  top = Math.min(Math.max(VIEWPORT_MARGIN, top), vh - VIEWPORT_MARGIN - bubbleH);
+
+  return {
+    position: "fixed",
+    zIndex: 100000,
+    top,
+    left,
+    transform: "none",
+  };
 }
 
 export default function HelpTooltip({
@@ -70,7 +104,15 @@ export default function HelpTooltip({
     if (!iconRef.current) {
       return;
     }
-    setBubbleStyle(getBubblePosition(iconRef.current.getBoundingClientRect(), position));
+    const iconRect = iconRef.current.getBoundingClientRect();
+    const measured = tooltipRef.current?.getBoundingClientRect() ?? null;
+    setBubbleStyle(
+      getBubblePosition(
+        iconRect,
+        measured ? { width: measured.width, height: measured.height } : null,
+        position
+      )
+    );
   };
 
   useLayoutEffect(() => {
@@ -79,12 +121,14 @@ export default function HelpTooltip({
     }
 
     updateBubblePosition();
+    const frame = window.requestAnimationFrame(() => updateBubblePosition());
 
     const handleReposition = () => updateBubblePosition();
     window.addEventListener("resize", handleReposition);
     window.addEventListener("scroll", handleReposition, true);
 
     return () => {
+      window.cancelAnimationFrame(frame);
       window.removeEventListener("resize", handleReposition);
       window.removeEventListener("scroll", handleReposition, true);
     };
@@ -117,7 +161,9 @@ export default function HelpTooltip({
   const handleIconClick = () => {
     const next = !isOpen;
     if (next && iconRef.current) {
-      setBubbleStyle(getBubblePosition(iconRef.current.getBoundingClientRect(), position));
+      setBubbleStyle(
+        getBubblePosition(iconRef.current.getBoundingClientRect(), null, position)
+      );
     }
     setIsOpen(next);
   };

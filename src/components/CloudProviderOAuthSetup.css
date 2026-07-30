@@ -127,29 +127,6 @@
   color: var(--accent-cyan);
 }
 
-.cloud-oauth-setup__redirect {
-  margin: 0 0 0.85rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-}
-
-.cloud-oauth-setup__redirect-label {
-  font-size: 0.85rem;
-  color: var(--text-secondary);
-}
-
-.cloud-oauth-setup__redirect code {
-  display: block;
-  padding: 0.45rem 0.55rem;
-  border-radius: 8px;
-  background: var(--ui-inset-bg-strong);
-  border: 1px solid var(--ui-inset-border);
-  font-size: 0.8rem;
-  word-break: break-all;
-  color: var(--text-primary);
-}
-
 .cloud-oauth-setup__field {
   display: flex;
   flex-direction: column;
@@ -176,6 +153,22 @@
   outline: none;
   border-color: var(--accent-cyan);
   box-shadow: 0 0 0 2px var(--accent-cyan-opacity-20);
+}
+
+.cloud-oauth-setup__field--checkbox {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 0.55rem;
+}
+
+.cloud-oauth-setup__field--checkbox input {
+  width: auto;
+  margin-top: 0.15rem;
+  flex-shrink: 0;
+}
+
+.cloud-oauth-setup__field--checkbox span {
+  line-height: 1.35;
 }
 
 .cloud-oauth-setup__error {

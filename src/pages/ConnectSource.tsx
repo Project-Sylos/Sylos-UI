@@ -135,6 +135,8 @@ export default function ConnectSource() {
     try {
       setIsPicking(true);
       setSaveError(null);
+      // Browse folder now confirms include selection itself. This path is for
+      // non-browse flows that still hand a folder back via location.state.
       const response = await setMigrationRoot({
         migrationId: migration.migrationId,
         role: "source",
@@ -148,6 +150,7 @@ export default function ConnectSource() {
         sourceConnectionId: response.sourceConnectionId,
         destinationConnectionId: response.destinationConnectionId,
         ready: response.ready,
+        sourceRootPrepared: Boolean(response.sourceRootPrepared),
         ...(isCloudServiceType(selected.type)
           ? {}
           : clearEndpointCloudState("source")),
@@ -156,7 +159,6 @@ export default function ConnectSource() {
       selectSource(selected, root);
       navigate("/summary");
     } catch (err) {
-      // Root never stuck. Drop stale cloud account label from a failed attempt.
       updateMigration(clearAccountFields("source"));
       const message =
         err instanceof Error ? err.message : "Failed to set source root.";

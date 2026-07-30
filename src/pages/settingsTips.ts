@@ -14,8 +14,8 @@ export type TipGroup = {
 export const TIP_GROUPS: TipGroup[] = [
   {
     id: "discovery",
-    name: "Discovery",
-    description: "Tips shown on the progress monitor during traversal.",
+    name: "Progress monitor",
+    description: "Tips shown on the progress monitor during discovery, copy, and delete.",
     categories: [
       {
         id: "discovery-rate-source",
@@ -31,6 +31,21 @@ export const TIP_GROUPS: TipGroup[] = [
         id: "discovery-destination-total",
         name: "Destination total",
         description: "Total discovered count for the destination traversal queue.",
+      },
+      {
+        id: "discovery-batch",
+        name: "Discovery batch",
+        description: "Current scan batch number and what the batch progress bar means.",
+      },
+      {
+        id: "progress-rate-limited",
+        name: "Rate limited",
+        description: "Badge when a provider asks Sylos to wait before continuing.",
+      },
+      {
+        id: "progress-pacing",
+        name: "Pacing",
+        description: "Badge when Sylos inserts short pauses to stay within provider limits.",
       },
     ],
   },
@@ -69,6 +84,31 @@ export const TIP_GROUPS: TipGroup[] = [
         name: "Destination size",
         description: "Destination size statistic in the path review footer.",
       },
+      {
+        id: "path-review-src-size",
+        name: "Source size",
+        description: "Total discovered source size in the path review footer.",
+      },
+      {
+        id: "path-review-folders-count",
+        name: "Folders count",
+        description: "Count of folders still selected to copy or delete in the path review footer.",
+      },
+      {
+        id: "path-review-files-count",
+        name: "Files count",
+        description: "Count of files still selected to copy or delete in the path review footer.",
+      },
+      {
+        id: "path-review-selected-size",
+        name: "Selected size",
+        description: "Size of files selected to copy in the path review footer.",
+      },
+      {
+        id: "path-review-free-dst",
+        name: "Dst free space",
+        description: "Free space on the destination in the path review footer.",
+      },
     ],
   },
   {
@@ -80,6 +120,12 @@ export const TIP_GROUPS: TipGroup[] = [
         id: "browse-folder-selection",
         name: "Selection",
         description: "How to select and delete items while browsing folders.",
+      },
+      {
+        id: "migration-setup-storage",
+        name: "Endpoint storage",
+        description:
+          "Storage meter on the migration setup cards (filesystem or account capacity).",
       },
     ],
   },

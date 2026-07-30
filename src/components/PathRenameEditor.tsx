@@ -5,6 +5,7 @@ import {
   validatePathProposal,
   acceptPathProposal,
   remapPathManual,
+  resetPathRemap,
 } from "../api/services";
 import { PATH_REVIEW_COPY } from "../utils/pathReviewCopy";
 import ConfirmDialog from "./ConfirmDialog";
@@ -15,7 +16,8 @@ interface PathRenameEditorProps {
   item: DiffItem;
   issue?: PathIssue | null;
   onClose: () => void;
-  onApplied: () => void;
+  /** Called with the applied destination basename after a successful rename. */
+  onApplied: (appliedName: string) => void;
   onBusy?: (message: string | null) => void;
   onError?: (message: string) => void;
 }
@@ -30,13 +32,17 @@ export default function PathRenameEditor({
   onError,
 }: PathRenameEditorProps) {
   const initial =
-    issue?.proposedPath || item.proposedPath || item.name || "";
+    issue?.proposedPath || item.proposedPath || item.resolvedDstName || item.name || "";
   const [name, setName] = useState(initial);
   const [messages, setMessages] = useState<string[]>([]);
   const [valid, setValid] = useState(true);
   const [checking, setChecking] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [showForceConfirm, setShowForceConfirm] = useState(false);
+
+  const hasAcceptedRename = Boolean(
+    item.resolvedDstName && item.resolvedDstName !== item.name
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -80,7 +86,7 @@ export default function PathRenameEditor({
         onError?.(res.message || "Could not apply the suggested name.");
         return;
       }
-      onApplied();
+      onApplied(proposed);
       onClose();
     } catch (err) {
       onError?.(err instanceof Error ? err.message : "Could not apply the suggested name.");
@@ -103,7 +109,7 @@ export default function PathRenameEditor({
         setValid(false);
         return;
       }
-      onApplied();
+      onApplied(trimmed);
       onClose();
     } catch (err) {
       onError?.(err instanceof Error ? err.message : "Could not rename this item.");
@@ -114,7 +120,35 @@ export default function PathRenameEditor({
     }
   };
 
+  const runReset = async () => {
+    setSubmitting(true);
+    onBusy?.(PATH_REVIEW_COPY.updatingRelatedPaths);
+    try {
+      const res = await resetPathRemap(migrationId, item.id);
+      if (!res.success) {
+        onError?.(res.message || "Could not reset destination name.");
+        return;
+      }
+      onApplied("");
+      onClose();
+    } catch (err) {
+      onError?.(err instanceof Error ? err.message : "Could not reset destination name.");
+    } finally {
+      setSubmitting(false);
+      onBusy?.(null);
+    }
+  };
+
   const hasSuggestion = !!(issue?.proposedPath || item.proposedPath);
+
+  const handleApplyClick = () => {
+    if (!name.trim() || submitting || checking) return;
+    if (!valid) {
+      setShowForceConfirm(true);
+      return;
+    }
+    void runApply(false);
+  };
 
   return (
     <>
@@ -130,6 +164,12 @@ export default function PathRenameEditor({
           </h2>
           <p className="path-rename-editor__hint">
             Current name: <strong>{item.name}</strong>
+            {item.copyStatus === "already_existed" ? (
+              <>
+                <br />
+                {PATH_REVIEW_COPY.alreadyExistedAcceptHelp}
+              </>
+            ) : null}
           </p>
           <label className="path-rename-editor__label" htmlFor="path-rename-input">
             Destination name
@@ -160,6 +200,17 @@ export default function PathRenameEditor({
             >
               Cancel
             </button>
+            {hasAcceptedRename && (
+              <button
+                type="button"
+                className="path-rename-editor__btn"
+                onClick={() => void runReset()}
+                disabled={submitting}
+                title={PATH_REVIEW_COPY.resetDestinationNameTip}
+              >
+                {PATH_REVIEW_COPY.resetDestinationName}
+              </button>
+            )}
             {hasSuggestion && (
               <button
                 type="button"
@@ -167,34 +218,26 @@ export default function PathRenameEditor({
                 onClick={runAcceptSuggestion}
                 disabled={submitting}
               >
-                {PATH_REVIEW_COPY.acceptSuggestion}
+                {item.copyStatus === "already_existed"
+                  ? PATH_REVIEW_COPY.acceptRenameExisting
+                  : PATH_REVIEW_COPY.acceptSuggestion}
               </button>
             )}
             <button
               type="button"
               className="path-rename-editor__btn path-rename-editor__btn--primary"
-              onClick={() => runApply(false)}
-              disabled={submitting || !name.trim() || (!valid && !checking)}
+              onClick={handleApplyClick}
+              disabled={submitting || !name.trim() || checking}
             >
               {PATH_REVIEW_COPY.apply}
             </button>
-            {!valid && !checking && name.trim() && (
-              <button
-                type="button"
-                className="path-rename-editor__btn path-rename-editor__btn--danger"
-                onClick={() => setShowForceConfirm(true)}
-                disabled={submitting}
-              >
-                {PATH_REVIEW_COPY.useNameAnyway}
-              </button>
-            )}
           </div>
         </div>
       </div>
       {showForceConfirm && (
         <ConfirmDialog
           title={PATH_REVIEW_COPY.forceTitle}
-          message={PATH_REVIEW_COPY.forceConfirm}
+          message={PATH_REVIEW_COPY.forceConfirmSoft}
           confirmLabel="Use anyway"
           cancelLabel="Cancel"
           onConfirm={() => runApply(true)}

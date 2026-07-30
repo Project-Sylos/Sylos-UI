@@ -12,6 +12,7 @@ export type OAuthAppSummary = {
   displayName: string;
   configured: boolean;
   clientId?: string;
+  tenantId?: string;
   healthStatus: OAuthHealthStatus;
   healthError?: string;
   lastCheckedAt?: string;
@@ -88,7 +89,13 @@ export async function deleteOAuthApp(providerId: string): Promise<void> {
 
 export async function saveOAuthApp(
   providerId: string,
-  body: { clientId: string; clientSecret: string; displayName?: string }
+  body: {
+    clientId: string;
+    clientSecret: string;
+    tenantId?: string;
+    displayName?: string;
+    alsoApplyTo?: string;
+  }
 ): Promise<void> {
   const response = await apiFetch(`/api/oauth-apps/${providerId}`, {
     method: "PUT",
@@ -102,7 +109,7 @@ export async function saveOAuthApp(
 
 export async function testOAuthApp(
   providerId: string,
-  body: { clientId?: string; clientSecret?: string }
+  body: { clientId?: string; clientSecret?: string; tenantId?: string }
 ): Promise<void> {
   const response = await apiFetch(`/api/oauth-apps/${providerId}/test`, {
     method: "POST",

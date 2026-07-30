@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 
 import { PaginationInfo } from "../types/services";
+import { canGoToNextPage } from "../utils/listSearch";
 import "../pages/PathReview.css";
 
 const PAGE_SIZE_OPTIONS = [50, 100, 500, 1000];
@@ -25,7 +26,16 @@ export default function ListViewPagination({
 }: ListViewPaginationProps) {
   const [showItemsPerPageDropdown, setShowItemsPerPageDropdown] = useState(false);
   const itemsPerPageDropdownRef = useRef<HTMLDivElement>(null);
-  const totalPages = Math.max(1, Math.ceil(pagination.total / itemsPerPage));
+  const nextEnabled = canGoToNextPage(
+    {
+      offset: pagination.offset,
+      limit: pagination.limit,
+      total: pagination.total,
+      hasMore: pagination.hasMore,
+    },
+    currentPage,
+    itemsPerPage
+  );
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -89,14 +99,8 @@ export default function ListViewPagination({
       <button
         type="button"
         className="path-review-list__page-nav-button"
-        onClick={() => {
-          if (totalPages > 0) {
-            onPageChange(Math.min(totalPages - 1, currentPage + 1));
-          } else {
-            onPageChange(currentPage + 1);
-          }
-        }}
-        disabled={totalPages > 0 ? currentPage >= totalPages - 1 : !pagination.hasMore}
+        onClick={() => onPageChange(currentPage + 1)}
+        disabled={!nextEnabled}
         title="Next page"
         aria-label="Next page"
       >

@@ -1,4 +1,4 @@
-import { DropboxAccountType, getDropboxScopesForAccountType } from "./dropboxOAuth";
+import { getDropboxScopes } from "./dropboxOAuth";
 import { buildBoxAuthUrl, DEFAULT_BOX_SCOPES } from "./boxOAuth";
 import { buildGoogleAuthUrl } from "./googleOAuth";
 import {
@@ -55,18 +55,13 @@ export function getCloudProviderOAuthEnvHint(providerId: string): string {
 
 export function resolveCloudProviderScopes(
   providerId: string,
-  apiScopes?: string[],
-  options?: { dropboxAccountType?: DropboxAccountType }
+  apiScopes?: string[]
 ): string[] {
   if (providerId === "dropbox") {
-    const accountType = options?.dropboxAccountType ?? "personal";
-    const base = getDropboxScopesForAccountType(accountType);
+    const base = getDropboxScopes();
     if (!apiScopes?.length) return base;
-
-    const extra =
-      accountType === "personal"
-        ? apiScopes.filter((scope) => !scope.startsWith("team_data."))
-        : apiScopes;
+    // Ignore team_data.* even if the provider registry advertises them.
+    const extra = apiScopes.filter((scope) => !scope.startsWith("team_data."));
     return [...new Set([...base, ...extra])];
   }
   if (apiScopes?.length) return apiScopes;

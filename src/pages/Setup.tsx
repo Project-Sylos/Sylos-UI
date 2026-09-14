@@ -1,5 +1,5 @@
 import { FormEvent, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 
 import logo from "../assets/logos/main-app-logo-transparent.png";
 import { useAuth } from "../contexts/AuthContext";

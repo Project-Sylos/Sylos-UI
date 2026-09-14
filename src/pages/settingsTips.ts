@@ -85,24 +85,10 @@ export const TIP_GROUPS: TipGroup[] = [
         description: "Destination size statistic in the path review footer.",
       },
       {
-        id: "path-review-src-size",
-        name: "Source size",
-        description: "Total discovered source size in the path review footer.",
-      },
-      {
-        id: "path-review-folders-count",
-        name: "Folders count",
-        description: "Count of folders still selected to copy or delete in the path review footer.",
-      },
-      {
-        id: "path-review-files-count",
-        name: "Files count",
-        description: "Count of files still selected to copy or delete in the path review footer.",
-      },
-      {
         id: "path-review-selected-size",
         name: "Selected size",
-        description: "Size of files selected to copy in the path review footer.",
+        description:
+          "Pending copy or removal bytes on plan review (opens a breakdown card on hover/click).",
       },
       {
         id: "path-review-free-dst",

@@ -5,6 +5,9 @@
 
 export interface ListSearchPredicateInput {
   query?: string | null;
+  pathSegments?: string[] | null;
+  /** Folder + descendants scope (id_path). Root "/" does not count. */
+  underPath?: string | null;
   typeFilter?: "both" | "folder" | "file" | null;
   depthFilter?: string | number | null;
   sizeFilter?: string | number | null;
@@ -13,11 +16,26 @@ export interface ListSearchPredicateInput {
   deleteStatusFilter?: string | null;
   pathIssueStatusFilter?: string | null;
   pathIssueCategoryFilter?: string | null;
+  /** True when an advanced filter-rules draft is non-empty. */
+  hasAdvancedRules?: boolean;
 }
 
 /** True when the request would include at least one search condition. */
 export function hasListSearchPredicate(input: ListSearchPredicateInput): boolean {
+  if (input.hasAdvancedRules) {
+    return true;
+  }
+  const under = typeof input.underPath === "string" ? input.underPath.trim() : "";
+  if (under !== "" && under !== "/") {
+    return true;
+  }
   if (typeof input.query === "string" && input.query.trim() !== "") {
+    return true;
+  }
+  if (
+    Array.isArray(input.pathSegments) &&
+    input.pathSegments.some((s) => typeof s === "string" && s.trim() !== "")
+  ) {
     return true;
   }
   if (input.typeFilter && input.typeFilter !== "both") {
@@ -111,7 +129,7 @@ export function formatListShowingRange(
   }
   const end = pagination.offset + itemsPerPage;
   if (pagination.hasMore) {
-    return `${start} to ${end}+`;
+    return `${start} to ${end}+ of ?`;
   }
-  return `${start} to ${end}`;
+  return `${start} to ${end} of ?`;
 }

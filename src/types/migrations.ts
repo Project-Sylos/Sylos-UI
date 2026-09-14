@@ -20,6 +20,8 @@ export interface MigrationRootChild {
   mtime?: string;
   excluded?: boolean;
   dstOnly?: boolean;
+  children?: MigrationRootChild[];
+  includeOnly?: string[];
 }
 
 export interface MigrationRootRequest {
@@ -87,6 +89,8 @@ export interface RootInfo {
   locationPath?: string;
   nativePath?: string;
   type?: string;
+  /** Cloud drive/namespace id (Folder.parentId); used for storage quota. */
+  parentId?: string;
 }
 
 /** Lifecycle phases (lowercase-with-hyphens). */
@@ -95,13 +99,20 @@ export type MigrationPhase =
   | "filters-set"
   | "traversal-in-progress"
   | "traversal-suspended"
+  | "traversal-finalizing"
+  | "traversal-finalize-failed"
   | "awaiting-traversal-review"
   | "copy-in-progress"
   | "copy-suspended"
+  | "copy-finalizing"
+  | "copy-finalize-failed"
   | "awaiting-copy-review"
   | "delete-in-progress"
   | "delete-suspended"
+  | "delete-finalizing"
+  | "delete-finalize-failed"
   | "awaiting-delete-review"
+  | "aborted"
   | "failed";
 
 /** Normalize phase string for comparison: trim, lowercase, spaces to hyphens. */
@@ -156,9 +167,13 @@ export function isMigrationLive(response: { live?: boolean; Live?: boolean } | n
   return (response as { live?: boolean; Live?: boolean }).live === true || (response as { live?: boolean; Live?: boolean }).Live === true;
 }
 
-/** Soft suspend complete: engine phase is traversal- or copy-suspended (not generic `suspended`). */
+/** Soft suspend complete: engine phase is *-suspended (not generic `suspended`). */
 export function isMigrationSoftSuspendedPhase(phase: string): boolean {
-  return phase === "traversal-suspended" || phase === "copy-suspended";
+  return (
+    phase === "traversal-suspended" ||
+    phase === "copy-suspended" ||
+    phase === "delete-suspended"
+  );
 }
 
 /** True when migration is paused after soft suspend (UI resumes via retry sweep, not phase change). */
@@ -169,12 +184,68 @@ export function isMigrationSuspended(
   return isMigrationSoftSuspendedPhase(getMigrationPhase(response));
 }
 
-/** Terminal failure from status/phase (e.g. soft suspend checkpoint error). */
+/** Force-aborted: not resumable. */
+export function isMigrationAborted(
+  response: { phase?: string; status?: string } | null | undefined
+): boolean {
+  if (!response) return false;
+  return getMigrationPhase(response) === "aborted";
+}
+
+export interface StopStepPayload {
+  id: string;
+  label: string;
+  status: string;
+}
+
+export interface StopProgressPayload {
+  active?: boolean;
+  mode?: string;
+  step?: string;
+  label?: string;
+  detail?: string;
+  inProgress?: number;
+  steps?: StopStepPayload[];
+}
+
+/** Soft-suspend / generic terminal failure (not durable-teardown finalize-failed). */
 export function isMigrationFailed(
   response: { phase?: string; status?: string } | null | undefined
 ): boolean {
   if (!response) return false;
   return getMigrationPhase(response) === "failed";
+}
+
+/** True while seal stop / index rebuild / checkpoint is running after queues finish. */
+export function isMigrationFinalizingPhase(phase: string): boolean {
+  return (
+    phase === "traversal-finalizing" ||
+    phase === "copy-finalizing" ||
+    phase === "delete-finalizing"
+  );
+}
+
+export function isMigrationFinalizing(
+  response: { phase?: string; status?: string } | null | undefined
+): boolean {
+  if (!response) return false;
+  return isMigrationFinalizingPhase(getMigrationPhase(response));
+}
+
+/** Durable teardown failed; retry via retry-finalize (not worker resume). */
+export function isMigrationFinalizeFailedPhase(phase: string): boolean {
+  return (
+    phase === "traversal-finalize-failed" ||
+    phase === "copy-finalize-failed" ||
+    phase === "delete-finalize-failed"
+  );
+}
+
+export function isMigrationFinalizeFailed(
+  response: { phase?: string; status?: string } | null | undefined
+): boolean {
+  if (!response) return false;
+  return isMigrationFinalizeFailedPhase(getMigrationPhase(response));
 }
 
 export interface MigrationDBFile {
@@ -198,12 +269,17 @@ export interface MigrationStatusResponse extends MigrationResponse {
   destinationRoot?: RootInfo;
   sourceRootPrepared?: boolean;
   destinationRootPrepared?: boolean;
+  /** Included source root child names (for destination basename matching). */
   sourceRootChildNames?: string[];
+  sourceRootChildren?: MigrationRootChild[];
   /** Stop API: engine accepted soft suspend; poll until phase is *-suspended and not live. */
   softSuspendRequested?: boolean;
   SoftSuspendRequested?: boolean;
   stopped?: boolean;
   Stopped?: boolean;
+  /** Live soft/force stop checklist from the engine. */
+  stopProgress?: StopProgressPayload;
+  StopProgress?: StopProgressPayload;
   /** Stop API: migration was not in a stoppable live phase. */
   alreadyStopped?: boolean;
   AlreadyStopped?: boolean;
@@ -213,6 +289,9 @@ export interface MigrationStatusResponse extends MigrationResponse {
   /** True when a queue watchdog recently detected no progress while the migration was live. */
   possibleStall?: boolean;
   PossibleStall?: boolean;
+  /** Human-readable DuckDB wait label (index rebuild, checkpoint, etc.). */
+  dbActivity?: string;
+  DbActivity?: string;
   result?: {
     rootSummary?: {
       srcRoots?: number;
@@ -367,12 +446,25 @@ export interface QueueMetrics {
   bytes_per_second?: number;
   bytes_copied_total?: number;
   total_bytes_copied?: number;
+  /** Already on destination (copy) or not deleting (delete). */
+  folders_already_exists?: number;
+  files_already_exists?: number;
+  bytes_already_exists?: number;
+  /** Permanent failures after seal accept. */
+  folders_failed?: number;
+  files_failed?: number;
   /** Fixed migration-wide eligible file size (copy/delete Data bar denominator). */
   bytes_total?: number;
   /** Permanently failed eligible file bytes (touched, not transferred). */
   bytes_failed?: number;
+  /** Segment shares of items bar 0–100. */
+  items_ok_percent?: number;
+  items_already_exists_percent?: number;
   /** Failed share of items bar 0–100 (painted red at start). */
   items_failed_percent?: number;
+  /** Segment shares of bytes bar 0–100. */
+  bytes_ok_percent?: number;
+  bytes_already_exists_percent?: number;
   /** Failed share of bytes bar 0–100 (painted red at start). */
   bytes_failed_percent?: number;
   bytes_per_sec?: number;
@@ -417,6 +509,7 @@ export interface MigrationQueueMetricsResponse {
   dstTraversal?: QueueMetrics | null;
   copy?: QueueMetrics | null;
   delete?: QueueMetrics | null;
+  sizeFold?: QueueMetrics | null;
   possibleStall?: boolean;
 }
 

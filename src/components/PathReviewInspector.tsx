@@ -1,7 +1,7 @@
 // Copyright 2025 Sylos contributors
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
-import { AlertTriangle, Eye, EyeOff, File, Folder, Info } from "lucide-react";
+import { AlertTriangle, Eye, EyeOff, File, Folder, Info, FilterX } from "lucide-react";
 import { DiffItem } from "../api/services";
 import {
   PATH_REVIEW_COPY,
@@ -9,19 +9,22 @@ import {
   destinationDisplayPath,
   hasDestinationRename,
   isAutoHandledCompat,
+  itemDisplayPath,
   needsManualCompatAction,
   pathIssueShortLabel,
 } from "../utils/pathReviewCopy";
+import { excludedByRuleText, isRuleExcluded } from "../utils/pathReviewRuleExclusion";
 import "./PathReviewInspector.css";
 
 export type PathReviewInspectorPhase =
   | "traversal"
   | "copy"
+  | "copy-plan"
   | "source-cleanup"
   | "delete";
 
 type PathReviewInspectorProps = {
-  item: DiffItem | null;
+  item: DiffItem;
   phase: PathReviewInspectorPhase;
   busy?: boolean;
   canExclude?: boolean;
@@ -72,8 +75,8 @@ function Detail({ label, value, title }: { label: string; value: string; title?:
 }
 
 /**
- * Persistent right-hand inspector for Path Review selection.
- * Shows source/destination context, compatibility details, and phase-aware actions.
+ * Right-hand inspector for the currently selected Path Review row.
+ * Mount only when an item is selected so the tree/list can use full width.
  */
 export default function PathReviewInspector({
   item,
@@ -90,20 +93,6 @@ export default function PathReviewInspector({
   onExclude,
   onRetry,
 }: PathReviewInspectorProps) {
-  if (!item) {
-    return (
-      <aside className="path-review-inspector" aria-label="Item details">
-        <div className="path-review-inspector__empty">
-          <p className="path-review-inspector__empty-title">Select an item</p>
-          <p className="path-review-inspector__empty-body">
-            Click a row to review source, destination, and naming details. Use the
-            chevron or double-click a folder to open it.
-          </p>
-        </div>
-      </aside>
-    );
-  }
-
   const inSrc = !!item.src;
   const inDst = !!item.dst;
   const hideCompat =
@@ -122,6 +111,8 @@ export default function PathReviewInspector({
     item.pathIssueMessages?.filter((m) => m.message?.trim()).slice(0, 6) ?? [];
   const isFolder = item.type === "folder";
   const issueCount = Math.max(1, explanations.length || (hasCompat ? 1 : 0));
+  const ruleExcluded = isRuleExcluded(item);
+  const ruleExclusionText = excludedByRuleText(item);
   const destRenameLabel =
     phase === "copy"
       ? PATH_REVIEW_COPY.renamedTo
@@ -151,12 +142,18 @@ export default function PathReviewInspector({
               <Detail label="Name" value={item.src.name} />
               <Detail
                 label="Path"
-                value={item.src.locationPath}
-                title={item.src.locationPath}
+                value={item.src.displayPath || item.src.locationPath}
+                title={item.src.displayPath || item.src.locationPath}
               />
-              {item.src.type === "file" && (
-                <Detail label="Size" value={formatSize(item.src.size)} />
-              )}
+              <Detail
+                label="Size"
+                value={formatSize(item.src.size)}
+                title={
+                  item.src.type === "folder"
+                    ? "Total size of everything underneath this folder"
+                    : undefined
+                }
+              />
               <Detail
                 label="Last modified"
                 value={formatDate(item.src.lastUpdated)}
@@ -188,9 +185,15 @@ export default function PathReviewInspector({
                       : PATH_REVIEW_COPY.renamedOnDestination}
                   </p>
                 ) : null}
-                {item.dst.type === "file" && (
-                  <Detail label="Size" value={formatSize(item.dst.size)} />
-                )}
+                <Detail
+                  label="Size"
+                  value={formatSize(item.dst.size)}
+                  title={
+                    item.dst.type === "folder"
+                      ? "Total size of everything underneath this folder"
+                      : undefined
+                  }
+                />
                 <Detail
                   label="Last modified"
                   value={formatDate(item.dst.lastUpdated)}
@@ -201,8 +204,8 @@ export default function PathReviewInspector({
                 <Detail label="Name" value={item.name} />
                 <Detail
                   label="Path"
-                  value={item.locationPath}
-                  title={item.locationPath}
+                  value={itemDisplayPath(item)}
+                  title={itemDisplayPath(item)}
                 />
                 <p className="path-review-inspector__muted">
                   Not present on destination yet
@@ -211,6 +214,19 @@ export default function PathReviewInspector({
             )}
           </div>
         </section>
+        ) : null}
+
+        {ruleExcluded && ruleExclusionText ? (
+          <section className="path-review-inspector__section path-review-inspector__section--rule-exclusion">
+            <h3 className="path-review-inspector__section-title">
+              <FilterX size={14} aria-hidden />
+              Filter exclusion
+            </h3>
+            <p className="path-review-inspector__compat-summary">{ruleExclusionText}</p>
+            {item.src?.ruleExclusion?.evalPhase ? (
+              <Detail label="Evaluated" value={item.src.ruleExclusion.evalPhase} />
+            ) : null}
+          </section>
         ) : null}
 
         {hasCompat && (

@@ -19,6 +19,12 @@
   --glass-border-opacity-subtle: 0.1;
   --glass-border-opacity-strong: 0.3;
   --glass-border-opacity-hover: 0.3;
+  --glass-border: rgba(
+    var(--color-base-slate-r),
+    var(--color-base-slate-g),
+    var(--color-base-slate-b),
+    var(--glass-border-opacity-default)
+  );
   
   /* Shadow opacity and intensity */
   --glass-shadow-opacity-sm: 0.1;
@@ -167,9 +173,7 @@
   --selection-card-disabled-shadow: var(--elevation-contact-rest),
     0 18px 40px rgba(15, 23, 42, 0.2);
 
-  /*
-   * Fixed .sidebar (legacy shell) - move hardcoded slate here so themes can retint
-   */
+  /* Fixed .sidebar: slate lives here rather than inline so themes can retint it. */
   --sidebar-surface-bg: rgba(15, 23, 42, 0.15);
   --sidebar-surface-border: 1px solid rgba(148, 163, 184, 0.2);
   --sidebar-edge-shadow: 4px 0 16px rgba(15, 23, 42, 0.1);

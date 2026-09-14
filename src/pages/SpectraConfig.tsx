@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router";
 import { ArrowRight } from "lucide-react";
 
 import PageContainer from "../components/PageContainer";

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import { Search, CheckCircle2, Circle, ChevronRight, Pencil } from "lucide-react";
 
 import PageContainer from "../components/PageContainer";
@@ -7,7 +7,14 @@ import CloudConnectionIssues from "../components/CloudConnectionIssues";
 import HelpTooltip from "../components/HelpTooltip";
 import StorageMeter from "../components/StorageMeter";
 import { useSelection } from "../context/SelectionContext";
-import { getMigrationStatus, renameMigration, startMigration, setPathCheckTarget, getStorageInfo, StorageInfo } from "../api/services";
+import {
+  getMigrationStatus,
+  renameMigration,
+  setPathCheckTarget,
+  getStorageInfo,
+  startMigration,
+  StorageInfo,
+} from "../api/services";
 import { ServiceDescriptor, Folder } from "../types/services";
 import {
   CloudConnectionCheckResult,
@@ -26,6 +33,7 @@ import {
   formatServiceRootLabel,
   getEndpointEditNavigation,
 } from "../utils/migrationRoots";
+import { storageFetchOptions } from "../utils/storageFetchOptions";
 import {
   LOCAL_OS_SUBTYPE_OPTIONS,
   LocalOsSubtype,
@@ -90,7 +98,6 @@ function computeDefaultName(
 export default function MigrationSummary() {
   const navigate = useNavigate();
   const { source, destination, migration, updateMigration } = useSelection();
-  const [isStarting, setIsStarting] = useState(false);
   const [checkingConnections, setCheckingConnections] = useState(false);
   const [connectionIssues, setConnectionIssues] = useState<CloudConnectionCheckResult[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -106,6 +113,7 @@ export default function MigrationSummary() {
   const [windowsCompat, setWindowsCompat] = useState(false);
   const [destStorage, setDestStorage] = useState<StorageInfo | null>(null);
   const [srcStorage, setSrcStorage] = useState<StorageInfo | null>(null);
+  const [starting, setStarting] = useState(false);
 
   const sourceIsLocal = isLocalFilesystemService(source?.service);
   const destinationIsLocal = isLocalFilesystemService(destination?.service);
@@ -178,7 +186,15 @@ export default function MigrationSummary() {
       try {
         const info = await getStorageInfo(
           source.service.id,
-          storageFetchOptions("source", source.root, migration)
+          storageFetchOptions(
+            "source",
+            {
+              locationPath: source.root?.locationPath,
+              type: source.root?.type,
+              parentId: source.root?.parentId,
+            },
+            connectionIdForRole("source", migration)
+          )
         );
         if (!cancelled) setSrcStorage(info);
       } catch {
@@ -209,7 +225,15 @@ export default function MigrationSummary() {
       try {
         const info = await getStorageInfo(
           destination.service.id,
-          storageFetchOptions("destination", destination.root, migration)
+          storageFetchOptions(
+            "destination",
+            {
+              locationPath: destination.root?.locationPath,
+              type: destination.root?.type,
+              parentId: destination.root?.parentId,
+            },
+            connectionIdForRole("destination", migration)
+          )
         );
         if (!cancelled) setDestStorage(info);
       } catch {
@@ -230,13 +254,11 @@ export default function MigrationSummary() {
     migration.migrationId,
   ]);
 
-  const startDiscoveryTitle = isStarting
-    ? "Starting discovery..."
-    : hasCloudConnectionIssues
-      ? "Reconnect cloud accounts before starting discovery."
-      : canStart
-        ? "Start discovery to map differences and build a migration plan."
-        : "Configure source and destination to continue.";
+  const startTitle = hasCloudConnectionIssues
+    ? "Reconnect cloud accounts before starting discovery."
+    : canStart
+      ? "Start discovery to build a migration plan. Filters are applied later in path review."
+      : "Configure source and destination to continue.";
 
   useEffect(() => {
     if (!sourceConfigured && !destinationConfigured) {
@@ -345,23 +367,20 @@ export default function MigrationSummary() {
       setError("Migration ID is missing. Please configure source and destination.");
       return;
     }
-
+    setStarting(true);
+    setError(null);
     try {
-      setIsStarting(true);
-      setError(null);
-
       const results = await verifyConfiguredMigrationCloudConnections(
         source,
         destination,
         migration
       );
-      setConnectionIssues(results);
       const invalid = invalidCloudResults(results);
       if (invalid.length > 0) {
+        setConnectionIssues(results);
         setError(formatCloudConnectionIssues(invalid));
         return;
       }
-
       try {
         await setPathCheckTarget(
           migration.migrationId,
@@ -369,7 +388,7 @@ export default function MigrationSummary() {
           showWindowsCompat ? windowsCompat : false
         );
       } catch {
-        // Still pass via start options below.
+        // start options still carry path check target
       }
       const run = await startMigration({
         migrationId: migration.migrationId,
@@ -380,11 +399,9 @@ export default function MigrationSummary() {
       });
       navigate(`/progress-monitor/${run.id}`);
     } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Unable to start migration.";
-      setError(message);
+      setError(err instanceof Error ? err.message : "Unable to start discovery.");
     } finally {
-      setIsStarting(false);
+      setStarting(false);
     }
   };
 
@@ -422,8 +439,9 @@ export default function MigrationSummary() {
           Set up your <span className="migration-summary__highlight">migration</span>
         </h1>
         <p className="migration-summary__summary">
-          Choose your source and destination. Once both are configured,
-          start discovery to map differences and build a migration plan.
+          Choose your source and destination. When both are configured,
+          start discovery to build a migration plan. Exclusion filters are
+          applied later during path review.
         </p>
       </header>
 
@@ -565,11 +583,11 @@ export default function MigrationSummary() {
           type="button"
           className="glass-button glass-button--progress-cta"
           onClick={() => void handleStartDiscovery()}
-          disabled={isStarting || checkingConnections || !canStart}
-          title={startDiscoveryTitle}
+          disabled={checkingConnections || starting || !canStart}
+          title={startTitle}
         >
           <Search size={20} style={{ marginRight: "0.5rem" }} />
-          {isStarting ? "Starting discovery..." : "Start Discovery"}
+          {starting ? "Starting…" : "Start Discovery"}
         </button>
       </div>
     </PageContainer>
@@ -605,36 +623,6 @@ const FS_STORAGE_TIP = (
     specific folder you selected.
   </p>
 );
-
-function storageFetchOptions(
-  role: "source" | "destination",
-  root: Folder | undefined,
-  migration: { sourceConnectionId?: string; destinationConnectionId?: string }
-) {
-  const path = root?.locationPath || "";
-  const type = root?.type?.trim() || "";
-  const knownRootType =
-    type === "my_drive" ||
-    type === "shared_with_me" ||
-    type === "shared_drive" ||
-    type === "user_root" ||
-    type === "team_space" ||
-    type === "team_folder" ||
-    type === "shared_folder" ||
-    type === "sharepoint_site" ||
-    type === "sharepoint_drive";
-  return {
-    path: path || undefined,
-    connectionId: connectionIdForRole(role, migration),
-    role,
-    ...(knownRootType
-      ? {
-          rootType: type,
-          ...(root?.parentId ? { driveId: root.parentId } : {}),
-        }
-      : {}),
-  };
-}
 
 function SetupEndpointCard({
   label,

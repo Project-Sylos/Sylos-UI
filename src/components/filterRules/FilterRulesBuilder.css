@@ -1,0 +1,481 @@
+.filter-rules-builder {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.filter-rules-builder__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.filter-rules-builder__meta {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.filter-rules-builder__meta-row {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.filter-rules-builder__label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-tertiary);
+}
+
+.filter-rules-builder__input,
+.filter-rules-builder__select,
+.filter-rules-builder__textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.55rem 0.75rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--ui-field-border);
+  background: var(--ui-field-bg);
+  color: var(--text-primary);
+  font: inherit;
+}
+
+.filter-rules-builder--compact .filter-rules-builder__input,
+.filter-rules-builder--compact .filter-rules-builder__select,
+.filter-rules-builder--compact .filter-rules-builder__textarea {
+  padding: 0.32rem 0.5rem;
+  border-radius: 0.4rem;
+  font-size: 0.82rem;
+  line-height: 1.25;
+  min-height: 2rem;
+}
+
+.filter-rules-builder--compact .filter-rules-builder__label {
+  font-size: 0.65rem;
+  letter-spacing: 0.08em;
+  margin-bottom: 0.15rem;
+}
+
+.filter-rules-builder--compact .filter-rules-condition {
+  padding: 0.55rem 0.65rem;
+  gap: 0.45rem;
+  border-radius: 0.55rem;
+}
+
+.filter-rules-builder--compact .filter-rules-condition__row {
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 0.4rem;
+  align-items: end;
+}
+
+.filter-rules-builder--compact .filter-rules-condition__row > label:has(.filter-rules-token-input),
+.filter-rules-builder--compact .filter-rules-condition__row > .filter-rules-token-input,
+.filter-rules-builder--compact .filter-rules-condition__row > .filter-rules-path-segments {
+  grid-column: 1 / -1;
+}
+
+.filter-rules-builder--compact .filter-rules-builder__hint {
+  font-size: 0.75rem;
+}
+
+.filter-rules-builder--compact .filter-rules-group {
+  padding: 0.65rem;
+  gap: 0.55rem;
+}
+
+.filter-rules-builder--compact .filter-rules-group--root {
+  border: none;
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+}
+
+.filter-rules-builder--compact .filter-rules-group__control {
+  min-width: 9.5rem;
+  font-size: 0.82rem;
+}
+
+.filter-rules-builder--compact .filter-rules-builder__toolbar .glass-button {
+  padding: 0.3rem 0.65rem;
+  font-size: 0.8rem;
+  border-radius: 0.45rem;
+}
+
+.filter-rules-builder--compact .filter-rules-condition__actions .glass-button {
+  padding: 0.25rem 0.4rem;
+  min-height: 0;
+}
+
+.filter-rules-builder--compact .filter-rules-chip {
+  padding: 0.12rem 0.4rem;
+  font-size: 0.72rem;
+}
+
+.filter-rules-group--root {
+  border: none;
+  background: transparent;
+  padding: 0;
+}
+
+.filter-rules-token-input {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.filter-rules-token-input__entry {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.filter-rules-token-input__add {
+  padding: 0.32rem 0.65rem;
+  border-radius: 0.4rem;
+  border: 1px solid var(--ui-field-border);
+  background: var(--ui-field-bg);
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  font-weight: 500;
+  line-height: 1.25;
+  min-height: 2rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.filter-rules-token-input__add:hover:not(:disabled) {
+  border-color: var(--ui-border-strong);
+  color: var(--text-primary);
+  background: var(--ui-field-bg-focus);
+}
+
+.filter-rules-token-input__add:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.filter-rules-builder__input:focus,
+.filter-rules-builder__select:focus,
+.filter-rules-builder__textarea:focus {
+  outline: none;
+  border-color: var(--ui-border-strong);
+  background: var(--ui-field-bg-focus);
+}
+
+.filter-rules-builder__input[type="date"] {
+  /* Inherit theme color-scheme so the native picker matches quartz / obsidian. */
+  color-scheme: inherit;
+}
+
+.filter-rules-builder__textarea {
+  min-height: 4rem;
+  resize: vertical;
+}
+
+.filter-rules-group {
+  border: 1px solid var(--ui-inset-border);
+  border-radius: 0.75rem;
+  padding: 0.85rem;
+  background: var(--ui-inset-bg);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  overflow: visible;
+  box-sizing: border-box;
+}
+
+.filter-rules-group--nested {
+  margin-left: 0.75rem;
+  border-style: dashed;
+}
+
+.filter-rules-group__header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.filter-rules-group__control {
+  width: auto;
+  min-width: 12rem;
+  flex: 0 1 auto;
+}
+
+.filter-rules-group__children {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.filter-rules-group__empty {
+  margin: 0;
+  color: var(--text-tertiary);
+  font-size: 0.9rem;
+}
+
+.filter-rules-condition {
+  border: 1px solid var(--ui-inset-border);
+  border-radius: 0.65rem;
+  padding: 0.75rem;
+  background: var(--ui-inset-bg-strong);
+  display: grid;
+  gap: 0.65rem;
+}
+
+.filter-rules-condition__main {
+  display: flex;
+  gap: 0.35rem;
+  align-items: flex-start;
+}
+
+.filter-rules-condition__main > .filter-rules-condition__row {
+  flex: 1;
+  min-width: 0;
+}
+
+.filter-rules-condition__row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.55rem;
+  align-items: end;
+}
+
+.filter-rules-condition__row > label:has(.filter-rules-chip-list),
+.filter-rules-condition__row > label:has(.filter-rules-token-input),
+.filter-rules-condition__row > .filter-rules-token-input,
+.filter-rules-condition__row > .filter-rules-path-segments,
+.filter-rules-condition__row > .filter-rules-builder__hint {
+  grid-column: 1 / -1;
+}
+
+.filter-rules-condition__actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.filter-rules-drag-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 1.35rem;
+  height: 2rem;
+  margin-top: 1.15rem;
+  color: var(--text-tertiary);
+  cursor: grab;
+  border-radius: 0.35rem;
+  user-select: none;
+}
+
+.filter-rules-drag-handle:active {
+  cursor: grabbing;
+}
+
+.filter-rules-drag-handle--group {
+  align-self: start;
+  margin-top: 0.55rem;
+  flex-shrink: 0;
+}
+
+.filter-rules-nested-wrap {
+  display: flex;
+  gap: 0.35rem;
+  align-items: stretch;
+}
+
+.filter-rules-nested-wrap > .filter-rules-group {
+  flex: 1;
+  min-width: 0;
+}
+
+.filter-rules-child {
+  position: relative;
+}
+
+.filter-rules-child--dragging {
+  opacity: 0.45;
+}
+
+.filter-rules-child--drop-before::before {
+  content: "";
+  position: absolute;
+  left: 0.25rem;
+  right: 0.25rem;
+  top: -0.2rem;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--accent, #3b82f6);
+  pointer-events: none;
+}
+
+.filter-rules-group--drop-end {
+  outline: 1px dashed var(--accent, #3b82f6);
+  outline-offset: 2px;
+}
+
+.filter-rules-builder--compact .filter-rules-drag-handle {
+  height: 2rem;
+  margin-top: 0.95rem;
+}
+
+.filter-rules-condition__checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.filter-rules-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.filter-rules-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.2rem 0.45rem;
+  border-radius: 999px;
+  background: var(--ui-badge-neutral-bg);
+  color: var(--ui-badge-neutral-fg);
+  font-size: 0.8rem;
+}
+
+.filter-rules-chip button {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+
+.filter-rules-inline-size {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.45rem;
+}
+
+.filter-rules-inline-mtime {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.45rem;
+}
+
+.filter-rules-builder__hint {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
+.filter-rules-builder__contradictions {
+  margin: 0;
+  padding: 0.65rem 0.75rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--ui-alert-danger-border, rgba(220, 80, 80, 0.45));
+  background: var(--ui-alert-danger-bg, rgba(220, 80, 80, 0.12));
+  color: var(--ui-alert-danger-fg, #f2b8b8);
+}
+
+.filter-rules-builder__contradictions-title {
+  margin: 0 0 0.35rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.filter-rules-builder__contradictions-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.filter-rules-builder__contradictions-list li + li {
+  margin-top: 0.25rem;
+}
+
+.filter-rules-builder--compact .filter-rules-builder__contradictions {
+  padding: 0.5rem 0.65rem;
+}
+
+.filter-rules-builder--compact .filter-rules-builder__contradictions-title {
+  font-size: 0.75rem;
+}
+
+.filter-rules-builder--compact .filter-rules-builder__contradictions-list {
+  font-size: 0.72rem;
+}
+
+/* Live uneditable preview (examples gallery): keep full theme colors, no muted form look. */
+.filter-rules-builder--readonly .filter-rules-builder__input,
+.filter-rules-builder--readonly .filter-rules-builder__select,
+.filter-rules-builder--readonly .filter-rules-builder__textarea {
+  opacity: 1;
+  cursor: default;
+  color: var(--text-primary);
+  -webkit-text-fill-color: var(--text-primary);
+}
+
+.filter-rules-path-segments {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 16rem;
+}
+
+.filter-rules-path-segment {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.filter-rules-path-segment .filter-rules-builder__input {
+  flex: 1;
+  min-width: 6rem;
+}
+
+.filter-rules-path-segment__btn,
+.filter-rules-path-segment__add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 0.3rem;
+  padding: 0.2rem;
+}
+
+.filter-rules-path-segment__add {
+  align-self: flex-start;
+  padding: 0.2rem 0.35rem;
+  font-size: 0.8rem;
+}
+
+.filter-rules-path-segment__btn:hover:not(:disabled),
+.filter-rules-path-segment__add:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: rgba(
+    var(--color-base-slate-r),
+    var(--color-base-slate-g),
+    var(--color-base-slate-b),
+    0.2
+  );
+}
+
+.filter-rules-path-segment__btn:disabled,
+.filter-rules-path-segment__add:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.filter-rules-builder--readonly .filter-rules-chip button {
+  display: none;
+}

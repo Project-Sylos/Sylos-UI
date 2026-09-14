@@ -103,7 +103,7 @@ export function getBrowseTrailFromFolder(
     return crumbs;
   }
 
-  const crumbs: BrowseTrailItem[] = [{ path: "/", name: parts[0] }];
+  const crumbs: BrowseTrailItem[] = [{ path: "/", name: "/" }];
   let built = "";
   for (let i = 0; i < parts.length; i++) {
     built += "/" + parts[i];

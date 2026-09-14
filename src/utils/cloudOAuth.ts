@@ -10,8 +10,6 @@ export interface OAuthPendingSession {
   state: string;
   scopes: string[];
   returnPath: string;
-  /** Dropbox only: personal vs work/team OAuth scope set */
-  dropboxAccountType?: "personal" | "work";
 }
 
 export interface OAuthTokenResponse {

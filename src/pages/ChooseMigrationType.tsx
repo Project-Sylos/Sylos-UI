@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import { PlayCircle, RotateCcw } from "lucide-react";
 
 import SelectionPage from "../components/SelectionPage";

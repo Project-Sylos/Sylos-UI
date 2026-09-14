@@ -2,20 +2,28 @@
 export const PATH_REVIEW_COPY = {
   suggestedRename: "Suggested rename",
   nameAlreadyUsed: "Name already used in this folder",
-  fixDestinationName: "Fix destination name",
-  renameDestination: "Rename destination…",
+  fixDestinationName: "Fix name",
+  renameDestination: "Rename…",
   showInTreeView: "Show in Tree View",
   openFolder: "Open folder",
+  includeRuleExcludedSubtree: "Include & re-scan subtree",
+  editFilterRules: "Edit filters",
+  excludedByRule: (label: string) => `Excluded by: ${label}`,
+  ruleExcludedLegend: "Filter excluded",
+  ruleExcludedLegendTip:
+    "Excluded by applying a list search during path review. Use Include & re-scan subtree on folders to override.",
+  manualExcludedLegendTip:
+    "Manually excluded during review. Click the icon to include again.",
   acceptSuggestedName: "Accept suggested name",
   acceptRenameExisting: "Rename existing destination item",
   ignoreWarning: "Ignore this error",
-  ignoreKeepExistingName: "Keep current destination name",
+  ignoreKeepExistingName: "Keep current name",
   unignoreWarning: "Show this error again",
   useNameAnyway: "Use this name anyway",
   updatingRelatedPaths: "Updating related paths…",
-  checkingDestinationNames: "Checking destination names…",
+  checkingDestinationNames: "Checking names…",
   someNeedAttention: "Some items still have compatibility issues.",
-  someItemsStillNeedFixes: "Some items still have destination compatibility issues.",
+  someItemsStillNeedFixes: "Some items still have naming compatibility issues.",
   warningDismissedSubtree: "Warning dismissed for this folder and its contents.",
   warningRestoredSubtree: "Warning restored for this folder and its contents.",
   willBeCreatedAs: "Will be created as",
@@ -31,7 +39,7 @@ export const PATH_REVIEW_COPY = {
   confirmCopyMessage:
     "Are you sure you'd like to start copying these items?",
   confirmCopyWithSuggestions: (n: number) =>
-    `Sylos will apply ${n} suggested destination name${n === 1 ? "" : "s"}, then start copying. You can ignore the warnings instead if you want to keep the original names.`,
+    `Sylos will apply ${n} suggested name${n === 1 ? "" : "s"} on source and destination, then start copying. You can ignore the warnings instead if you want to keep the original names.`,
   confirmCopyWithManualOnly: (n: number) =>
     `${n} item${n === 1 ? "" : "s"} still need${n === 1 ? "s" : ""} a manual rename before copying. Rename ${n === 1 ? "it" : "them"} in Path Review, or ignore the warnings to keep the original names.`,
   confirmCopyAcceptLabel: "Accept suggestions and copy",
@@ -41,12 +49,12 @@ export const PATH_REVIEW_COPY = {
     `There ${n === 1 ? "is" : "are"} still ${n} item${n === 1 ? "" : "s"} with compatibility warnings. Dismiss them and start copying?`,
   forceTitle: "Use this name anyway?",
   forceConfirm:
-    "This name may cause problems on the destination. We’ll keep it and dismiss warnings for this item and everything inside it.",
+    "This name may cause problems. We’ll keep it and dismiss warnings for this item and everything inside it.",
   forceConfirmSoft:
-    "This name still has destination naming problems. Keep it anyway? Warnings will be dismissed for this item and everything inside it.",
+    "This name still has naming problems. Keep it anyway? Warnings will be dismissed for this item and everything inside it.",
   resetDestinationName: "Reset to original name",
   resetDestinationNameTip:
-    "Clear the destination rename and check the original name again.",
+    "Clear the rename and check the original name again.",
   /** Heads-up when a suggested rename will be applied automatically. */
   compatAutoHandledSummary: (issueCount: number, resolution: string) => {
     const issues =
@@ -58,7 +66,7 @@ export const PATH_REVIEW_COPY = {
   compatAutoHandledDetail:
     "No action needed. The suggested name is applied automatically when you start copying. You can still rename it or ignore the warning if you prefer.",
   alreadyExistedAcceptHelp:
-    "This name already exists on the destination. Accepting renames that existing item to the suggested name. Ignoring keeps the current destination name.",
+    "This name already exists on the destination. Accepting renames both the source and that destination item to the suggested name. Ignoring keeps the current names.",
   compatibilityLabel: "Compatibility",
   compatibilityWarningLabel: "Naming warning",
   compatibilityNeedsActionLabel: "Needs attention",
@@ -75,9 +83,9 @@ export const PATH_REVIEW_COPY = {
   compatibilityLegendTip:
     "Info marks names that will be auto-corrected on copy. Yellow caution marks names that need a manual rename. Select a row for details. Hover the status legend for icon meanings.",
   compatibilityLegendAutoTip:
-    "Destination name will be adjusted automatically when you start copying (unless you ignore the warning or rename it yourself).",
+    "Source and destination names will be adjusted automatically when you start copying (unless you ignore the warning or rename yourself).",
   compatibilityLegendManualTip:
-    "This destination name cannot be fixed automatically. Open the item and rename it, or ignore the warning to keep the original name.",
+    "This name cannot be fixed automatically. Open the item and rename it, or ignore the warning to keep the original name.",
   compatibilityIssuesStat: "Compatibility",
   issuesButtonLabel: "Issues",
   issuesButtonLabelWithCounts: (issues: number, warnings: number) =>
@@ -102,10 +110,10 @@ export const PATH_REVIEW_COPY = {
   manualReviewRequired: (n: number) =>
     `${n} item${n === 1 ? "" : "s"} require${n === 1 ? "s" : ""} manual rename`,
   manualReviewTip:
-    "These destination names cannot be fixed automatically. Open each item and rename it yourself.",
-  renamedOnDestination: "Renamed on destination",
+    "These names cannot be fixed automatically. Open each item and rename it yourself.",
+  renamedOnDestination: "Renamed for compatibility",
   renamedOnDestinationTip:
-    "This name was changed for the destination. Select the row to compare source and destination names.",
+    "This name was changed for compatibility. Select the row to compare source and destination names.",
   apply: "Apply",
   acceptSuggestion: "Accept suggestion",
 } as const;
@@ -318,19 +326,39 @@ export function hasDestinationRename(item: {
 export function destinationDisplayPath(item: {
   name: string;
   locationPath: string;
+  displayPath?: string;
   parentPath?: string;
   proposedPath?: string;
   resolvedDstName?: string;
-  dst?: { name?: string; locationPath?: string } | null;
+  dst?: { name?: string; locationPath?: string; displayPath?: string } | null;
 }): string {
   const destName = destinationDisplayName(item);
+  const dstFriendly = item.dst?.displayPath || item.displayPath;
   if (destName === item.name) {
-    return item.dst?.locationPath || item.locationPath;
+    return dstFriendly || item.dst?.locationPath || item.locationPath;
   }
+  if (dstFriendly) {
+    return dstFriendly;
+  }
+  const srcFriendly = item.displayPath || item.locationPath;
   const parent =
-    item.parentPath ||
-    (item.locationPath.includes("/")
-      ? item.locationPath.slice(0, item.locationPath.lastIndexOf("/")) || "/"
-      : "/");
+    srcFriendly.includes("/")
+      ? srcFriendly.slice(0, srcFriendly.lastIndexOf("/")) || "/"
+      : "/";
   return parent === "/" ? `/${destName}` : `${parent}/${destName}`;
+}
+
+/** Prefer server displayPath; fall back to locationPath (id_path). */
+export function itemDisplayPath(item: {
+  displayPath?: string;
+  locationPath: string;
+  src?: { displayPath?: string } | null;
+  dst?: { displayPath?: string } | null;
+}): string {
+  return (
+    item.displayPath ||
+    item.src?.displayPath ||
+    item.dst?.displayPath ||
+    item.locationPath
+  );
 }

@@ -1,16 +1,20 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { Upload, CheckCircle2, RotateCcw, RefreshCw, Square } from "lucide-react";
+import { Link, useNavigate } from "react-router";
+import {
+  Upload,
+  CheckCircle2,
+  RotateCcw,
+  RefreshCw,
+  ArrowUpRight,
+} from "lucide-react";
 
 import "../App.css";
 import OverwriteDialog from "../components/OverwriteDialog";
 import PageContainer from "../components/PageContainer";
 import {
   listMigrations,
-  stopMigration,
   getMigrationStatus,
   uploadMigrationDB,
-  resumeMigration,
 } from "../api/services";
 import { clearAllMigrations } from "../api/admin";
 import DestructiveConfirmDialog from "../components/CleanSlateDialog";
@@ -19,7 +23,6 @@ import {
   MigrationStatusResponse,
   MigrationWithStatus,
   getMigrationPhase,
-  isMigrationLive,
 } from "../types/migrations";
 import { pickDBFile, formatDate } from "../utils/fileUpload";
 import { useSelection } from "../context/SelectionContext";
@@ -29,15 +32,11 @@ export default function ResumeMigration() {
   const navigate = useNavigate();
   const { updateMigration, applyServerRoots } = useSelection();
   const [migrations, setMigrations] = useState<MigrationWithStatus[]>([]);
-  const [selectedMigrationId, setSelectedMigrationId] = useState<string | null>(null);
+  const [openingMigrationId, setOpeningMigrationId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
-  const [resuming, setResuming] = useState(false);
-  const [stopping, setStopping] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
-  const [resumeSuccess, setResumeSuccess] = useState<string | null>(null);
-  const [stopSuccess, setStopSuccess] = useState<string | null>(null);
   const [showOverwriteDialog, setShowOverwriteDialog] = useState(false);
   const [pendingUpload, setPendingUpload] = useState<{
     file: File;
@@ -57,13 +56,12 @@ export default function ResumeMigration() {
     setError(null);
     try {
       const response = await listMigrations();
-      
-      // Transform the API response to MigrationWithStatus format
+
       const migrationsWithStatus: MigrationWithStatus[] = response.migrations.map((migration) => {
         return {
           id: migration.id,
-          name: migration.name || migration.id, // Fall back to ID when unnamed
-          configPath: "", // API doesn't return configPath
+          name: migration.name || migration.id,
+          configPath: "",
           createdAt: migration.startedAt || new Date().toISOString(),
           status: migration.status,
           phase: migration.phase ?? migration.status,
@@ -76,8 +74,7 @@ export default function ResumeMigration() {
           result: migration.result,
         } as MigrationWithStatus;
       });
-      
-      // Sort by createdAt or startedAt, newest first
+
       const sorted = migrationsWithStatus.sort((a, b) => {
         const dateA = new Date(a.createdAt || a.startedAt || 0).getTime();
         const dateB = new Date(b.createdAt || b.startedAt || 0).getTime();
@@ -115,7 +112,6 @@ export default function ResumeMigration() {
     try {
       await uploadMigrationDB(file, filename, false);
       setUploadSuccess(`Successfully uploaded "${file.name}"`);
-      // Refresh migrations list after upload
       await loadMigrations();
     } catch (err) {
       const errorMessage =
@@ -151,7 +147,6 @@ export default function ResumeMigration() {
         `Successfully uploaded "${pendingUpload.file.name}" (overwritten)`
       );
       setPendingUpload(null);
-      // Refresh migrations list after upload
       await loadMigrations();
     } catch (err) {
       setError(
@@ -168,10 +163,14 @@ export default function ResumeMigration() {
   };
 
   /** Progress-monitor mode query for a lifecycle phase. */
-  const progressMonitorModeForPhase = (phase: string): "discovery" | "copy" | "delete" => {
+  const progressMonitorModeForPhase = (
+    phase: string
+  ): "discovery" | "copy" | "delete" => {
     if (
       phase === "copy-in-progress" ||
       phase === "copy-suspended" ||
+      phase === "copy-finalizing" ||
+      phase === "copy-finalize-failed" ||
       phase === "awaiting-copy-review"
     ) {
       return "copy";
@@ -179,6 +178,8 @@ export default function ResumeMigration() {
     if (
       phase === "delete-in-progress" ||
       phase === "delete-suspended" ||
+      phase === "delete-finalizing" ||
+      phase === "delete-finalize-failed" ||
       phase === "awaiting-delete-review"
     ) {
       return "delete";
@@ -187,110 +188,90 @@ export default function ResumeMigration() {
   };
 
   /**
-   * Determines the appropriate page to navigate to based on migration state.
-   * Review → path-review; suspended / in-progress → progress-monitor; setup → summary.
+   * Last known page for a migration: review / progress (stats + Resume when paused) /
+   * summary for setup. Does not start or resume work - that stays on the destination page.
    */
-  const determineNavigationTarget = (
-    statusData: MigrationStatusResponse
-  ): { path: string; shouldCallResume: boolean } => {
+  const navigationPathForStatus = (statusData: MigrationStatusResponse): string => {
     const phase = getMigrationPhase(statusData);
     const migrationId = statusData.id;
 
     switch (phase) {
       case "awaiting-traversal-review":
       case "awaiting-copy-review":
-        return { path: `/path-review/${migrationId}`, shouldCallResume: false };
+        return `/path-review/${migrationId}`;
       case "awaiting-delete-review":
-        return {
-          path: `/path-review/${migrationId}/source-cleanup`,
-          shouldCallResume: false,
-        };
+        return `/path-review/${migrationId}/source-cleanup`;
       case "traversal-suspended":
-      case "copy-suspended":
-      case "delete-suspended": {
-        const mode = progressMonitorModeForPhase(phase);
-        return {
-          path: `/progress-monitor/${migrationId}?mode=${mode}&retry=1`,
-          shouldCallResume: true,
-        };
-      }
-      case "failed":
-        return {
-          path: `/progress-monitor/${migrationId}?retry=1`,
-          shouldCallResume: true,
-        };
       case "traversal-in-progress":
+      case "traversal-finalizing":
+      case "traversal-finalize-failed":
+      case "copy-suspended":
       case "copy-in-progress":
-      case "delete-in-progress": {
-        // Dead in-progress (not live) is normalized + resumed by the API.
+      case "copy-finalizing":
+      case "copy-finalize-failed":
+      case "delete-suspended":
+      case "delete-in-progress":
+      case "delete-finalizing":
+      case "delete-finalize-failed":
+      case "failed": {
         const mode = progressMonitorModeForPhase(phase);
-        const live = isMigrationLive(statusData);
-        return {
-          path: `/progress-monitor/${migrationId}?mode=${mode}${live ? "" : "&retry=1"}`,
-          shouldCallResume: !live,
-        };
+        return `/progress-monitor/${migrationId}?mode=${mode}`;
       }
       case "roots-set":
       case "filters-set":
-        return { path: `/summary`, shouldCallResume: false };
+        return `/summary`;
       default:
         break;
     }
 
-    return { path: `/summary`, shouldCallResume: false };
+    return `/summary`;
   };
 
-  const handleResume = async (migrationId: string) => {
-    if (!migrationId) {
-      setError("Please select a migration to resume.");
+  const openLabelForMigration = (migration: MigrationWithStatus): string => {
+    const phase = getMigrationPhase(migration);
+    if (phase === "awaiting-delete-review") return "Open source cleanup review";
+    if (phase.startsWith("awaiting-") && phase.endsWith("-review")) {
+      return "Open path review";
+    }
+    if (phase.includes("delete")) return "Open source cleanup progress";
+    if (phase.includes("copy")) return "Open copy progress";
+    if (phase.includes("traversal")) return "Open discovery progress";
+    if (phase === "failed") return "Open progress";
+    if (phase === "roots-set" || phase === "filters-set") return "Open migration summary";
+    return "Open migration";
+  };
+
+  const handleOpenMigration = async (migrationId: string) => {
+    if (!migrationId || openingMigrationId) {
       return;
     }
 
-    setSelectedMigrationId(migrationId);
-    setResuming(true);
+    setOpeningMigrationId(migrationId);
     setError(null);
-    setResumeSuccess(null);
-    setStopSuccess(null);
 
     try {
-      // Get full migration status to determine where we are in the pipeline
       const statusData = await getMigrationStatus(migrationId);
-      
-      // Update the migration context with the migration info
-      // The migrationId is the most important - source/destination will be reselected if needed
+
       updateMigration({
         migrationId: statusData.id,
         sourceConnectionId: statusData.sourceRoot?.connectionId,
         destinationConnectionId: statusData.destinationRoot?.connectionId,
-        ready: statusData.result?.rootSummary !== undefined || Boolean(statusData.sourceRoot),
+        ready:
+          statusData.result?.rootSummary !== undefined ||
+          Boolean(statusData.sourceRoot),
       });
 
-      // Rehydrate source/destination from the server so the summary / progress monitor
-      // repopulates even when browser sessionStorage was cleared.
       applyServerRoots(statusData.sourceRoot, statusData.destinationRoot, true);
 
-      const { path: targetPath, shouldCallResume } =
-        determineNavigationTarget(statusData);
-
-      if (shouldCallResume) {
-        const result = await resumeMigration(migrationId);
-        if (!result.success) {
-          setError(result.error || "Failed to resume migration.");
-          return;
-        }
-      }
-
-      navigate(targetPath);
+      navigate(navigationPathForStatus(statusData));
     } catch (err) {
       const errorMessage =
         err instanceof Error
           ? err.message
           : "Failed to get migration status.";
 
-      // Handle specific error cases
       if (errorMessage.includes("Migration not found")) {
         setError("Migration not found. It may have been deleted.");
-        // Refresh the list in case it was deleted
         await loadMigrations();
       } else if (errorMessage.includes("Server error")) {
         setError("Server error while getting migration status. Please try again.");
@@ -298,51 +279,7 @@ export default function ResumeMigration() {
         setError(errorMessage);
       }
     } finally {
-      setResuming(false);
-      setSelectedMigrationId(null);
-    }
-  };
-
-  const handleStop = async (migrationId: string) => {
-    if (!migrationId) {
-      setError("Please select a migration to stop.");
-      return;
-    }
-
-    setSelectedMigrationId(migrationId);
-    setStopping(true);
-    setError(null);
-    setResumeSuccess(null);
-    setStopSuccess(null);
-
-    try {
-      const response = await stopMigration(migrationId);
-      
-      setStopSuccess(
-        `Migration "${response.id}" stopped successfully! Status: ${response.status}`
-      );
-      
-      // Refresh the migrations list to get updated status
-      await loadMigrations();
-    } catch (err) {
-      const errorMessage =
-        err instanceof Error
-          ? err.message
-          : "Failed to stop migration.";
-
-      // Handle specific error cases
-      if (errorMessage.includes("Migration not found") || errorMessage.includes("not running")) {
-        setError("Migration not found or not running. It may have already stopped.");
-        // Refresh the list
-        await loadMigrations();
-      } else if (errorMessage.includes("Server error")) {
-        setError("Server error while stopping migration. Please try again.");
-      } else {
-        setError(errorMessage);
-      }
-    } finally {
-      setStopping(false);
-      setSelectedMigrationId(null);
+      setOpeningMigrationId(null);
     }
   };
 
@@ -362,15 +299,7 @@ export default function ResumeMigration() {
     }
   };
 
-  const showsStopButton = (migration: MigrationWithStatus) => {
-    if (isMigrationLive(migration)) return true;
-    const phase = getMigrationPhase(migration);
-    return (
-      phase === "traversal-in-progress" ||
-      phase === "copy-in-progress" ||
-      phase === "delete-in-progress"
-    );
-  };
+  const busy = uploading || Boolean(openingMigrationId) || cleanSlateBusy;
 
   return (
     <>
@@ -380,10 +309,10 @@ export default function ResumeMigration() {
         onBack={() => navigate("/choose")}
         backTitle="Back to migration type"
       >
-      <header className="resume-migration__header">
+        <header className="resume-migration__header">
           <h1>Select Migration to Resume</h1>
           <p className="resume-migration__summary">
-            Choose a migration below, or upload a database file to add one.
+            Open a migration to continue from its last page. Upload a database file to add one.
           </p>
         </header>
 
@@ -395,20 +324,12 @@ export default function ResumeMigration() {
           <div className="resume-migration__success">{uploadSuccess}</div>
         )}
 
-        {resumeSuccess && (
-          <div className="resume-migration__success">{resumeSuccess}</div>
-        )}
-
-        {stopSuccess && (
-          <div className="resume-migration__success">{stopSuccess}</div>
-        )}
-
         <div className="resume-migration__actions">
           <button
             type="button"
             className="resume-migration__upload-button"
             onClick={handleUpload}
-            disabled={uploading || resuming || stopping}
+            disabled={busy}
           >
             <Upload size={20} />
             {uploading ? "Uploading..." : "Upload New DB File"}
@@ -417,7 +338,7 @@ export default function ResumeMigration() {
             type="button"
             className="resume-migration__refresh-button"
             onClick={loadMigrations}
-            disabled={loading || resuming || stopping}
+            disabled={loading || busy}
             title="Refresh migrations list"
           >
             <RefreshCw size={20} className={loading ? "resume-migration__refresh-icon--spinning" : ""} />
@@ -435,102 +356,100 @@ export default function ResumeMigration() {
               start a new migration from scratch instead.
             </div>
           ) : (
-            migrations.map((migration) => (
-              <div
-                key={migration.id}
-                className={`resume-migration__file-card ${
-                  selectedMigrationId === migration.id
-                    ? "resume-migration__file-card--selected"
-                    : ""
-                } ${resuming ? "resume-migration__file-card--disabled" : ""}`}
-              >
-                <div className="resume-migration__file-icon">
-                  <RotateCcw size={24} color="#ffffff" />
-                </div>
-                <div className="resume-migration__file-info">
-                  <div className="resume-migration__file-name">
-                    <span className="resume-migration__file-title">
-                      {migration.name && migration.name !== migration.id
-                        ? migration.name
-                        : migration.id}
-                    </span>
-                    {selectedMigrationId === migration.id && (
-                      <CheckCircle2
-                        size={16}
-                        className="resume-migration__check-icon"
-                        style={{ flexShrink: 0 }}
-                      />
-                    )}
+            migrations.map((migration) => {
+              const isOpening = openingMigrationId === migration.id;
+              const openLabel = openLabelForMigration(migration);
+              return (
+                <div
+                  key={migration.id}
+                  className={`resume-migration__file-card ${
+                    isOpening ? "resume-migration__file-card--selected" : ""
+                  } ${openingMigrationId && !isOpening ? "resume-migration__file-card--disabled" : ""}`}
+                  role="button"
+                  tabIndex={busy ? -1 : 0}
+                  aria-label={openLabel}
+                  onClick={() => {
+                    if (!busy) void handleOpenMigration(migration.id);
+                  }}
+                  onKeyDown={(e) => {
+                    if (busy) return;
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      void handleOpenMigration(migration.id);
+                    }
+                  }}
+                >
+                  <button
+                    type="button"
+                    className="resume-migration__open-corner"
+                    title={openLabel}
+                    aria-label={openLabel}
+                    disabled={busy}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (!busy) void handleOpenMigration(migration.id);
+                    }}
+                  >
+                    <ArrowUpRight size={18} aria-hidden="true" />
+                  </button>
+                  <div className="resume-migration__file-icon">
+                    <RotateCcw size={24} color="#ffffff" />
                   </div>
-                  {migration.name && migration.name !== migration.id && (
-                    <div className="resume-migration__file-id" title={migration.id}>
-                      {migration.id}
+                  <div className="resume-migration__file-info">
+                    <div className="resume-migration__file-name">
+                      <span className="resume-migration__file-title">
+                        {migration.name && migration.name !== migration.id
+                          ? migration.name
+                          : migration.id}
+                      </span>
+                      {isOpening && (
+                        <CheckCircle2
+                          size={16}
+                          className="resume-migration__check-icon"
+                          style={{ flexShrink: 0 }}
+                        />
+                      )}
                     </div>
-                  )}
-                  <div className="resume-migration__file-meta">
-                    {migration.status && (
-                      <span className={`resume-migration__status resume-migration__status--${(migration.status || '').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')}`}>{migration.status}</span>
+                    {migration.name && migration.name !== migration.id && (
+                      <div className="resume-migration__file-id" title={migration.id}>
+                        {migration.id}
+                      </div>
                     )}
-                    {migration.status && <span> • </span>}
-                    Created: {formatDate(migration.createdAt)}
+                    <div className="resume-migration__file-meta">
+                      {migration.status && (
+                        <span
+                          className={`resume-migration__status resume-migration__status--${(migration.status || "")
+                            .toLowerCase()
+                            .replace(/\s+/g, "-")
+                            .replace(/[^a-z0-9-]/g, "")}`}
+                        >
+                          {migration.status}
+                        </span>
+                      )}
+                      {migration.status && <span> • </span>}
+                      Created: {formatDate(migration.createdAt)}
+                      {isOpening && <span> • Opening…</span>}
+                    </div>
                   </div>
                 </div>
-                {(showsStopButton(migration)) ? (
-                  <button
-                    type="button"
-                    className="resume-migration__stop-button-inline"
-                    onClick={() => !stopping && handleStop(migration.id)}
-                    disabled={stopping || loading}
-                  >
-                    {stopping && selectedMigrationId === migration.id ? (
-                      <>
-                        <Square size={16} />
-                        Stopping...
-                      </>
-                    ) : (
-                      <>
-                        <Square size={16} />
-                        Stop
-                      </>
-                    )}
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    className="glass-button glass-button--inline"
-                    onClick={() => !resuming && handleResume(migration.id)}
-                    disabled={resuming || stopping || loading}
-                  >
-                    {resuming && selectedMigrationId === migration.id
-                      ? "Resuming..."
-                      : "Resume"}
-                  </button>
-                )}
-              </div>
-            ))
+              );
+            })
           )}
         </div>
 
         {canCleanSlate && (
-          <div className="resume-migration__danger">
-            <h2 className="resume-migration__danger-title">Danger zone</h2>
-            <p className="resume-migration__danger-text">
-              Clear every migration folder, migration database, and registry entry from this
-              install. User accounts and cloud provider app settings are not removed. Running
-              migrations are stopped first. For a full install reset including users, use Settings
-              → Danger zone.
-            </p>
-            {cleanSlateMessage && (
-              <p className="resume-migration__danger-text">{cleanSlateMessage}</p>
-            )}
+          <div className="resume-migration__clear-all">
             <button
               type="button"
               className="resume-migration__danger-button"
               onClick={() => setShowCleanSlateDialog(true)}
-              disabled={cleanSlateBusy || uploading || resuming || stopping}
+              disabled={busy}
             >
               Clear all migration data
             </button>
+            {cleanSlateMessage && (
+              <p className="resume-migration__clear-all-message">{cleanSlateMessage}</p>
+            )}
           </div>
         )}
       </PageContainer>
@@ -538,7 +457,7 @@ export default function ResumeMigration() {
       {showCleanSlateDialog && (
         <DestructiveConfirmDialog
           title="Clear all migration data?"
-          body="This permanently deletes every migration folder, migration database file, and migration registry entry on this Sylos install. User accounts, cloud provider app settings, and your login are kept. Running migrations are stopped first. This cannot be undone."
+          body="This permanently deletes every migration folder, migration database file, and migration registry entry on this Sylos install. User accounts and cloud provider app settings are not removed. Running migrations are stopped first. For a full install reset including users, use Settings → Danger zone. This cannot be undone."
           confirmLabel="Clear all migration data"
           busy={cleanSlateBusy}
           onCancel={() => setShowCleanSlateDialog(false)}
@@ -556,5 +475,3 @@ export default function ResumeMigration() {
     </>
   );
 }
-
-

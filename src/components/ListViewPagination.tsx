@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
+import { Calculator, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { PaginationInfo } from "../types/services";
@@ -14,6 +14,9 @@ interface ListViewPaginationProps {
   onPageChange: (page: number) => void;
   onItemsPerPageChange: (itemsPerPage: number) => void;
   zoomLevel?: number;
+  onCalculateTotal?: () => void;
+  calculatingTotal?: boolean;
+  calculatedTotal?: number | null;
 }
 
 export default function ListViewPagination({
@@ -23,6 +26,9 @@ export default function ListViewPagination({
   onPageChange,
   onItemsPerPageChange,
   zoomLevel = 1,
+  onCalculateTotal,
+  calculatingTotal = false,
+  calculatedTotal = null,
 }: ListViewPaginationProps) {
   const [showItemsPerPageDropdown, setShowItemsPerPageDropdown] = useState(false);
   const itemsPerPageDropdownRef = useRef<HTMLDivElement>(null);
@@ -54,6 +60,28 @@ export default function ListViewPagination({
 
   return (
     <div className="path-review-list__page-nav">
+      {onCalculateTotal ? (
+        <button
+          type="button"
+          className="path-review-list__calc-button"
+          onClick={onCalculateTotal}
+          disabled={calculatingTotal}
+          title={
+            calculatingTotal
+              ? "Counting total matches…"
+              : calculatedTotal != null
+                ? `Recalculate total matches (${calculatedTotal.toLocaleString()})`
+                : "Calculate total matches"
+          }
+          aria-label={
+            calculatingTotal
+              ? "Counting total matches"
+              : "Calculate total matches"
+          }
+        >
+          <Calculator size={16 * zoomLevel} />
+        </button>
+      ) : null}
       <div className="path-review-list__items-per-page-compact" ref={itemsPerPageDropdownRef}>
         <button
           type="button"

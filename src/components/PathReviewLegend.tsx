@@ -5,6 +5,7 @@ import {
   Ban,
   Check,
   Clock,
+  FilterX,
   Info,
   RotateCw,
   Trash2,
@@ -16,7 +17,7 @@ import "./PathReviewLegend.css";
 export interface PathReviewLegendProps {
   zoomLevel?: number;
   className?: string;
-  phase?: "traversal" | "copy" | "source-cleanup" | "delete";
+  phase?: "traversal" | "copy" | "copy-plan" | "source-cleanup" | "delete";
   /** When false, hide the destination-only legend entry (cleanup/delete default). */
   showDestinationOnly?: boolean;
   /** Show destination naming compatibility legend entry. */
@@ -42,6 +43,7 @@ export default function PathReviewLegend({
   showCompatibility = false,
 }: PathReviewLegendProps) {
   const isCopyPhase = phase === "copy";
+  const isCopyPlan = phase === "copy-plan";
   const isSourceCleanup = phase === "source-cleanup";
   const isDeleteReview = phase === "delete";
   const iconSize = 14 * zoomLevel;
@@ -110,7 +112,7 @@ export default function PathReviewLegend({
             />
           ),
           label: "Pending removal",
-          tip: "Scheduled for source removal. Click the icon to keep it on the source; click again to include removal.",
+          tip: "Scheduled for source removal (folders delete recursively). Click explicit roots to keep on source; inherited rows are covered by a parent.",
         },
         {
           key: "excluded-removal",
@@ -140,9 +142,8 @@ export default function PathReviewLegend({
       return out;
     }
 
-    const out: LegendRow[] = [];
-    if (!isCopyPhase) {
-      out.push(
+    if (isCopyPlan) {
+      const out: LegendRow[] = [
         {
           key: "pending",
           icon: (
@@ -155,19 +156,145 @@ export default function PathReviewLegend({
           tip: "Included for copy. Click the icon to exclude; click the excluded icon to include again.",
         },
         {
+          key: "excluded",
+          icon: (
+            <X
+              size={iconSize}
+              className="path-review__legend-icon path-review__legend-icon--excluded"
+            />
+          ),
+          label: "Manually excluded",
+          tip: PATH_REVIEW_COPY.manualExcludedLegendTip,
+        },
+        {
+          key: "rule-excluded",
+          icon: (
+            <FilterX
+              size={iconSize}
+              className="path-review__legend-icon path-review__legend-icon--rule-excluded"
+            />
+          ),
+          label: PATH_REVIEW_COPY.ruleExcludedLegend,
+          tip: PATH_REVIEW_COPY.ruleExcludedLegendTip,
+        },
+        {
+          key: "both",
+          icon: (
+            <Check
+              size={iconSize}
+              className="path-review__legend-icon path-review__legend-icon--exists"
+            />
+          ),
+          label: "Exists (both)",
+          tip: "Already present on source and destination; not queued to copy.",
+        },
+      ];
+      if (showDestinationOnly) {
+        out.push({
+          key: "dst-only",
+          icon: (
+            <Check
+              size={iconSize}
+              className="path-review__legend-icon path-review__legend-icon--exists-only-dst"
+            />
+          ),
+          label: "Destination only",
+          tip: "Exists only on destination.",
+        });
+      }
+      if (showCompatibility) {
+        out.push(
+          {
+            key: "compat-auto",
+            icon: (
+              <Info
+                size={iconSize}
+                className="path-review__legend-icon path-review__legend-icon--compat-info"
+              />
+            ),
+            label: "Will be renamed",
+            tip: PATH_REVIEW_COPY.compatibilityLegendAutoTip,
+          },
+          {
+            key: "compat-manual",
+            icon: (
+              <AlertTriangle
+                size={iconSize}
+                className="path-review__legend-icon path-review__legend-icon--compatibility"
+              />
+            ),
+            label: PATH_REVIEW_COPY.compatibilityFilterManual,
+            tip: PATH_REVIEW_COPY.compatibilityLegendManualTip,
+          }
+        );
+      }
+      return out;
+    }
+
+    if (!isCopyPhase) {
+      const out: LegendRow[] = [
+        {
+          key: "ok",
+          icon: (
+            <Check
+              size={iconSize}
+              className="path-review__legend-icon path-review__legend-icon--exists"
+            />
+          ),
+          label: "Discovered",
+          tip: "Listed successfully during discovery. Nothing is copied yet.",
+        },
+        {
+          key: "failed",
+          icon: (
+            <AlertCircle
+              size={iconSize}
+              className="path-review__legend-icon path-review__legend-icon--failed"
+            />
+          ),
+          label: "Failed",
+          tip: "Failed to explore. Click the icon to mark for discovery retry; click again to unmark.",
+        },
+        {
+          key: "retry",
+          icon: (
+            <RotateCw
+              size={iconSize}
+              className="path-review__legend-icon path-review__legend-icon--retry"
+            />
+          ),
+          label: "Pending retry",
+          tip: "Marked for discovery retry. Click the icon to unmark.",
+        },
+        {
           key: "skipped",
           icon: (
             <Ban
               size={iconSize}
-              className="path-review__legend-icon path-review__legend-icon--skipped-skipped"
+              className="path-review__legend-icon path-review__legend-icon--traversal-skipped"
             />
           ),
           label: "Skipped discovery",
-          tip: "Skipped at root pick (subtree not explored). Click the icon to mark for discovery retry; click again to skip again.",
-        }
-      );
+          tip: "Skipped at root pick (subtree not explored). Click the icon to mark for discovery retry.",
+        },
+      ];
+      if (showDestinationOnly) {
+        out.push({
+          key: "dst-only",
+          icon: (
+            <Check
+              size={iconSize}
+              className="path-review__legend-icon path-review__legend-icon--exists-only-dst"
+            />
+          ),
+          label: "Destination only",
+          tip: "Exists only on destination. Folders with this status are not explored during discovery.",
+        });
+      }
+      return out;
     }
-    out.push(
+
+    const out: LegendRow[] = [
       {
         key: "excluded",
         icon: (
@@ -176,10 +303,19 @@ export default function PathReviewLegend({
             className="path-review__legend-icon path-review__legend-icon--excluded"
           />
         ),
-        label: "Excluded",
-        tip: isCopyPhase
-          ? "Excluded from copy during discovery review (read-only here)."
-          : "Excluded from copy. Click the icon to include again (pending); click pending to exclude.",
+        label: "Manually excluded",
+        tip: "Manually excluded from copy during discovery review (read-only here).",
+      },
+      {
+        key: "rule-excluded",
+        icon: (
+          <FilterX
+            size={iconSize}
+            className="path-review__legend-icon path-review__legend-icon--rule-excluded"
+          />
+        ),
+        label: PATH_REVIEW_COPY.ruleExcludedLegend,
+        tip: PATH_REVIEW_COPY.ruleExcludedLegendTip,
       },
       {
         key: "both",
@@ -190,9 +326,9 @@ export default function PathReviewLegend({
           />
         ),
         label: "Exists (both)",
-        tip: "Already present on source and destination.",
-      }
-    );
+        tip: "Already present on source and destination, or copied successfully.",
+      },
+    ];
     if (showDestinationOnly) {
       out.push({
         key: "dst-only",
@@ -203,7 +339,7 @@ export default function PathReviewLegend({
           />
         ),
         label: "Destination only",
-        tip: "Exists only on destination. Folders with this status are not explored during discovery.",
+        tip: "Exists only on destination.",
       });
     }
     if (showCompatibility) {
@@ -242,9 +378,7 @@ export default function PathReviewLegend({
           />
         ),
         label: "Failed",
-        tip: `Failed to ${
-          isCopyPhase ? "copy" : "explore"
-        }. Click the icon to mark for retry; click the retry icon to switch back to failed.`,
+        tip: "Failed to copy. Click the icon to mark for retry; click the retry icon to switch back to failed.",
       },
       {
         key: "retry",
@@ -255,7 +389,7 @@ export default function PathReviewLegend({
           />
         ),
         label: "Retry",
-        tip: "Marked for retry. Click the icon to unmark (back to failed, or back to skipped discovery when that was the prior state).",
+        tip: "Marked for copy retry. Click the icon to unmark (back to failed).",
       }
     );
     return out;

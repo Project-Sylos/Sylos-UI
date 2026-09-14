@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router";
 import {
   ArrowLeft,
   ChevronRight,
@@ -10,6 +10,7 @@ import {
   File,
   Copy,
   RotateCw,
+  Search,
 } from "lucide-react";
 import { 
   getMigrationDiffs,
@@ -70,6 +71,11 @@ import {
 } from "../contexts/ListDensityContext";
 import { PATH_REVIEW_DENSITY_STORAGE_KEY } from "../utils/listDensity";
 import PathReviewListView from "./PathReviewListView";
+import {
+  canIncludeRuleExcludedSubtree,
+  excludedByRuleText,
+  includeRuleExcludedSubtree,
+} from "../utils/pathReviewRuleExclusion";
 import PathReviewStatusIcon from "../components/PathReviewStatusIcon";
 import PathReviewLegend from "../components/PathReviewLegend";
 import PathReviewIssuesButton from "../components/PathReviewIssuesButton";
@@ -78,25 +84,46 @@ import PathReviewIssuesPanel, {
 } from "../components/PathReviewIssuesPanel";
 import PathReviewFooterInfo from "../components/PathReviewFooterInfo";
 import ListItemMeta from "../components/ListItemMeta";
+import PathReviewSizeColumnHeader from "../components/PathReviewSizeColumnHeader";
 import { getDiffItemFailureMessage } from "../utils/diffFailureMessage";
 import {
+  applyDiscoveryRetryOptimistic,
   getTraversalRetryNodeId,
   hasTraversalFailure,
   isTraversalRetryPending,
-  isTraversalSkipped,
 } from "../utils/pathReviewTraversalStatus";
 import {
   applyDeleteStatusInItems,
+  isDeleteExcludePending,
+  isDeletePendingExplicit,
   toggleDeleteExclude,
 } from "../utils/pathReviewDeletePlan";
 import {
   getPathReviewDisplayPhase,
+  getPathReviewStepperState,
   getPathReviewUIPhase,
   isSourceCleanupPlanPhase,
+  showsPathReviewPendingColumn,
+  type PathReviewRouteView,
 } from "../utils/pathReviewPhase";
+import {
+  getPathReviewItemStatus,
+  itemStatusPhase,
+} from "../utils/pathReviewItemStatus";
 import { isCopyComplete } from "../utils/copyStatus";
 import { finiteNonNeg, formatBytes } from "../utils/formatBytes";
 import { formatListShowingRange } from "../utils/listSearch";
+import {
+  EXCLUSION_OP_TITLE,
+  RETRY_OP_TITLE,
+  REMOVAL_OP_TITLE,
+  canStartMutation,
+  inFlightOpTitle,
+  itemMutationIds,
+  withInFlightOp,
+} from "../utils/pathReviewMutationGuard";
+import { storageFetchOptions } from "../utils/storageFetchOptions";
+import PathReviewPhaseStepper from "../components/PathReviewPhaseStepper";
 import "../App.css";
 import "./PathReview.css";
 
@@ -114,17 +141,14 @@ interface ToastState {
  * Apply API deltas to local stats (no refetch).
  * Canonical keys include traversal/copy/delete status buckets plus excluded,
  * folders, files, sizeSrc, and sizeDst. Only non-zero deltas are present.
- * Stats mapping matches normalizePathReviewStats: “Pending” is copyStatusCounts.pending (copyPending),
- * “Pending Retry” is traversal pending in traversal phase / copy pending in copy phase.
- * - Traversal: copyPending → pendingCount; traversalPending → pendingCount (legacy); traversalFailed → failedCount; traversalPendingRetry → pendingRetriesCount.
- * - Copy: copyPending → pendingCount and pendingRetriesCount; copyFailed → failedCount.
- * - Delete/source cleanup: deletePending → pendingCount; deleteFailed → failedCount;
- *   deleteSkipped → excludedCount.
+ * - Traversal / copy post-review / delete review: pendingCount omitted.
+ * - Copy-plan: (copyPending − copyPendingRetry) → pendingCount.
+ * - Source cleanup (pre-delete): deletePending → pendingCount; deleteSkipped → excludedCount.
  */
 function applyStatsDeltas(
   prev: PathReviewStats | null,
   deltas: Record<string, number> | undefined,
-  phase: "traversal" | "copy" | "delete" | "source-cleanup"
+  phase: "traversal" | "copy" | "copy-plan" | "delete" | "source-cleanup"
 ): PathReviewStats | null {
   if (!prev || !deltas || Object.keys(deltas).length === 0) return prev;
   // Preserve signed deltas (excludes subtract size); only reject non-finite.
@@ -136,17 +160,25 @@ function applyStatsDeltas(
   const isDelete = phase === "delete" || phase === "source-cleanup";
   const failedDelta = isDelete
     ? delta("deleteFailed")
-    : isCopy
+    : isCopy || phase === "copy-plan"
       ? delta("copyFailed")
       : delta("traversalFailed");
-  const pendingDelta = isDelete
-    ? delta("deletePending")
-    : delta("copyPending") + (isCopy ? 0 : delta("traversalPending"));
+  const tracksPending =
+    phase === "copy-plan" || phase === "source-cleanup";
+  const pendingDelta = tracksPending
+    ? phase === "source-cleanup"
+      ? delta("deletePending")
+      : delta("copyPending") - delta("copyPendingRetry")
+    : 0;
   const foldersCount = finiteNonNeg(prev.foldersCount + delta("folders"));
   const filesCount = finiteNonNeg(prev.filesCount + delta("files"));
   const total = foldersCount + filesCount;
   return {
-    pendingCount: finiteNonNeg(prev.pendingCount + pendingDelta),
+    ...(tracksPending
+      ? {
+          pendingCount: finiteNonNeg((prev.pendingCount ?? 0) + pendingDelta),
+        }
+      : {}),
     failedCount: finiteNonNeg(prev.failedCount + failedDelta),
     excludedCount: finiteNonNeg(
       prev.excludedCount + (isDelete ? delta("deleteSkipped") : delta("excluded"))
@@ -157,8 +189,8 @@ function applyStatsDeltas(
           ? delta("deletePending")
           : phase === "source-cleanup"
             ? 0
-            : isCopy
-              ? delta("copyPending")
+            : isCopy || phase === "copy-plan"
+              ? delta("copyPendingRetry")
               : delta("traversalPendingRetry"))
     ),
     successfulCount: finiteNonNeg(
@@ -194,7 +226,7 @@ function mergeDeltas(
   return out;
 }
 
-export default function PathReview({ reviewView = "default" }: { reviewView?: "default" | "source-cleanup" }) {
+export default function PathReview({ reviewView = "default" }: { reviewView?: PathReviewRouteView }) {
   return (
     <ListDensityProvider storageKey={PATH_REVIEW_DENSITY_STORAGE_KEY}>
       <PathReviewPage reviewView={reviewView} />
@@ -202,16 +234,22 @@ export default function PathReview({ reviewView = "default" }: { reviewView?: "d
   );
 }
 
-function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanup" }) {
+function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
   const { migrationId } = useParams<{ migrationId: string }>();
   const navigate = useNavigate();
   const isSourceCleanupView = reviewView === "source-cleanup";
+  const isCopyPlanView = reviewView === "copy-plan";
   const { densityStyle, setListViewportElement } = useListDensity();
   const treeListRef = useRef<HTMLDivElement | null>(null);
   const [activeTab, setActiveTab] = useState<"tree" | "list">("tree");
+  const [listFiltersPageOpen, setListFiltersPageOpen] = useState(false);
+  const [advancedFiltersCanApply, setAdvancedFiltersCanApply] = useState(false);
+  const advancedFiltersClearRef = useRef<() => void>(() => {});
+  const advancedFiltersApplyRef = useRef<() => void>(() => {});
   const [issuesPanelOpen, setIssuesPanelOpen] = useState(false);
   const [listJumpToken, setListJumpToken] = useState(0);
   const [listJumpTarget, setListJumpTarget] = useState<PathReviewListJumpTarget | null>(null);
+  const [treeSearchQuery, setTreeSearchQuery] = useState("");
   const activeTabRef = useRef<"tree" | "list">(activeTab);
   activeTabRef.current = activeTab;
   const [items, setItems] = useState<DiffItem[]>([]);
@@ -247,6 +285,9 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
   const isPollingStatsRef = useRef<boolean>(false);
   const pendingRetryUpdatesRef = useRef<Map<string, boolean>>(new Map());
   const pendingUpdatesRef = useRef<Map<string, boolean>>(new Map());
+  const [mutationOps, setMutationOps] = useState<Map<string, string>>(
+    () => new Map()
+  );
 
   useEffect(() => {
     // Keep inspector in sync with path-issue overlays and current tree page.
@@ -282,6 +323,7 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
   const [showSelectionWarning, setShowSelectionWarning] = useState(false);
   const [listPagination, setListPagination] = useState<PaginationInfo | null>(null);
   const [listItemsPerPage, setListItemsPerPage] = useState<number>(100);
+  const [listCalculatedTotal, setListCalculatedTotal] = useState<number | null>(null);
   /** Bumped after successful exclude/retry in tree view so list search refetches (only when tree tab is active at completion). */
   const [treeListRefreshToken, setTreeListRefreshToken] = useState(0);
   const [highlightedItemId, setHighlightedItemId] = useState<string | null>(null);
@@ -344,11 +386,13 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
   const fetchStats = async () => {
     if (!migrationId || activeTab !== "tree") return; // Only fetch stats when on tree view
     try {
-      const currentPhase = getCurrentPhase();
       const statsData = await getPathReviewStats(
         migrationId,
-        currentPhase,
-        isSourceCleanupView ? "source-cleanup" : undefined
+        isSourceCleanupView
+          ? "source-cleanup"
+          : isCopyPlanView
+            ? "copy-plan"
+            : undefined
       );
       // Always update stats from polling, but list view selection stats will override when items are selected
       // This ensures stats are always fresh when user deselects items
@@ -382,13 +426,10 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
     let cancelled = false;
     void (async () => {
       try {
-        const path = root.nativePath || root.locationPath || "";
-        const info = await getStorageInfo(root.serviceId, {
-          path: path || undefined,
-          connectionId: root.connectionId,
-          role: "destination",
-          rootType: root.type || undefined,
-        });
+        const info = await getStorageInfo(
+          root.serviceId,
+          storageFetchOptions("destination", root, migrationStatus?.destinationConnectionId)
+        );
         if (!cancelled) {
           setDestStorage(info);
           setStorageWarningDismissedAt(null);
@@ -407,6 +448,8 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
     migrationStatus?.destinationRoot?.locationPath,
     migrationStatus?.destinationRoot?.nativePath,
     migrationStatus?.destinationRoot?.type,
+    migrationStatus?.destinationRoot?.parentId,
+    migrationStatus?.destinationConnectionId,
   ]);
   
   const checkCanStartCopy = (): boolean => {
@@ -466,9 +509,6 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
     // Destination name review queue (plain-language path issues)
     void fetchPathIssues();
     
-    // Fetch stats on startup
-    fetchStats();
-    
     // Check for review iteration query param
     const iterationParam = searchParams.get("reviewIteration");
     if (iterationParam) {
@@ -498,6 +538,17 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [migrationId]);
 
+  // Stats projection is view-specific (Discover omits pending; copy-plan returns it).
+  // React Router reuses PathReview across /path-review/:id ↔ …/copy-plan, so migrationId
+  // alone does not remount — refetch when reviewView changes or we would keep traversal stats
+  // and show Pending: 0 via pendingCount ?? 0.
+  useEffect(() => {
+    if (!migrationId) return;
+    setStats(null);
+    void fetchStats();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [migrationId, reviewView]);
+
   useEffect(() => {
     if (!migrationId || !isSourceCleanupView || sourceCleanupPreparedRef.current) return;
     // Wait for phase before deciding: prepareSourceCleanup rebuilds the removal plan and
@@ -524,11 +575,7 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
         // Prefer a fresh stats fetch over optimistic deltas: empty prepare is
         // idempotent and must not leave Selected counts drifted from the DB.
         try {
-          const statsData = await getPathReviewStats(
-            migrationId,
-            "delete",
-            "source-cleanup"
-          );
+          const statsData = await getPathReviewStats(migrationId, "source-cleanup");
           setStats(statsData);
         } catch {
           if (result.deltas) {
@@ -659,7 +706,11 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
 
   // Apply action deltas to local stats (no refetch), projected for the visible review.
   const handleApplyStatsDeltas = (deltas: Record<string, number>) => {
-    const phase = isSourceCleanupView ? "source-cleanup" : getCurrentPhase();
+    const phase = isSourceCleanupView
+      ? "source-cleanup"
+      : isCopyPlanView
+        ? "copy-plan"
+        : getCurrentPhase();
     setStats((prev) => applyStatsDeltas(prev, deltas, phase));
   };
 
@@ -710,6 +761,7 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
     destFreeKnown && selectedBytes > (destStorage?.freeBytes ?? 0);
   const showStorageWarning =
     showCompatUI &&
+    isTraversalPhase(migrationStatus) &&
     overCapacity &&
     (storageWarningDismissedAt === null ||
       selectedBytes > storageWarningDismissedAt);
@@ -750,107 +802,37 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
     setIssuesPanelOpen(true);
   };
 
+  const handleTreeSearchSubmit = () => {
+    const q = treeSearchQuery.trim();
+    const currentLocationPath =
+      breadcrumbs.length > 0 ? breadcrumbs[breadcrumbs.length - 1].path : "/";
+    const under =
+      currentLocationPath && currentLocationPath !== "/"
+        ? currentLocationPath
+        : undefined;
+    if (!q && !under) {
+      return;
+    }
+    const underPathLabel = under
+      ? "/" + breadcrumbs.map((c) => c.name).join("/")
+      : undefined;
+    setListJumpTarget({
+      underPath: under,
+      underPathLabel,
+      nameQuery: q || undefined,
+    });
+    setListJumpToken((n) => n + 1);
+    setActiveTab("list");
+  };
+
   // Determine if we're in traversal review mode (for backwards compatibility)
   const isTraversalReviewMode = () => {
     return isTraversalPhase(migrationStatus);
   };
 
-  // Get item status based on API data (copyStatus and traversalStatus)
-  // Uses phase-appropriate status fields: copyStatus in copy phase, traversalStatus in traversal phase
-  const getItemStatus = (item: DiffItem) => {
-    const currentPhase = getCurrentPhase();
-
-    if (currentPhase === "delete") {
-      const existsOnlyOnDst =
-        !item.src &&
-        (!!item.dst ||
-          item.traversalStatus === "not_on_src" ||
-          item.dst?.traversalStatus === "not_on_src");
-      if (existsOnlyOnDst) {
-        return {
-          isExcluded: false,
-          isTraversalSkipped: false,
-          isPending: false,
-          isSuccessful: false,
-          isDeleted: false,
-          existsOnBoth: false,
-          existsOnlyOnDst: true,
-          isFailed: false,
-        };
-      }
-      const deleteStatus = item.src?.deleteStatus || "";
-      const isDeleted = deleteStatus === "deleted";
-      const isFailed = deleteStatus === "failed";
-      const isPendingRetry = deleteStatus === "pending";
-      return {
-        isExcluded: false,
-        isTraversalSkipped: false,
-        isPending: isPendingRetry,
-        isSuccessful: isDeleted,
-        isDeleted,
-        existsOnBoth: false,
-        existsOnlyOnDst: false,
-        isFailed,
-      };
-    }
-
-    const isCopy = currentPhase === "copy";
-    
-    if (isCopy) {
-      // Copy phase: use copyStatus field
-      const copyStatus = item.src?.copyStatus || item.copyStatus || "pending";
-      const isFailed = copyStatus === "failed";
-      const existsOnlyOnDst = !item.src && !!item.dst; // dst-only node (no src node)
-      
-      // Copy phase status logic:
-      // 1. Failed = src.copyStatus === "failed" (copy failed)
-      // 2. Successful = copy complete (successful / already_existed) OR item is dst-only
-      // 3. Pending = src.copyStatus === "pending" (didn't get brought over - treat same as failed)
-      // 4. Excluded = copy status excluded (visible but read-only in copy phase; cannot unexclude here)
-      const isExcluded =
-        copyStatus === "exclusion_explicit" ||
-        copyStatus === "exclusion_inherited" ||
-        copyStatus === "excluded";
-      const isPending = copyStatus === "pending";
-      const isSuccessful = isCopyComplete(copyStatus) || existsOnlyOnDst;
-      const existsOnBoth = isCopyComplete(copyStatus); // Copy complete means it exists on both
-      
-      return {
-        isExcluded,
-        isTraversalSkipped: false,
-        isPending,
-        isSuccessful,
-        existsOnBoth,
-        existsOnlyOnDst,
-        isFailed,
-      };
-    } else {
-      // Traversal (discovery) phase: copyStatus = exclude state (editable here). traversalStatus = traverse/retry state.
-      const copyStatus = item.src?.copyStatus || item.copyStatus || "pending";
-      const isFailed = item.src?.traversalStatus === "failed" || item.dst?.traversalStatus === "failed" || item.traversalStatus === "failed";
-      const existsOnlyOnDst = item.traversalStatus === "not_on_src" || item.dst?.traversalStatus === "not_on_src";
-      const skippedDiscovery = isTraversalSkipped(item);
-      // Traversal phase: Failed = traversal failed. Skipped = root-pick (not copy-X). Excluded = copy exclude.
-      const isExcluded =
-        !skippedDiscovery &&
-        (copyStatus === "exclusion_explicit" ||
-          copyStatus === "exclusion_inherited" ||
-          copyStatus === "excluded");
-      const isPending = copyStatus === "pending";
-      const isSuccessful = isCopyComplete(copyStatus);
-      const existsOnBoth = isSuccessful; // Copy complete means it exists on both
-      
-      return {
-        isExcluded,
-        isTraversalSkipped: skippedDiscovery,
-        isPending,
-        isSuccessful,
-        existsOnBoth,
-        existsOnlyOnDst,
-        isFailed,
-      };
-    }
-  };
+  // Phase-aware row status (shared with list view).
+  const getItemStatus = (item: DiffItem) =>
+    getPathReviewItemStatus(item, itemStatusPhase(getDisplayPhase()));
 
   const loadItems = async (
     locationPath: string | undefined,
@@ -927,7 +909,7 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
         setRetryItems(initialRetry);
       } else if (currentPhase === "delete") {
         filteredItems.forEach((item) => {
-          if ((item.src?.deleteStatus || "") === "pending") {
+          if (isDeletePendingExplicit(item.src?.deleteStatus)) {
             initialRetry.add(item.id);
           }
         });
@@ -961,6 +943,14 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
   };
 
   const handleFolderClick = (item: DiffItem) => {
+    const opTitle = inFlightOpTitle(mutationOps, itemMutationIds(item));
+    if (opTitle) {
+      setToast({
+        message: "An operation is still running on this folder.",
+        type: "info",
+      });
+      return;
+    }
     // Use copyStatus-based logic for traversal review mode
     const status = getItemStatus(item);
     
@@ -1074,27 +1064,26 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
 
   // Navigate to tree view and highlight an item
   const navigateToTreeView = async (item: DiffItem) => {
-    // Extract parent path from item's locationPath
+    // Nav uses id_path; breadcrumb labels use display-name segments when available.
     const parentPath = item.parentPath || getParentPath(item.locationPath);
-    
-    // Build breadcrumbs to parent folder
+    const displayParent = getParentPath(item.displayPath || item.locationPath);
+
     if (parentPath) {
-      // Parse the parent path into breadcrumbs
-      const pathParts = parentPath.split("/").filter(p => p !== "");
+      const locParts = parentPath.split("/").filter((p) => p !== "");
+      const nameParts = (displayParent || "")
+        .split("/")
+        .filter((p) => p !== "");
       const newBreadcrumbs: BreadcrumbItem[] = [];
-      
       let currentPath = "";
-      for (const part of pathParts) {
-        currentPath += (currentPath === "" ? "" : "/") + part;
+      for (let i = 0; i < locParts.length; i++) {
+        currentPath += (currentPath === "" ? "" : "/") + locParts[i];
         newBreadcrumbs.push({
           path: "/" + currentPath,
-          name: part,
+          name: nameParts[i] || locParts[i],
         });
       }
-      
       setBreadcrumbs(newBreadcrumbs);
     } else {
-      // Root folder
       setBreadcrumbs([]);
     }
     
@@ -1119,17 +1108,16 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
     const isCopy = currentPhase === "copy";
     const isDelete = currentPhase === "delete";
     const srcNodeId = item.src?.id;
-    const dstNodeId = item.dst?.id;
-    
+
     // Determine which node has failed or pending status (failed takes priority)
     let nodeIdToUpdate: string | null = null;
     let isMarkedForRetry = false;
     
     if (isDelete) {
       const deleteStatus = item.src?.deleteStatus || "";
-      if ((deleteStatus === "failed" || deleteStatus === "pending") && srcNodeId) {
+      if ((deleteStatus === "failed" || isDeletePendingExplicit(deleteStatus)) && srcNodeId) {
         nodeIdToUpdate = srcNodeId;
-        isMarkedForRetry = deleteStatus === "pending" || retryItems.has(item.id);
+        isMarkedForRetry = isDeletePendingExplicit(deleteStatus) || retryItems.has(item.id);
       }
     } else if (isCopy) {
       // Copy phase: check copyStatus (only on src nodes)
@@ -1146,10 +1134,7 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
       const nodeId = getTraversalRetryNodeId(item);
       if (nodeId) {
         nodeIdToUpdate = nodeId;
-        isMarkedForRetry =
-          item.src?.traversalStatus === "pending"
-            ? retryItems.has(item.id) || true
-            : retryItems.has(item.id) || false;
+        isMarkedForRetry = isTraversalRetryPending(item);
       }
     }
 
@@ -1162,33 +1147,40 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
       return;
     }
 
+    if (!canStartMutation(mutationOps, nodeIdToUpdate)) {
+      setToast({
+        message:
+          "An operation is already running on this path; try again once it finishes.",
+        type: "error",
+      });
+      return;
+    }
+
     const fromSkippedDiscovery =
       !isCopy && !isDelete && item.src?.traversalStatus === "excluded";
     
     // Store original item state for rollback
     const originalItem = { ...item };
+
+    setMutationOps((prev) =>
+      withInFlightOp(prev, [nodeIdToUpdate, item.id, srcNodeId], RETRY_OP_TITLE)
+    );
     
     // Optimistic update
     const newRetryState = !isMarkedForRetry;
-    let nextTravStatus = "pending";
-    let nextCopyStatus: string | undefined;
+    let unmarkRestore: "failed" | "excluded" = "failed";
     if (!isCopy && !isDelete) {
       if (newRetryState) {
         discoveryRetryPriorRef.current.set(
           item.id,
           fromSkippedDiscovery ? "excluded" : "failed"
         );
-        nextTravStatus = "pending";
-        if (fromSkippedDiscovery) {
-          nextCopyStatus = "pending";
-        }
       } else {
-        nextTravStatus =
-          discoveryRetryPriorRef.current.get(item.id) || "failed";
+        unmarkRestore =
+          discoveryRetryPriorRef.current.get(item.id) === "excluded"
+            ? "excluded"
+            : "failed";
         discoveryRetryPriorRef.current.delete(item.id);
-        if (nextTravStatus === "excluded") {
-          nextCopyStatus = "excluded";
-        }
       }
     }
     setRetryItems((prev) => {
@@ -1201,52 +1193,30 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
       return newSet;
     });
 
-    // Optimistically update item's status in items array for immediate status icon update
-    // Update the specific node (src or dst) that we're modifying
+    // Optimistically update every failed side (or revert them) so the icon flips immediately
     setItems((prevItems) =>
       prevItems.map((i) => {
-        if (i.id === item.id) {
-          const updatedItem = { ...i };
-          // Update the node we're modifying
-          if (nodeIdToUpdate === srcNodeId && i.src) {
-            if (isDelete) {
-              updatedItem.src = {
-                ...i.src,
-                deleteStatus: isMarkedForRetry ? "failed" : "pending",
-              };
-            } else if (isCopy) {
-              // Copy phase: update copyStatus
-              updatedItem.src = {
-                ...i.src,
-                copyStatus: isMarkedForRetry ? "failed" : "pending",
-              };
-              updatedItem.copyStatus = isMarkedForRetry ? "failed" : "pending";
-            } else {
-              updatedItem.src = {
-                ...i.src,
-                traversalStatus: nextTravStatus,
-                ...(nextCopyStatus ? { copyStatus: nextCopyStatus } : {}),
-              };
-              if (nextCopyStatus) {
-                updatedItem.copyStatus = nextCopyStatus;
-              }
-              if (i.id === srcNodeId) {
-                updatedItem.traversalStatus = nextTravStatus;
-              }
-            }
-          } else if (nodeIdToUpdate === dstNodeId && i.dst) {
-            // Only traversal phase uses dst nodes for retry
-            updatedItem.dst = {
-              ...i.dst,
-              traversalStatus: isMarkedForRetry ? "failed" : "pending",
-            };
-            if (i.id === dstNodeId) {
-              updatedItem.traversalStatus = isMarkedForRetry ? "failed" : "pending";
-            }
-          }
-          return updatedItem;
+        if (i.id !== item.id) {
+          return i;
         }
-        return i;
+        if (isDelete && i.src) {
+          return {
+            ...i,
+            src: {
+              ...i.src,
+              deleteStatus: isMarkedForRetry ? "failed" : "pending_explicit",
+            },
+          };
+        }
+        if (isCopy && i.src) {
+          const nextCopy = isMarkedForRetry ? "failed" : "pending";
+          return {
+            ...i,
+            src: { ...i.src, copyStatus: nextCopy },
+            copyStatus: nextCopy,
+          };
+        }
+        return applyDiscoveryRetryOptimistic(i, newRetryState, unmarkRestore);
       })
     );
     
@@ -1336,6 +1306,10 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
         message: err instanceof Error ? err.message : "Network error: Failed to update node. Please try again.",
         type: "error",
       });
+    } finally {
+      setMutationOps((prev) =>
+        withInFlightOp(prev, [nodeIdToUpdate, item.id, srcNodeId], null)
+      );
     }
   };
 
@@ -1343,8 +1317,12 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
     item: DiffItem,
     currentChecked: boolean
   ) => {
-    // In copy/delete review, exclusion/inclusion are read-only (no actions allowed)
-    if (isCopyPhase(migrationStatus) || isDeletePhase(migrationStatus)) {
+    // Copy results / delete review: exclusion is read-only. Copy-plan allows exclude.
+    if (
+      (isCopyPhase(migrationStatus) && !isCopyPlanView) ||
+      isDeletePhase(migrationStatus) ||
+      isSourceCleanupView
+    ) {
       return;
     }
 
@@ -1378,8 +1356,22 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
       return;
     }
 
+    const primaryId = srcNodeId || dstNodeId || item.id;
+    if (!canStartMutation(mutationOps, primaryId)) {
+      setToast({
+        message:
+          "An operation is already running on this path; try again once it finishes.",
+        type: "error",
+      });
+      return;
+    }
+
     // Store original item state for rollback
     const originalItem = { ...item };
+
+    setMutationOps((prev) =>
+      withInFlightOp(prev, [primaryId, srcNodeId, dstNodeId, item.id], EXCLUSION_OP_TITLE)
+    );
 
     // Optimistic update: immediately update UI
     const newChecked = !currentChecked;
@@ -1547,6 +1539,10 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
         message: errorMessage,
         type: "error",
       });
+    } finally {
+      setMutationOps((prev) =>
+        withInFlightOp(prev, [primaryId, srcNodeId, dstNodeId, item.id], null)
+      );
     }
   };
 
@@ -1604,18 +1600,60 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
     }
   };
 
+  const handleIncludeRuleExcludedSubtree = async (item: DiffItem) => {
+    if (!migrationId || !canIncludeRuleExcludedSubtree(item)) return;
+    const nodeId = item.src?.id || item.id;
+    setPathBusyMessage("Including subtree and marking for re-scan…");
+    try {
+      const result = await includeRuleExcludedSubtree(migrationId, nodeId);
+      if (!result.success) {
+        setToast({
+          message: result.error || "Could not include and re-scan subtree",
+          type: "error",
+        });
+        return;
+      }
+      setToast({
+        message: "Subtree included and marked for discovery retry",
+        type: "success",
+      });
+      await loadItems(
+        breadcrumbs.length > 0
+          ? breadcrumbs[breadcrumbs.length - 1].path
+          : undefined,
+        undefined,
+        { silent: activeTabRef.current === "list" }
+      );
+      await fetchStats();
+      if (activeTabRef.current === "tree") {
+        setTreeListRefreshToken((n) => n + 1);
+      }
+    } catch (err) {
+      setToast({
+        message:
+          err instanceof Error
+            ? err.message
+            : "Could not include and re-scan subtree",
+        type: "error",
+      });
+    } finally {
+      setPathBusyMessage(null);
+    }
+  };
+
   const buildTreeContextActions = (item: DiffItem) => {
     const status = getItemStatus(item);
     const phase = getCurrentPhase();
     const isDeleteReview = phase === "delete";
     const isFolder = item.type === "folder";
     const isMarkedForRetry = isDeleteReview
-      ? (item.src?.deleteStatus || "") === "pending" ||
+      ? isDeletePendingExplicit(item.src?.deleteStatus) ||
         (retryItems.has(item.id) && (item.src?.deleteStatus || "") !== "deleted")
       : isTraversalRetryPending(item) ||
         (retryItems.has(item.id) && !hasTraversalFailure(item));
     const canOpenFolder =
       isFolder &&
+      !inFlightOpTitle(mutationOps, itemMutationIds(item)) &&
       (isDeleteReview
         ? !status.isFailed && !isMarkedForRetry
         : !status.isExcluded &&
@@ -1661,6 +1699,15 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
         key: "open-folder",
         label: PATH_REVIEW_COPY.openFolder,
         onClick: () => handleFolderClick(item),
+      });
+    }
+    if (canIncludeRuleExcludedSubtree(item)) {
+      actions.push({
+        key: "include-rescan",
+        label: PATH_REVIEW_COPY.includeRuleExcludedSubtree,
+        onClick: () => {
+          void handleIncludeRuleExcludedSubtree(item);
+        },
       });
     }
     if (canExclude) {
@@ -1959,25 +2006,41 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
     if (!migrationId || !isSourceCleanupView) return;
 
     const originalItems = items;
-    const deleteStatus = item.src?.deleteStatus || "";
-    const isExcluding = deleteStatus === "pending" || deleteStatus === "";
-    const nextStatus: "pending" | "skipped" = isExcluding ? "skipped" : "pending";
+    const isExcluding = isDeleteExcludePending(item.src?.deleteStatus);
+    const nextStatus = isExcluding ? ("skipped" as const) : ("pending_explicit" as const);
+    const nodeId = item.src?.id || item.id;
 
-    setItems((prev) => applyDeleteStatusInItems(prev, item, nextStatus));
-
-    const result = await toggleDeleteExclude(migrationId, item);
-    if (!result.success) {
-      setItems(originalItems);
+    if (!canStartMutation(mutationOps, nodeId)) {
       setToast({
-        message: result.error || "Failed to update removal plan",
+        message:
+          "An operation is already running on this path; try again once it finishes.",
         type: "error",
       });
       return;
     }
-    if (result.deltas) {
-      handleApplyStatsDeltas(result.deltas);
+
+    setMutationOps((prev) =>
+      withInFlightOp(prev, [nodeId, item.id], REMOVAL_OP_TITLE)
+    );
+    setItems((prev) => applyDeleteStatusInItems(prev, item, nextStatus));
+
+    try {
+      const result = await toggleDeleteExclude(migrationId, item);
+      if (!result.success) {
+        setItems(originalItems);
+        setToast({
+          message: result.error || "Failed to update removal plan",
+          type: "error",
+        });
+        return;
+      }
+      if (result.deltas) {
+        handleApplyStatsDeltas(result.deltas);
+      }
+      setTreeListRefreshToken((t) => t + 1);
+    } finally {
+      setMutationOps((prev) => withInFlightOp(prev, [nodeId, item.id], null));
     }
-    setTreeListRefreshToken((t) => t + 1);
   };
 
   const handleBeginRemoval = async () => {
@@ -2037,7 +2100,7 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
   const inspectorStatus = inspectorItem ? getItemStatus(inspectorItem) : null;
   const inspectorMarkedForRetry = inspectorItem
     ? getCurrentPhase() === "delete"
-      ? (inspectorItem.src?.deleteStatus || "") === "pending" ||
+      ? isDeletePendingExplicit(inspectorItem.src?.deleteStatus) ||
         (retryItems.has(inspectorItem.id) &&
           (inspectorItem.src?.deleteStatus || "") !== "deleted")
       : isTraversalRetryPending(inspectorItem) ||
@@ -2067,17 +2130,46 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
       !isCopyPhase(migrationStatus)
   );
   return (
-    <section className="path-review">
-      <GlassSurfacePanel className="path-review__content path-review__content--with-button">
+    <section className={`path-review${listFiltersPageOpen ? " path-review--filters-page" : ""}`}>
+      <GlassSurfacePanel
+        className={`path-review__content path-review__content--with-button${
+          listFiltersPageOpen ? " path-review__content--filters-page" : ""
+        }`}
+      >
         <header className="path-review__header">
           <PageBackButton
-            onClick={() => navigate(-1)}
-            title="Go back to previous page"
+            onClick={() => {
+              if (listFiltersPageOpen) {
+                setListFiltersPageOpen(false);
+                return;
+              }
+              if ((isCopyPlanView || isSourceCleanupView) && migrationId) {
+                navigate(`/path-review/${migrationId}`);
+                return;
+              }
+              navigate(-1);
+            }}
+            title={
+              listFiltersPageOpen
+                ? "Back to list search"
+                : isCopyPlanView
+                  ? "Back to discovery review"
+                  : isSourceCleanupView
+                    ? "Back to copy review"
+                    : "Go back to previous page"
+            }
             className="path-review__back"
           />
           <h1>
-            {isSourceCleanupView ? (
+            {listFiltersPageOpen ? (
+              <>
+                Advanced{" "}
+                <span className="path-review__highlight">filters</span>
+              </>
+            ) : isSourceCleanupView ? (
               <>Plan <span className="path-review__highlight">Source Removal</span></>
+            ) : isCopyPlanView ? (
+              <>Review the <span className="path-review__highlight">Copy Plan</span></>
             ) : isDeletePhase(migrationStatus) ? (
               <>Review <span className="path-review__highlight">Removal Results</span></>
             ) : isCopyPhase(migrationStatus) ? (
@@ -2087,8 +2179,14 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
             )}
           </h1>
         </header>
+        {!listFiltersPageOpen && (
+          <PathReviewPhaseStepper
+            state={getPathReviewStepperState(migrationStatus, reviewView)}
+          />
+        )}
 
         {/* Tabs */}
+        {!listFiltersPageOpen && (
         <div className="path-review__tabs">
           <button
             type="button"
@@ -2115,13 +2213,14 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
             </label>
           )}
         </div>
+        )}
 
         {error && <div className="path-review__error">{error}</div>}
 
-        <div className="path-review__workspace">
+        <div className={`path-review__workspace${listFiltersPageOpen ? " path-review__workspace--filters-page" : ""}`}>
           <div className="path-review__workspace-main">
         {/* Tree View Content */}
-        <div className={activeTab === "tree" ? "path-review__tab-content" : "path-review__tab-content path-review__tab-content--hidden"}>
+        <div className={activeTab === "tree" && !listFiltersPageOpen ? "path-review__tab-content" : "path-review__tab-content path-review__tab-content--hidden"}>
           <>
 
         {/* Breadcrumbs */}
@@ -2163,6 +2262,37 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
               </div>
             ))}
           </div>
+          <form
+            className="path-review__tree-search"
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleTreeSearchSubmit();
+            }}
+          >
+            <input
+              type="search"
+              className="path-review__tree-search-input"
+              placeholder={
+                breadcrumbs.length > 0
+                  ? "Search in this folder…"
+                  : "Search all items…"
+              }
+              value={treeSearchQuery}
+              onChange={(e) => setTreeSearchQuery(e.target.value)}
+              aria-label="Search from current folder"
+            />
+            <button
+              type="submit"
+              className="path-review__tree-search-button"
+              title="Search in list view"
+              aria-label="Search in list view"
+              disabled={
+                treeSearchQuery.trim() === "" && breadcrumbs.length === 0
+              }
+            >
+              <Search size={16} />
+            </button>
+          </form>
         </div>
 
         {/* Controls + icon legend (legend on its own full-width band) */}
@@ -2234,17 +2364,19 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
                   <ChevronLeft size={18} />
                 </button>
                 <span className="path-review__page-info">
-                  Page {treeCurrentPage + 1} of {(() => {
-                    const total = pagination.total;
-                    return total > 0 ? Math.ceil(total / treeItemsPerPage) : 1;
-                  })()}
+                  {pagination.total != null && pagination.total > 0
+                    ? `Page ${treeCurrentPage + 1} of ${Math.ceil(pagination.total / treeItemsPerPage)}`
+                    : `Page ${treeCurrentPage + 1}`}
                 </span>
                 <button
                   type="button"
                   className="path-review-list__page-nav-button"
                   onClick={() => {
                     const total = pagination.total;
-                    const totalPages = total > 0 ? Math.ceil(total / treeItemsPerPage) : 1;
+                    const totalPages =
+                      total != null && total > 0
+                        ? Math.ceil(total / treeItemsPerPage)
+                        : treeCurrentPage + 2;
                     const newPage = Math.min(totalPages - 1, treeCurrentPage + 1);
                     const currentLocationPath = breadcrumbs.length > 0 
                       ? breadcrumbs[breadcrumbs.length - 1].path 
@@ -2259,7 +2391,7 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
                   }}
                   disabled={(() => {
                     const total = pagination.total;
-                    if (total > 0) {
+                    if (total != null && total > 0) {
                       return treeCurrentPage >= Math.ceil(total / treeItemsPerPage) - 1;
                     }
                     return !pagination.hasMore;
@@ -2292,6 +2424,7 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
               <div className="path-review__empty">This folder is empty.</div>
             ) : (
               <>
+                <PathReviewSizeColumnHeader variant="tree" />
                 {items.map((item) => {
                   const status = getItemStatus(item);
                   const isFolder = item.type === "folder";
@@ -2301,14 +2434,15 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
                   // Check both src and dst nodes - failed overrides pending
                   const isMarkedForRetry =
                     getCurrentPhase() === "delete"
-                      ? (item.src?.deleteStatus || "") === "pending" ||
+                      ? isDeletePendingExplicit(item.src?.deleteStatus) ||
                         (retryItems.has(item.id) && (item.src?.deleteStatus || "") !== "deleted")
                       : isTraversalRetryPending(item) ||
                         (retryItems.has(item.id) && !hasTraversalFailure(item));
                   const isHighlighted = highlightedItemId === item.id;
                   const failureMessage = getDiffItemFailureMessage(item);
                   const isDeleteReview = getCurrentPhase() === "delete";
-                  const canOpenFolder = isFolder && (
+                  const canOpenFolder = isFolder &&
+                    !inFlightOpTitle(mutationOps, itemMutationIds(item)) && (
                     isDeleteReview
                       ? !status.isFailed && !isMarkedForRetry
                       : !status.isExcluded &&
@@ -2317,7 +2451,15 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
                         !isMarkedForRetry &&
                         !status.existsOnlyOnDst
                   );
+                  const folderOpTitle = inFlightOpTitle(mutationOps, itemMutationIds(item));
                   const isSelected = inspectorItem?.id === item.id;
+                  const shownPath =
+                    item.displayPath ||
+                    (breadcrumbs.length
+                      ? `/${[...breadcrumbs.map((c) => c.name), item.name].join("/")}`
+                      : item.name
+                        ? `/${item.name}`
+                        : item.locationPath);
 
                   return (
                     <div
@@ -2339,6 +2481,7 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
                           isLocked={isLocked}
                           zoomLevel={1}
                           phase={getDisplayPhase()}
+                          opInProgressTitle={inFlightOpTitle(mutationOps, itemMutationIds(item))}
                           onRetryClick={handleRetryClick}
                           onExcludeClick={handleCheckboxChange}
                           onSkipDeleteClick={handleSkipDeleteClick}
@@ -2387,10 +2530,18 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
                             {failureMessage}
                           </div>
                         )}
+                        {excludedByRuleText(item) ? (
+                          <div
+                            className="path-review__item-rule-exclusion"
+                            title={excludedByRuleText(item)}
+                          >
+                            {excludedByRuleText(item)}
+                          </div>
+                        ) : null}
                       </div>
 
-                      <div className="path-review__item-path-col" title={item.locationPath}>
-                        {item.locationPath}
+                      <div className="path-review__item-path-col" title={shownPath}>
+                        {shownPath}
                       </div>
 
                       <ListItemMeta
@@ -2405,8 +2556,20 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
                           type="button"
                           className="path-review__item-arrow-button"
                           disabled={!canOpenFolder}
-                          title={canOpenFolder ? "Open folder" : "Cannot open folder"}
-                          aria-label={canOpenFolder ? "Open folder" : "Cannot open folder"}
+                          title={
+                            folderOpTitle
+                              ? folderOpTitle
+                              : canOpenFolder
+                                ? "Open folder"
+                                : "Cannot open folder"
+                          }
+                          aria-label={
+                            folderOpTitle
+                              ? folderOpTitle
+                              : canOpenFolder
+                                ? "Open folder"
+                                : "Cannot open folder"
+                          }
                           onClick={(e) => {
                             e.stopPropagation();
                             if (canOpenFolder) handleFolderClick(item);
@@ -2430,12 +2593,21 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
         {/* List View Content */}
         {migrationId && (
           <div 
-            className={`path-review__list-view-container ${activeTab === "list" ? "" : "path-review__tab-content--hidden"}`}
+            className={`path-review__list-view-container ${
+              activeTab === "list" || listFiltersPageOpen
+                ? ""
+                : "path-review__tab-content--hidden"
+            }`}
           >
             <PathReviewListView
               migrationId={migrationId}
               reviewView={reviewView}
-              isActive={activeTab === "list"}
+              isActive={activeTab === "list" || listFiltersPageOpen}
+              advancedFiltersOpen={listFiltersPageOpen}
+              onAdvancedFiltersOpenChange={setListFiltersPageOpen}
+              advancedFiltersClearRef={advancedFiltersClearRef}
+              advancedFiltersApplyRef={advancedFiltersApplyRef}
+              onAdvancedFiltersCanApplyChange={setAdvancedFiltersCanApply}
               onSkipDeleteClick={handleSkipDeleteClick}
               treeListRefreshToken={treeListRefreshToken}
               includeDestinationOnly={includeDestinationOnly}
@@ -2450,6 +2622,9 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
               onOpenIssuesPanel={openIssuesPanel}
               listJumpToken={listJumpToken}
               listJumpTarget={listJumpTarget}
+              sourceItemCount={
+                (stats?.foldersCount ?? 0) + (stats?.filesCount ?? 0)
+              }
               onPathIssuesChange={setPathIssues}
               onOpenRename={(item) => setRenameTarget(item)}
               onToggleIgnoreWarning={(item) => {
@@ -2466,13 +2641,18 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
               onSelectionStatsWarning={handleSelectionWarning}
               onPaginationChange={handlePaginationChange}
               onNavigateToTreeView={navigateToTreeView}
+              mutationOps={mutationOps}
+              setMutationOps={setMutationOps}
               onToast={(message, type) => setToast({ message, type })}
+              onCalculatedTotalChange={(total) => {
+                setListCalculatedTotal(total);
+              }}
             />
           </div>
         )}
           </div>
 
-          {issuesPanelOpen ? (
+          {listFiltersPageOpen ? null : issuesPanelOpen ? (
             <PathReviewIssuesPanel
               failedCount={stats?.failedCount ?? 0}
               pathIssues={
@@ -2485,11 +2665,14 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
               onClose={() => setIssuesPanelOpen(false)}
               onJump={handleIssuesJump}
             />
-          ) : (
+          ) : inspectorItem ? (
           <PathReviewInspector
             item={inspectorItem}
             phase={getDisplayPhase()}
-            busy={!!pathBusyMessage}
+            busy={
+              !!pathBusyMessage ||
+              !!inFlightOpTitle(mutationOps, itemMutationIds(inspectorItem))
+            }
             canExclude={inspectorCanExclude}
             canRetry={inspectorCanRetry}
             isExcluded={!!inspectorStatus?.isExcluded}
@@ -2497,35 +2680,33 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
             canRename={
               inspectorCanCompatActions &&
               !!(
-                inspectorItem?.pathIssueStatus ||
-                inspectorItem?.proposedPath ||
-                (inspectorItem?.resolvedDstName &&
+                inspectorItem.pathIssueStatus ||
+                inspectorItem.proposedPath ||
+                (inspectorItem.resolvedDstName &&
                   inspectorItem.resolvedDstName !== inspectorItem.name)
               )
             }
             canToggleIgnoreWarning={
               inspectorCanCompatActions &&
-              !!(inspectorItem?.pathIssueStatus || inspectorItem?.proposedPath)
+              !!(inspectorItem.pathIssueStatus || inspectorItem.proposedPath)
             }
             onRename={() => {
-              if (inspectorItem) setRenameTarget(inspectorItem);
+              setRenameTarget(inspectorItem);
             }}
             onToggleIgnoreWarning={async () => {
-              if (inspectorItem) await toggleIgnoreWarningForItem(inspectorItem);
+              await toggleIgnoreWarningForItem(inspectorItem);
             }}
             onExclude={() => {
-              if (inspectorItem) {
-                void handleCheckboxChange(
-                  inspectorItem,
-                  !inspectorStatus?.isExcluded
-                );
-              }
+              void handleCheckboxChange(
+                inspectorItem,
+                !inspectorStatus?.isExcluded
+              );
             }}
             onRetry={() => {
-              if (inspectorItem) void handleRetryClick(inspectorItem);
+              void handleRetryClick(inspectorItem);
             }}
           />
-          )}
+          ) : null}
         </div>
 
         {contextMenu && (
@@ -2593,7 +2774,29 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
           />
         )}
 
-        {/* Footer with Stats, Zoom Control, Sweep Buttons, and Start Copying Button */}
+        {/* Footer */}
+        {listFiltersPageOpen ? (
+          <div className="path-review__footer path-review__footer--filters">
+            <div />
+            <div className="path-review__footer-actions">
+              <button
+                type="button"
+                className="glass-button glass-button--secondary"
+                onClick={() => advancedFiltersClearRef.current()}
+              >
+                Clear rules
+              </button>
+              <button
+                type="button"
+                className="glass-button glass-button--progress-cta"
+                onClick={() => advancedFiltersApplyRef.current()}
+                disabled={!advancedFiltersCanApply}
+              >
+                Apply & search
+              </button>
+            </div>
+          </div>
+        ) : (
         <div className="path-review__footer">
           <ListDensityControl />
           {/* Stats - Only show on tree view */}
@@ -2601,81 +2804,30 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
             <PathReviewFooterInfo
               items={[
                 {
-                  label: "Folders",
-                  value: stats.foldersCount.toLocaleString(),
-                  tooltip: {
-                    tipId: "path-review-folders-count-explanation",
-                    category: "path-review-folders-count",
-                    position: "above",
-                    content: (
-                      <p>
-                        {isSourceCleanupView || isDeletePhase(migrationStatus)
-                          ? "Source folders still selected for removal (delete pending, copy-complete). Updates when you skip or unskip."
-                          : isCopyPhase(migrationStatus)
-                            ? "Source folders in the copy plan (eligible: pending, in progress, successful, or failed; not excluded)."
-                            : "Source folders still selected to copy (pending, not excluded). Updates when you exclude or unexclude."}
-                      </p>
-                    ),
-                  },
-                },
-                {
-                  label: "Files",
-                  value: stats.filesCount.toLocaleString(),
-                  tooltip: {
-                    tipId: "path-review-files-count-explanation",
-                    category: "path-review-files-count",
-                    position: "above",
-                    content: (
-                      <p>
-                        {isSourceCleanupView || isDeletePhase(migrationStatus)
-                          ? "Source files still selected for removal (delete pending, copy-complete). Updates when you skip or unskip."
-                          : isCopyPhase(migrationStatus)
-                            ? "Source files in the copy plan (eligible: pending, in progress, successful, or failed; not excluded)."
-                            : "Source files still selected to copy (pending, not excluded). Updates when you exclude or unexclude."}
-                      </p>
-                    ),
-                  },
-                },
-                {
-                  label: "Folders/Files",
-                  isRatio: true,
-                  ratioValues: {
-                    folders: stats.foldersRatio,
-                    files: stats.filesRatio,
-                  },
-                },
-                {
                   label: "Size (Src)",
                   value: formatBytes(finiteNonNeg(stats.totalFileSize.src)),
-                  tooltip: {
-                    tipId: "path-review-src-size-explanation",
-                    category: "path-review-src-size",
-                    position: "above",
-                    content: (
-                      <p>Total size of all discovered source files.</p>
-                    ),
-                  },
                 },
+                ...(isCopyPlanView || isSourceCleanupView
+                  ? [
+                      {
+                        label: "Selected",
+                        value: formatBytes(
+                          finiteNonNeg(stats.totalFileSize.selected)
+                        ),
+                        selectedHoverCard: {
+                          summary: isSourceCleanupView
+                            ? "Bytes still scheduled for source removal (delete-pending only). Skipping items lowers this."
+                            : "Bytes still scheduled to copy (copy-pending only). Excluding folders or files lowers this.",
+                          foldersCount: stats.foldersCount,
+                          filesCount: stats.filesCount,
+                          foldersRatio: stats.foldersRatio,
+                          filesRatio: stats.filesRatio,
+                        },
+                      },
+                    ]
+                  : []),
                 {
-                  label: "Selected",
-                  value: formatBytes(finiteNonNeg(stats.totalFileSize.selected)),
-                  tooltip: {
-                    tipId: "path-review-selected-size-explanation",
-                    category: "path-review-selected-size",
-                    position: "above",
-                    content: (
-                      <p>
-                        {isSourceCleanupView || isDeletePhase(migrationStatus)
-                          ? "Size of source files still selected for removal (delete pending, copy-complete). Updates when you skip or unskip."
-                          : isCopyPhase(migrationStatus)
-                            ? "Size of source files in the copy plan (eligible file bytes; excludes explicit exclusions and already-existed skips)."
-                            : "Size of source files still selected to copy (pending, not excluded). Updates when you exclude or unexclude."}
-                      </p>
-                    ),
-                  },
-                },
-                { 
-                  label: "Size (Dst)", 
+                  label: "Size (Dst)",
                   value: formatBytes(finiteNonNeg(stats.totalFileSize.dst)),
                   tooltip: {
                     tipId: "path-review-dst-size-explanation",
@@ -2708,14 +2860,39 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
                     ),
                   },
                 },
-                { label: "Pending", value: stats.pendingCount.toLocaleString() },
+                ...(showsPathReviewPendingColumn(
+                  getDisplayPhase(),
+                  migrationStatus
+                )
+                  ? [
+                      {
+                        label: "Pending",
+                        value: (stats.pendingCount ?? 0).toLocaleString(),
+                      },
+                    ]
+                  : []),
                 {
                   label: "Failed",
                   value: stats.failedCount.toLocaleString(),
                   ...(stats.failedCount > 0 ? { highlight: "failed" as const } : {}),
                 },
-                { label: "Excluded", value: stats.excludedCount.toLocaleString() },
-                { label: "Pending Retry", value: (stats.pendingRetriesCount ?? 0).toLocaleString() },
+                ...(getDisplayPhase() !== "traversal"
+                  ? [
+                      {
+                        label: "Excluded",
+                        value: stats.excludedCount.toLocaleString(),
+                      },
+                    ]
+                  : []),
+                ...(getDisplayPhase() !== "copy-plan" &&
+                getDisplayPhase() !== "source-cleanup"
+                  ? [
+                      {
+                        label: "Pending Retry",
+                        value: (stats.pendingRetriesCount ?? 0).toLocaleString(),
+                      },
+                    ]
+                  : []),
               ]}
             />
           )}
@@ -2729,7 +2906,7 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
                     {
                       offset: listPagination.offset,
                       limit: listPagination.limit || listItemsPerPage,
-                      total: listPagination.total,
+                      total: listCalculatedTotal ?? listPagination.total,
                       hasMore: listPagination.hasMore,
                     },
                     listItemsPerPage
@@ -2756,7 +2933,7 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
             )}
 
             
-            {/* Retry Copying, Review Deletion Plan, or Start Copying */}
+            {/* Plan / retry CTAs by review view */}
             {isSourceCleanupView ? (
               <button
                 type="button"
@@ -2766,6 +2943,30 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
                 title="Start removing copied items from the source"
               >
                 Begin Removal from Source
+              </button>
+            ) : isCopyPlanView ? (
+              <button
+                type="button"
+                className="glass-button glass-button--progress-cta"
+                onClick={handleStartCopying}
+                disabled={!checkCanStartCopy() || hasRunningTasks || isTriggeringSweep}
+                title={
+                  !checkCanStartCopy()
+                    ? migrationStatus
+                      ? (() => {
+                          if (getMigrationPhase(migrationStatus) !== "awaiting-traversal-review") {
+                            return `Migration phase: ${getMigrationPhase(migrationStatus)} (needs: awaiting-traversal-review)`;
+                          }
+                          return "Migration not ready for copy phase";
+                        })()
+                      : "Loading migration status..."
+                    : pendingWork?.hasPathReviewChanges
+                      ? "Exclusion sweep will run automatically before copy phase"
+                      : "Start the copy phase"
+                }
+              >
+                <Copy size={20} style={{ marginRight: "0.5rem" }} />
+                Start Copying
               </button>
             ) : isDeletePhase(migrationStatus) ? (
               (stats?.pendingRetriesCount ?? 0) > 0 ? (
@@ -2804,7 +3005,7 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
                 </button>
               ) : null
             ) : (
-              // Traversal phase: show retry discovery or start copying
+              // Traversal review: retry discovery or open the copy plan
               (stats?.pendingRetriesCount ?? 0) > 0 ? (
                 <button
                   type="button"
@@ -2819,31 +3020,19 @@ function PathReviewPage({ reviewView }: { reviewView: "default" | "source-cleanu
               ) : (
                 <button
                   type="button"
-                  className="glass-button glass-button--progress-cta"
-                  onClick={handleStartCopying}
-                  disabled={!checkCanStartCopy() || hasRunningTasks}
-                  title={
-                    !checkCanStartCopy()
-                      ? migrationStatus
-                        ? (() => {
-                            if (getMigrationPhase(migrationStatus) !== "awaiting-traversal-review") {
-                              return `Migration phase: ${getMigrationPhase(migrationStatus)} (needs: awaiting-traversal-review)`;
-                            }
-                            return "Migration not ready for copy phase";
-                          })()
-                        : "Loading migration status..."
-                      : pendingWork?.hasPathReviewChanges
-                      ? "Exclusion sweep will run automatically before copy phase"
-                      : "Start the copy phase"
-                  }
+                  className="glass-button glass-button--progress-cta glass-button--multiline"
+                  onClick={() => navigate(`/path-review/${migrationId}/copy-plan`)}
+                  disabled={isTriggeringSweep || hasRunningTasks}
+                  title="Review what will be copied before starting"
                 >
                   <Copy size={20} style={{ marginRight: "0.5rem" }} />
-                  Start Copying
+                  Review Copy Plan
                 </button>
               )
             )}
           </div>
         </div>
+        )}
       </GlassSurfacePanel>
 
       {/* Confirmation Dialog */}

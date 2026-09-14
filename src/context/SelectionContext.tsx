@@ -42,6 +42,7 @@ type MigrationState = {
   sourceRootPrepared?: boolean;
   destinationRootPrepared?: boolean;
   sourceRootChildNames?: string[];
+  sourceRootChildren?: import("../types/migrations").MigrationRootChild[];
 };
 
 type SelectionContextValue = {

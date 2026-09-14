@@ -102,3 +102,118 @@
   white-space: nowrap;
 }
 
+.path-review-footer-info__stat--selected {
+  gap: 0;
+}
+
+.path-review-footer-info__selected-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0;
+  padding: 0.2rem 0.55rem;
+  border-radius: 6px;
+  border: 1px solid var(--accent-cyan-opacity-20);
+  background: var(--accent-cyan-opacity-10);
+  color: var(--accent-cyan);
+  cursor: pointer;
+  font: inherit;
+  line-height: 1.2;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.path-review-footer-info__selected-trigger .path-review-footer-info__stat-label,
+.path-review-footer-info__selected-trigger .path-review-footer-info__stat-value {
+  color: inherit;
+}
+
+.path-review-footer-info__selected-trigger .path-review-footer-info__stat-label {
+  font-weight: 600;
+}
+
+.path-review-footer-info__selected-trigger .path-review-footer-info__stat-label::after {
+  content: ":";
+}
+
+.path-review-footer-info__selected-trigger:hover,
+.path-review-footer-info__selected-trigger--open,
+.path-review-footer-info__selected-trigger:focus-visible {
+  background: var(--accent-cyan-opacity-20);
+  border-color: var(--accent-cyan);
+  outline: none;
+}
+
+.path-review-footer-info__selected-card {
+  position: fixed;
+  z-index: 1200;
+  min-width: 15rem;
+  max-width: 18rem;
+  padding: 0.85rem 1rem;
+  border-radius: 12px;
+  backdrop-filter: blur(var(--glass-blur-primary));
+  background: rgba(
+    var(--color-base-dark-r),
+    var(--color-base-dark-g),
+    var(--color-base-dark-b),
+    0.96
+  );
+  border: 1px solid var(--accent-cyan-opacity-20);
+  box-shadow:
+    0 10px 28px rgba(
+      var(--color-base-dark-r),
+      var(--color-base-dark-g),
+      var(--color-base-dark-b),
+      0.45
+    ),
+    0 0 0 1px var(--accent-cyan-opacity-10);
+  color: var(--text-primary);
+  animation: path-review-selected-card-in 0.15s ease-out;
+}
+
+@keyframes path-review-selected-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.path-review-footer-info__selected-card-summary {
+  margin: 0 0 0.7rem;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: var(--text-secondary);
+}
+
+.path-review-footer-info__selected-card-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem 1.1rem;
+  margin-bottom: 0.7rem;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+}
+
+.path-review-footer-info__selected-card-counts strong {
+  color: var(--text-primary);
+  font-weight: 650;
+}
+
+.path-review-footer-info__selected-card-ratio {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+}
+
+.path-review-footer-info__selected-card-ratio .path-review-footer-info__ratio-bar {
+  width: 100%;
+  max-width: 10rem;
+}
+

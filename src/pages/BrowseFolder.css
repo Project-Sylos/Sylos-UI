@@ -7,13 +7,14 @@
   min-height: 100vh;
   width: 100%;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
-  padding: clamp(2rem, 5vw, 5rem);
+  padding: clamp(1.5rem, 3vw, 3rem);
   box-sizing: border-box;
   color: var(--text-primary);
   font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .browse-folder .App-backgroundCanvas {
@@ -54,13 +55,16 @@
   z-index: 1;
   display: flex;
   flex-direction: column;
-  width: min(960px, 100%);
-  height: clamp(480px, 72vh, calc(100vh - 4rem));
-  max-height: calc(100vh - clamp(4rem, 10vw, 10rem));
+  width: min(1100px, 100%);
+  /* Fill the viewport minus page padding; inner regions scroll, never the page. */
+  height: calc(100dvh - clamp(1.5rem, 3vw, 3rem) * 2);
   padding: clamp(1.5rem, 3vw, 2rem) clamp(1.5rem, 3vw, 2.5rem);
   gap: 1rem;
   min-height: 0;
+  min-width: 0;
+  margin-block: auto;
   overflow: hidden;
+  box-sizing: border-box;
 }
 
 .browse-folder__error {
@@ -263,13 +267,10 @@
   align-items: center;
   gap: 1rem;
   padding: 1.25rem 1.5rem;
-  background: linear-gradient(
-    160deg,
-    rgba(15, 23, 42, 0.65) 0%,
-    rgba(30, 41, 59, 0.35) 100%
-  );
-  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: var(--selection-card-background);
+  border: 1px solid var(--selection-card-border-color);
   border-radius: 16px;
+  box-shadow: var(--selection-card-shadow);
   color: inherit;
   cursor: pointer;
   transition: all 0.25s ease;
@@ -356,9 +357,9 @@
 
 .browse-folder__item:hover:not(:disabled) {
   transform: translateY(-3px);
-  border-color: rgba(148, 163, 184, 0.45);
-  background: var(--ui-overlay-60);
-  box-shadow: 0 16px 40px rgba(8, 47, 73, 0.3);
+  border-color: var(--selection-card-border-color-hover);
+  background: var(--selection-card-hover-background);
+  box-shadow: var(--selection-card-hover-shadow);
 }
 
 .browse-folder__item-icon {
@@ -517,18 +518,14 @@
 
 .browse-folder__item--selectable:hover {
   transform: none;
-  border-color: rgba(148, 163, 184, 0.22);
-  background: linear-gradient(
-    160deg,
-    rgba(15, 23, 42, 0.65) 0%,
-    rgba(30, 41, 59, 0.35) 100%
-  );
+  border-color: var(--selection-card-border-color);
+  background: var(--selection-card-background);
   box-shadow: none;
 }
 
 .browse-folder__item--selectable.browse-folder__item--selected {
-  border-color: rgba(34, 211, 238, 0.45);
-  background: rgba(34, 211, 238, 0.08);
+  border-color: var(--accent-cyan-opacity-20, rgba(34, 211, 238, 0.45));
+  background: var(--accent-cyan-opacity-10, rgba(34, 211, 238, 0.08));
 }
 
 .browse-folder__checkbox {
@@ -823,6 +820,21 @@
   }
 }
 
+.browse-source-filters-entry {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem 1rem;
+  flex-shrink: 0;
+}
+
+.browse-source-filters-entry__summary {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  line-height: 1.35;
+}
+
 .browse-folder__footer {
   display: flex;
   align-items: center;
@@ -1038,7 +1050,7 @@
   justify-content: center;
   width: 2rem;
   height: 2rem;
-  border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.18));
+  border: 1px solid var(--ui-icon-button-border);
   border-radius: 999px;
   background: transparent;
   color: var(--text-secondary);
@@ -1047,7 +1059,8 @@
 
 .browse-cloud-connect__change-account:hover {
   color: var(--text-primary);
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--ui-icon-button-bg-hover);
+  border-color: var(--ui-icon-button-border-hover);
 }
 
 .browse-cloud-connect__summary {
@@ -1083,13 +1096,10 @@
   align-items: center;
   gap: 0.5rem;
   padding: 1.25rem 1rem;
-  background: linear-gradient(
-    160deg,
-    rgba(15, 23, 42, 0.65) 0%,
-    rgba(30, 41, 59, 0.35) 100%
-  );
-  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: var(--selection-card-background);
+  border: 1px solid var(--selection-card-border-color);
   border-radius: 16px;
+  box-shadow: var(--selection-card-shadow);
   color: inherit;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -1097,8 +1107,9 @@
 }
 
 .browse-cloud-connect__account-type:hover {
-  border-color: var(--accent-cyan-opacity-20);
-  box-shadow: 0 0 0 1px var(--accent-cyan-opacity-10);
+  border-color: var(--selection-card-border-color-hover);
+  background: var(--selection-card-hover-background);
+  box-shadow: var(--selection-card-hover-shadow);
 }
 
 .browse-cloud-connect__account-type-title {
@@ -1280,8 +1291,8 @@
 }
 
 .browse-folder__sort-select {
-  border: 1px solid var(--border, #333);
-  background: transparent;
+  border: 1px solid var(--ui-field-border);
+  background: var(--ui-field-bg);
   color: var(--text-primary);
   border-radius: 6px;
   padding: 0.25rem 0.4rem;
@@ -1310,11 +1321,84 @@
   cursor: pointer;
 }
 
+.browse-folder__filter-x {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.35rem;
+  height: 1.35rem;
+  margin: 0 0.2rem 0 0;
+  padding: 0;
+  border: 1px solid var(--ui-alert-danger-border);
+  border-radius: 0.35rem;
+  background: var(--ui-badge-danger-bg);
+  color: var(--ui-badge-danger-fg);
+  cursor: pointer;
+}
+
+.browse-folder__filter-x:hover {
+  background: var(--ui-alert-danger-bg);
+}
+
+.browse-folder__filter-x--cascade {
+  cursor: help;
+}
+
+.browse-folder__parent-exclusion {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  flex-shrink: 0;
+  margin: 0;
+  padding: 0.65rem 0.8rem;
+  border: 1px solid var(--ui-alert-info-border);
+  border-radius: 0.65rem;
+  background: var(--ui-alert-info-bg);
+  color: var(--ui-alert-info-fg);
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
+.browse-folder__parent-exclusion p {
+  margin: 0;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.browse-folder__parent-exclusion-icon {
+  flex-shrink: 0;
+  margin-top: 0.1rem;
+}
+
+.browse-folder__parent-exclusion-info {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ui-alert-info-fg);
+  opacity: 0.85;
+  cursor: help;
+}
+
 .browse-folder__item--unchecked {
   opacity: 0.5;
 }
 
+.browse-folder__item--filter-excluded {
+  opacity: 0.72;
+}
+
 .browse-folder__item--destination-only {
+  opacity: 0.45;
+}
+
+/* File rows set opacity: 1 with higher specificity; keep mute styles winning. */
+.browse-folder__item--file.browse-folder__item--selectable.browse-folder__item--unchecked {
+  opacity: 0.5;
+}
+
+.browse-folder__item--file.browse-folder__item--selectable.browse-folder__item--destination-only {
   opacity: 0.45;
 }
 

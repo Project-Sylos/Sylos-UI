@@ -248,6 +248,27 @@
   color: var(--text-primary);
 }
 
+.settings__subsection-title--with-help {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.settings__help-icon {
+  display: inline-flex;
+  color: var(--text-tertiary);
+  cursor: help;
+}
+
+.settings__group-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  margin: 1.25rem 0 0.75rem;
+}
+
 .settings__subsection-description {
   font-size: 0.9rem;
   color: var(--text-tertiary);

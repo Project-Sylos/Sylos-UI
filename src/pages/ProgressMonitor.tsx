@@ -6,7 +6,7 @@ import {
   useCallback,
   useMemo,
 } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router";
 import {
   FolderOpen,
   Cloud,
@@ -27,7 +27,9 @@ import {
   getMigrationLogs,
   fetchServices,
   stopMigration,
+  forceStopMigration,
   resumeMigration,
+  retryFinalize,
 } from "../api/services";
 import {
   fetchScalingDefaults,
@@ -48,8 +50,12 @@ import {
   isMigrationLive,
   isMigrationSuspended,
   isMigrationFailed,
+  isMigrationAborted,
+  isMigrationFinalizing,
+  isMigrationFinalizeFailed,
   type LogLevel,
   type MigrationLog,
+  type StopProgressPayload,
 } from "../types/migrations";
 import { useSelection } from "../context/SelectionContext";
 import { formatMigrationPath } from "../utils/migrationRoots";
@@ -57,6 +63,8 @@ import type { QueueMetrics } from "../types/migrations";
 import HelpTooltip from "../components/HelpTooltip";
 import { useScreenWakeLock } from "../hooks/useScreenWakeLock";
 import ConfirmDialog from "../components/ConfirmDialog";
+import FinalizeRetryDialog from "../components/FinalizeRetryDialog";
+import StopProgressPopover from "../components/StopProgressPopover";
 import Toast from "../components/Toast";
 import { GlassSurfacePanel } from "../components/GlassSurfacePanel";
 import PageBackButton from "../components/PageBackButton";
@@ -68,6 +76,11 @@ const MAX_LOG_LINES = 1000;
 const SOFT_SUSPEND_POLL_TIMEOUT_MS = 120_000;
 const LOG_LEVELS: LogLevel[] = ["trace", "debug", "info", "warning", "error", "critical"];
 
+function isMigrationNotFoundError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return msg.includes("(404)") || /migration not found/i.test(msg);
+}
+
 /** Clamp engine-reported progress percent for display. */
 function clampProgressPercent(raw: unknown): number {
   const n = typeof raw === "number" ? raw : Number(raw);
@@ -76,11 +89,176 @@ function clampProgressPercent(raw: unknown): number {
   return n;
 }
 
-/** Format current / expected counts for copy/delete metric rows. */
-function formatCountFraction(current: number | undefined, expected: number | undefined): string {
-  const cur = (current ?? 0).toLocaleString();
-  if (expected == null) return cur;
-  return `${cur} / ${expected.toLocaleString()}`;
+function metricCount(n: number | undefined): string {
+  return (n ?? 0).toLocaleString();
+}
+
+function queueMetricNumber(v: unknown): number {
+  return typeof v === "number" && Number.isFinite(v) ? v : 0;
+}
+
+function itemsPerSec(m?: QueueMetrics | null): number {
+  const fromItems = queueMetricNumber(m?.items_per_second);
+  if (fromItems > 0) return fromItems;
+  return queueMetricNumber(m?.discovery_rate_items_per_sec);
+}
+
+function bytesPerSec(m?: QueueMetrics | null): number {
+  return (
+    queueMetricNumber(m?.bytes_per_second) ||
+    queueMetricNumber(m?.bytes_per_sec) ||
+    queueMetricNumber(m?.copy_rate_bytes_per_sec) ||
+    queueMetricNumber(m?.bytes_copied_per_sec)
+  );
+}
+
+/** True when a queue-metrics side is more than a blank live-startup snapshot. */
+function queueSideHasData(m?: QueueMetrics | null): boolean {
+  if (!m) return false;
+  return (
+    queueMetricNumber(m.folders_discovered_total) > 0 ||
+    queueMetricNumber(m.files_discovered_total) > 0 ||
+    queueMetricNumber(m.total_discovered) > 0 ||
+    queueMetricNumber(m.folders) > 0 ||
+    queueMetricNumber(m.files) > 0 ||
+    queueMetricNumber(m.items_completed) > 0 ||
+    queueMetricNumber(m.items_total) > 0 ||
+    queueMetricNumber(m.pending) > 0 ||
+    queueMetricNumber(m.inProgress) > 0 ||
+    queueMetricNumber(m.in_progress) > 0
+  );
+}
+
+function keepQueueSide(
+  incoming: QueueMetrics | null | undefined,
+  prev: QueueMetrics | null | undefined
+): QueueMetrics | null {
+  if (queueSideHasData(incoming)) return incoming ?? null;
+  if (prev) return prev;
+  return incoming ?? null;
+}
+
+/** Folders/Files outcome grid: Ok | middle | Failed | Expected. */
+function PhaseOutcomeGrid({
+  metrics,
+  middleLabel,
+  middleTitle,
+}: {
+  metrics: {
+    folders?: number;
+    files?: number;
+    folders_already_exists?: number;
+    files_already_exists?: number;
+    folders_failed?: number;
+    files_failed?: number;
+    folders_expected?: number;
+    files_expected?: number;
+  };
+  middleLabel: string;
+  middleTitle: string;
+}) {
+  return (
+    <div className="progress-monitor__outcome-grid" role="table" aria-label="Phase outcome counts">
+      <div className="progress-monitor__outcome-grid-row progress-monitor__outcome-grid-row--head" role="row">
+        <span role="columnheader" />
+        <span role="columnheader">Ok</span>
+        <span role="columnheader" title={middleTitle}>
+          {middleLabel}
+        </span>
+        <span role="columnheader">Failed</span>
+        <span role="columnheader">Expected</span>
+      </div>
+      <div className="progress-monitor__outcome-grid-row" role="row">
+        <span role="rowheader">Folders</span>
+        <span role="cell">{metricCount(metrics.folders)}</span>
+        <span role="cell">{metricCount(metrics.folders_already_exists)}</span>
+        <span role="cell">{metricCount(metrics.folders_failed)}</span>
+        <span role="cell">{metricCount(metrics.folders_expected)}</span>
+      </div>
+      <div className="progress-monitor__outcome-grid-row" role="row">
+        <span role="rowheader">Files</span>
+        <span role="cell">{metricCount(metrics.files)}</span>
+        <span role="cell">{metricCount(metrics.files_already_exists)}</span>
+        <span role="cell">{metricCount(metrics.files_failed)}</span>
+        <span role="cell">{metricCount(metrics.files_expected)}</span>
+      </div>
+    </div>
+  );
+}
+
+/** Stacked fill: ok (gradient) → already exists (green) → failed (red). */
+function StackedProgressTrack({
+  okPercent,
+  alreadyExistsPercent,
+  failedPercent,
+  totalPercent,
+  ariaLabel,
+}: {
+  okPercent: number;
+  alreadyExistsPercent: number;
+  failedPercent: number;
+  totalPercent: number;
+  ariaLabel: string;
+}) {
+  const ok = clampProgressPercent(okPercent);
+  const mid = clampProgressPercent(alreadyExistsPercent);
+  const fail = clampProgressPercent(failedPercent);
+  const total = clampProgressPercent(totalPercent);
+  return (
+    <div
+      className="progress-monitor__progress-track"
+      role="progressbar"
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={Math.round(total)}
+      aria-label={ariaLabel}
+    >
+      {ok > 0 && (
+        <div
+          className="progress-monitor__progress-fill progress-monitor__progress-fill--ok"
+          style={{ left: 0, width: `${ok}%` }}
+        />
+      )}
+      {mid > 0 && (
+        <div
+          className="progress-monitor__progress-fill progress-monitor__progress-fill--already-exists"
+          style={{ left: `${ok}%`, width: `${mid}%` }}
+          title="Already on the destination; counted without re-transfer"
+        />
+      )}
+      {fail > 0 && (
+        <div
+          className="progress-monitor__progress-fill progress-monitor__progress-fill--failed"
+          style={{ left: `${ok + mid}%`, width: `${fail}%` }}
+        />
+      )}
+    </div>
+  );
+}
+
+function ProgressSegmentLegend({
+  middleLabel,
+  middleTitle,
+}: {
+  middleLabel: string;
+  middleTitle: string;
+}) {
+  return (
+    <div className="progress-monitor__progress-legend" aria-label="Progress legend">
+      <span className="progress-monitor__progress-legend-item">
+        <span className="progress-monitor__progress-legend-swatch progress-monitor__progress-legend-swatch--ok" />
+        Ok
+      </span>
+      <span className="progress-monitor__progress-legend-item" title={middleTitle}>
+        <span className="progress-monitor__progress-legend-swatch progress-monitor__progress-legend-swatch--already-exists" />
+        {middleLabel}
+      </span>
+      <span className="progress-monitor__progress-legend-item">
+        <span className="progress-monitor__progress-legend-swatch progress-monitor__progress-legend-swatch--failed" />
+        Failed
+      </span>
+    </div>
+  );
 }
 
 /**
@@ -286,6 +464,27 @@ function DiscoveryBatchProgressBar({
 }
 
 /** Format remaining duration for ETA display. */
+function SizeFoldProgress({ metrics }: { metrics?: QueueMetrics | null }) {
+  if (!metrics) return null;
+  const done = metrics.items_completed ?? 0;
+  const total = metrics.items_total ?? 0;
+  const rate = metrics.items_per_second ?? 0;
+  const eta =
+    typeof metrics.eta_seconds === "number" && Number.isFinite(metrics.eta_seconds)
+      ? metrics.eta_seconds
+      : null;
+  const depth = metrics.round;
+  return (
+    <p>
+      Updating folder sizes
+      {total > 0 ? `: ${done.toLocaleString()} / ${total.toLocaleString()} folders` : ""}
+      {typeof depth === "number" ? ` (depth ${depth})` : ""}.
+      {rate > 0 ? ` ${rate.toFixed(1)} folders/s.` : ""}
+      {eta != null && eta > 0 ? ` ETA ${formatEtaSeconds(eta)}.` : ""}
+    </p>
+  );
+}
+
 function formatEtaSeconds(secs: number | null): string {
   if (secs == null || !Number.isFinite(secs) || secs < 0) return "-";
   if (secs < 1) return "<1s";
@@ -364,9 +563,12 @@ export default function ProgressMonitor() {
   const [status, setStatus] = useState<any>(null);
   const [queueMetrics, setQueueMetrics] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
+  const [migrationNotFound, setMigrationNotFound] = useState(false);
   const [allServices, setAllServices] = useState(services);
   const [showResultsButton, setShowResultsButton] = useState(false);
-  const [confirmKind, setConfirmKind] = useState<null | "stop" | "resume">(null);
+  const [confirmKind, setConfirmKind] = useState<null | "stop" | "resume" | "hardStop">(null);
+  const [stopPopoverOpen, setStopPopoverOpen] = useState(false);
+  const [stopProgress, setStopProgress] = useState<StopProgressPayload | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [toast, setToast] = useState<{
@@ -393,6 +595,8 @@ export default function ProgressMonitor() {
   >({});
   const logIdsRef = useRef<Set<string>>(new Set());
   const logTerminalRef = useRef<HTMLDivElement | null>(null);
+  /** Auto-follow the log tail only while the user is at (or near) the bottom. */
+  const logsStickToBottomRef = useRef(true);
 
   /** After a retry sweep, status can briefly still say "review" before the run starts - require run activity before re-enabling review. */
   const isRetryRun = searchParams.get("retry") === "1";
@@ -409,6 +613,13 @@ export default function ProgressMonitor() {
   const failureLeaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stallWrapRef = useRef<HTMLDivElement>(null);
   const stallLeaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    setMigrationNotFound(false);
+    setError(null);
+    setStatus(null);
+    setQueueMetrics(null);
+  }, [migrationId]);
 
   useEffect(() => {
     isRetryRunRef.current = searchParams.get("retry") === "1";
@@ -502,7 +713,10 @@ export default function ProgressMonitor() {
         isMigrationLive(statusData) ||
         phase === "traversal-in-progress" ||
         phase === "copy-in-progress" ||
-        phase === "delete-in-progress"
+        phase === "delete-in-progress" ||
+        phase === "traversal-finalizing" ||
+        phase === "copy-finalizing" ||
+        phase === "delete-finalizing"
       ) {
         hasSeenActiveRunRef.current = true;
       }
@@ -529,6 +743,13 @@ export default function ProgressMonitor() {
       }
     } catch (err) {
       console.error("Failed to fetch status:", err);
+      if (isMigrationNotFoundError(err)) {
+        setMigrationNotFound(true);
+        setError(
+          "This migration is not loaded on the server. Resume an existing migration or start a new one."
+        );
+        return;
+      }
       setError(err instanceof Error ? err.message : "Failed to fetch status");
     }
   }, [migrationId, applyServerRoots]);
@@ -551,22 +772,35 @@ export default function ProgressMonitor() {
         return;
       }
       
-      // Only update if we have valid data (copy phase may only return `copy`)
+      // Keep the last snapshot when a live run has not published metrics yet
+      // (observer empty) so Resume does not flash zeros / "Not started".
       if (
         response.srcTraversal !== undefined ||
         response.dstTraversal !== undefined ||
         response.copy !== undefined ||
-        response.delete !== undefined
+        response.delete !== undefined ||
+        response.sizeFold !== undefined
       ) {
-        setQueueMetrics({
-          srcTraversal: response.srcTraversal ?? null,
-          dstTraversal: response.dstTraversal ?? null,
-          copy: response.copy ?? null,
-          delete: response.delete ?? null,
+        setQueueMetrics((prev: {
+          srcTraversal?: QueueMetrics | null;
+          dstTraversal?: QueueMetrics | null;
+          copy?: QueueMetrics | null;
+          delete?: QueueMetrics | null;
+          sizeFold?: QueueMetrics | null;
+        } | null) => ({
+          srcTraversal: keepQueueSide(response.srcTraversal, prev?.srcTraversal),
+          dstTraversal: keepQueueSide(response.dstTraversal, prev?.dstTraversal),
+          copy: keepQueueSide(response.copy, prev?.copy),
+          delete: keepQueueSide(response.delete, prev?.delete),
+          sizeFold: response.sizeFold ?? prev?.sizeFold ?? null,
           possibleStall: Boolean(response.possibleStall),
-        });
+        }));
       }
     } catch (err) {
+      if (isMigrationNotFoundError(err)) {
+        setMigrationNotFound(true);
+        return;
+      }
       // Only log actual network/HTTP errors
       console.error("Failed to fetch queue metrics:", err);
     }
@@ -594,44 +828,26 @@ export default function ProgressMonitor() {
     setShowResultsButton(!!canReview);
   }, [status, showCopyUI, showDeleteUI, isRetryRun, runGate]);
 
-  // Retry sweep: clear metrics and gate review like a fresh run (stale API may still say “review”).
+  // Retry sweep: gate review like a fresh run (stale API may still say “review”).
+  // Keep parked queue metrics until a live snapshot with real counts arrives.
   useEffect(() => {
     if (!isRetryRun) return;
     hasSeenActiveRunRef.current = false;
     prevPhaseRef.current = "";
     prevCompletedAtRef.current = undefined;
-    setQueueMetrics(null);
     setShowResultsButton(false);
   }, [migrationId, isRetryRun]);
 
-  // Set up polling intervals
+  // One snapshot on load so a parked (suspended / review) page can render. Interval
+  // polling starts once the phase looks like a run (including the async start window
+  // before live/in-progress is visible). See shouldPollStatusAndMetrics.
   useEffect(() => {
     if (!migrationId) {
       navigate("/");
       return;
     }
-
-    // Initial fetch
     fetchStatus();
     fetchQueueMetrics();
-
-    // Set up status polling (every 500ms) - always poll status to detect completion
-    statusIntervalRef.current = setInterval(() => {
-      fetchStatus();
-    }, STATUS_POLL_INTERVAL);
-
-    queueMetricsIntervalRef.current = setInterval(() => {
-      fetchQueueMetrics();
-    }, STATUS_POLL_INTERVAL);
-
-    return () => {
-      if (statusIntervalRef.current) {
-        clearInterval(statusIntervalRef.current);
-      }
-      if (queueMetricsIntervalRef.current) {
-        clearInterval(queueMetricsIntervalRef.current);
-      }
-    };
   }, [migrationId, navigate, fetchStatus, fetchQueueMetrics]);
 
   const rateLimitSrcUntil =
@@ -687,23 +903,34 @@ export default function ProgressMonitor() {
     phase === "traversal-in-progress" ||
     phase === "copy-in-progress" ||
     phase === "delete-in-progress";
+  const isFinalizing = status ? isMigrationFinalizing(status) : false;
+  const isFinalizeFailed = status ? isMigrationFinalizeFailed(status) : false;
   const isSuspended = status ? isMigrationSuspended(status) : false;
+  const isAborted = status ? isMigrationAborted(status) : false;
   const isFailed = status ? isMigrationFailed(status) : false;
   const explicitlyNotLive = status ? isLiveExplicitlyFalse(status) : false;
   const live = status ? isMigrationLive(status) : false;
-  useScreenWakeLock(live);
+  // Keep the screen awake only while a run is actively progressing, not once
+  // results are ready (View results) or the migration is waiting in review.
+  useScreenWakeLock(live && (inRunPhase || isFinalizing) && !showResultsButton);
   const stoppedMidRun = inRunPhase && !live;
   const showStopButton = Boolean(
     status &&
       !isFailed &&
+      !isFinalizeFailed &&
+      !isAborted &&
       !isSuspended &&
       !inAwaitingReview &&
-      live
+      !isFinalizing &&
+      (live || stopPopoverOpen)
   );
   const showResumeButton = Boolean(
     status &&
+      !isAborted &&
       !inAwaitingReview &&
+      !isFinalizing &&
       (isFailed ||
+        isFinalizeFailed ||
         isSuspended ||
         stoppedMidRun ||
         (inRunPhase && explicitlyNotLive))
@@ -724,24 +951,54 @@ export default function ProgressMonitor() {
     phaseMetrics?.items_progress_percent ?? phaseMetrics?.progress_percent
   );
   const bytesProgressPercent = clampProgressPercent(phaseMetrics?.bytes_progress_percent);
-  const itemsFailedPercent = Math.min(
-    itemsProgressPercent,
-    clampProgressPercent(phaseMetrics?.items_failed_percent)
+  const itemsOkPercent = clampProgressPercent(
+    phaseMetrics?.items_ok_percent ??
+      Math.max(
+        0,
+        itemsProgressPercent -
+          clampProgressPercent(phaseMetrics?.items_already_exists_percent) -
+          clampProgressPercent(phaseMetrics?.items_failed_percent)
+      )
   );
-  const bytesFailedPercent = Math.min(
-    bytesProgressPercent,
-    clampProgressPercent(phaseMetrics?.bytes_failed_percent)
+  const itemsAlreadyExistsPercent = clampProgressPercent(
+    phaseMetrics?.items_already_exists_percent
   );
+  const itemsFailedPercent = clampProgressPercent(phaseMetrics?.items_failed_percent);
+  const bytesOkPercent = clampProgressPercent(
+    phaseMetrics?.bytes_ok_percent ??
+      Math.max(
+        0,
+        bytesProgressPercent -
+          clampProgressPercent(phaseMetrics?.bytes_already_exists_percent) -
+          clampProgressPercent(phaseMetrics?.bytes_failed_percent)
+      )
+  );
+  const bytesAlreadyExistsPercent = clampProgressPercent(
+    phaseMetrics?.bytes_already_exists_percent
+  );
+  const bytesFailedPercent = clampProgressPercent(phaseMetrics?.bytes_failed_percent);
   const showPhaseProgressBar = showCopyUI || showDeleteUI;
   const phaseProgressComplete = itemsProgressPercent >= 100 && bytesProgressPercent >= 100;
   const itemsFractionLabel = `${(phaseMetrics?.items_completed ?? 0).toLocaleString()} / ${(phaseMetrics?.items_total ?? 0).toLocaleString()}`;
   const bytesDone = phaseMetrics?.bytes ?? 0;
+  const bytesAlreadyExists = phaseMetrics?.bytes_already_exists ?? 0;
   const bytesFailed = phaseMetrics?.bytes_failed ?? 0;
   const bytesTotal = phaseMetrics?.bytes_total ?? 0;
+  const dataFractionParts: string[] = [`${formatBytes(bytesDone)} moved`];
+  if (bytesAlreadyExists > 0) {
+    dataFractionParts.push(`${formatBytes(bytesAlreadyExists)} already exists`);
+  }
+  if (bytesFailed > 0) {
+    dataFractionParts.push(`${formatBytes(bytesFailed)} failed`);
+  }
   const dataFractionLabel =
-    bytesFailed > 0
-      ? `${formatBytes(bytesDone)} moved · ${formatBytes(bytesFailed)} failed / ${formatBytes(bytesTotal)}`
+    bytesAlreadyExists > 0 || bytesFailed > 0
+      ? `${dataFractionParts.join(" · ")} / ${formatBytes(bytesTotal)}`
       : `${formatBytes(bytesDone)} / ${formatBytes(bytesTotal)}`;
+  const progressMiddleLabel = showDeleteUI ? "Not deleting" : "Already exists";
+  const progressMiddleTitle = showDeleteUI
+    ? "Opted out of source removal during cleanup planning"
+    : "Already on the destination; counted without re-transfer";
   const copyPass = phaseMetrics?.copy_pass ?? 0;
   const workerCapHighlightMode: WorkerCapMode = showDeleteUI
     ? "delete"
@@ -787,20 +1044,48 @@ export default function ProgressMonitor() {
     if (el) el.scrollTop = el.scrollHeight;
   }, []);
 
+  const syncLogsStickToBottom = useCallback(() => {
+    const el = logTerminalRef.current;
+    if (!el) return;
+    const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+    logsStickToBottomRef.current = distance <= 48;
+  }, []);
+
   // Reset log buffer when switching migrations.
   useEffect(() => {
     setLogLines([]);
     logIdsRef.current = new Set();
     setLogsPaused(false);
+    logsStickToBottomRef.current = true;
   }, [migrationId]);
 
   const toggleLogsPaused = useCallback(() => {
     setLogsPaused((paused) => !paused);
   }, []);
 
-  // Live logs while Advanced is open (rolling ~1K window, client-side dedupe).
+  // Only poll logs while a phase is actively running. Soft-stop, suspended/aborted,
+  // failed, and awaiting-*-review (finished) should not keep hitting the logs API.
+  const shouldPollLogs = Boolean(
+    migrationId &&
+      !migrationNotFound &&
+      !logsPaused &&
+      inRunPhase &&
+      !explicitlyNotLive &&
+      !stopPopoverOpen &&
+      !isSuspended &&
+      !isAborted &&
+      !isFailed &&
+      !inAwaitingReview &&
+      !Boolean(
+        status?.softSuspendRequested ||
+          (status as { SoftSuspendRequested?: boolean } | null)?.SoftSuspendRequested
+      )
+  );
+
+  // Buffer live logs whenever this page is mounted (rolling ~1K window, client-side
+  // dedupe). Advanced UI only controls rendering / autoscroll, not polling.
   useEffect(() => {
-    if (!advancedOpen || !migrationId || logsPaused) return;
+    if (!shouldPollLogs || !migrationId) return;
     let cancelled = false;
     const poll = async () => {
       try {
@@ -811,12 +1096,15 @@ export default function ProgressMonitor() {
         setLogLines((prev) => {
           const ids = logIdsRef.current;
           const merged = [...prev];
+          let added = 0;
           for (const line of incoming) {
             const id = migrationLogKey(line);
             if (ids.has(id)) continue;
             ids.add(id);
             merged.push({ ...line, id });
+            added += 1;
           }
+          if (added === 0) return prev;
           if (merged.length > MAX_LOG_LINES) {
             const drop = merged.length - MAX_LOG_LINES;
             for (let i = 0; i < drop; i++) {
@@ -836,17 +1124,17 @@ export default function ProgressMonitor() {
       cancelled = true;
       window.clearInterval(id);
     };
-  }, [advancedOpen, migrationId, logsPaused]);
+  }, [migrationId, shouldPollLogs]);
 
   const filteredLogLines = useMemo(() => {
     if (logFilter === "all") return logLines;
     return logLines.filter((l) => l.level === logFilter);
   }, [logLines, logFilter]);
 
-  // Pin to the live tail unless paused. Layout effect so the jump happens before paint
-  // (a post-paint scroll shows the old position for a frame, which reads as jank).
+  // Follow the live tail only while the user is at the bottom. Layout effect so the
+  // jump happens before paint (a post-paint scroll shows the old position for a frame).
   useLayoutEffect(() => {
-    if (!advancedOpen || logsPaused) return;
+    if (!advancedOpen || logsPaused || !logsStickToBottomRef.current) return;
     scrollLogTerminalToBottom();
   }, [filteredLogLines, advancedOpen, logsPaused, scrollLogTerminalToBottom]);
 
@@ -988,13 +1276,32 @@ export default function ProgressMonitor() {
       }
 
       setStatus(next);
+      const progress =
+        next.stopProgress ??
+        (next as { StopProgress?: StopProgressPayload }).StopProgress ??
+        null;
+      setStopProgress(progress);
+      setStopPopoverOpen(true);
+      setStallTooltipOpen(false);
+      // Soft stop accepted: unlock Hard stop while we poll drain progress.
+      setActionBusy(false);
 
-      if (softSuspendRequestedPayload(next)) {
+      if (softSuspendRequestedPayload(next) || progress?.active) {
         const deadline = Date.now() + SOFT_SUSPEND_POLL_TIMEOUT_MS;
         while (Date.now() < deadline) {
           const s = await getMigrationStatus(migrationId);
           setStatus(s);
-          if (isMigrationSuspended(s) && !isMigrationLive(s)) {
+          const p =
+            s.stopProgress ??
+            (s as { StopProgress?: StopProgressPayload }).StopProgress ??
+            null;
+          if (p) setStopProgress(p);
+          if (
+            (isMigrationSuspended(s) || isMigrationAborted(s)) &&
+            !isMigrationLive(s)
+          ) {
+            setStopPopoverOpen(false);
+            setStopProgress(null);
             break;
           }
           await new Promise((r) => setTimeout(r, STATUS_POLL_INTERVAL));
@@ -1003,6 +1310,38 @@ export default function ProgressMonitor() {
     } catch (e) {
       setActionError(
         e instanceof Error ? e.message : "Failed to stop migration."
+      );
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const handleConfirmHardStop = async () => {
+    if (!migrationId) return;
+    setConfirmKind(null);
+    setActionBusy(true);
+    setActionError(null);
+    try {
+      const next = await forceStopMigration(migrationId);
+      setStatus(next);
+      setStopPopoverOpen(false);
+      setStopProgress(null);
+      // Drop status/metrics polls immediately (same as soft-suspend → suspended).
+      if (statusIntervalRef.current) {
+        clearInterval(statusIntervalRef.current);
+        statusIntervalRef.current = null;
+      }
+      if (queueMetricsIntervalRef.current) {
+        clearInterval(queueMetricsIntervalRef.current);
+        queueMetricsIntervalRef.current = null;
+      }
+      setToast({
+        message: "Migration was force-stopped and may not resume cleanly.",
+        type: "info",
+      });
+    } catch (e) {
+      setActionError(
+        e instanceof Error ? e.message : "Failed to force-stop migration."
       );
     } finally {
       setActionBusy(false);
@@ -1021,13 +1360,16 @@ export default function ProgressMonitor() {
         return;
       }
       const next = new URLSearchParams(searchParams);
-      next.set("retry", "1");
+      if (isFailed && !isSuspended) {
+        next.set("retry", "1");
+      } else {
+        next.delete("retry");
+      }
       if (!next.get("mode")) {
         next.set("mode", showDeleteUI ? "delete" : showCopyUI ? "copy" : "discovery");
       }
       setSearchParams(next, { replace: true });
       await fetchStatus();
-      await fetchQueueMetrics();
       restartPollingIfStopped();
     } catch (e) {
       setActionError(
@@ -1038,19 +1380,96 @@ export default function ProgressMonitor() {
     }
   };
 
-  // Stop polling when ready for review, suspended, or failed (no live stats until user retries).
-  const pausePolling = showResultsButton || isSuspended || isFailed;
+  const handleConfirmRetryFinalize = async (overrides: {
+    memoryLimitGB: number;
+    threads: number;
+  }) => {
+    if (!migrationId) return;
+    setConfirmKind(null);
+    setActionBusy(true);
+    setActionError(null);
+    try {
+      const result = await retryFinalize(migrationId, overrides);
+      if (!result.success) {
+        setActionError(result.error || "Failed to retry finalize.");
+        return;
+      }
+      const next = new URLSearchParams(searchParams);
+      next.set("retry", "1");
+      if (!next.get("mode")) {
+        next.set("mode", showDeleteUI ? "delete" : showCopyUI ? "copy" : "discovery");
+      }
+      setSearchParams(next, { replace: true });
+      await fetchStatus();
+      restartPollingIfStopped();
+    } catch (e) {
+      setActionError(
+        e instanceof Error ? e.message : "Failed to retry finalize."
+      );
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  // Poll while work is moving. StartMigration returns before the engine is live, so
+  // also poll through filters-set / starting. Omitted `live` still means in-progress
+  // is moving; only an explicit live:false parks a dead in-progress page.
+  const awaitingEngineStart =
+    !migrationNotFound &&
+    (!status ||
+    phase === "starting" ||
+    phase === "created" ||
+    phase === "roots-set" ||
+    phase === "filters-set");
+  const shouldPollStatusAndMetrics =
+    Boolean(migrationId) &&
+    !migrationNotFound &&
+    !showResultsButton &&
+    !isSuspended &&
+    !isAborted &&
+    !isFailed &&
+    !isFinalizeFailed &&
+    (live ||
+      isFinalizing ||
+      stopPopoverOpen ||
+      isRetryRun ||
+      awaitingEngineStart ||
+      (inRunPhase && !explicitlyNotLive));
   useEffect(() => {
-    if (!pausePolling) return;
-    if (statusIntervalRef.current) {
-      clearInterval(statusIntervalRef.current);
-      statusIntervalRef.current = null;
+    if (!shouldPollStatusAndMetrics) {
+      if (statusIntervalRef.current) {
+        clearInterval(statusIntervalRef.current);
+        statusIntervalRef.current = null;
+      }
+      if (queueMetricsIntervalRef.current) {
+        clearInterval(queueMetricsIntervalRef.current);
+        queueMetricsIntervalRef.current = null;
+      }
+      return;
     }
-    if (queueMetricsIntervalRef.current) {
-      clearInterval(queueMetricsIntervalRef.current);
-      queueMetricsIntervalRef.current = null;
+    fetchStatus();
+    fetchQueueMetrics();
+    if (!statusIntervalRef.current) {
+      statusIntervalRef.current = setInterval(() => {
+        fetchStatus();
+      }, STATUS_POLL_INTERVAL);
     }
-  }, [pausePolling]);
+    if (!queueMetricsIntervalRef.current) {
+      queueMetricsIntervalRef.current = setInterval(() => {
+        fetchQueueMetrics();
+      }, STATUS_POLL_INTERVAL);
+    }
+    return () => {
+      if (statusIntervalRef.current) {
+        clearInterval(statusIntervalRef.current);
+        statusIntervalRef.current = null;
+      }
+      if (queueMetricsIntervalRef.current) {
+        clearInterval(queueMetricsIntervalRef.current);
+        queueMetricsIntervalRef.current = null;
+      }
+    };
+  }, [shouldPollStatusAndMetrics, fetchStatus, fetchQueueMetrics]);
 
   if (!migrationId) {
     return null;
@@ -1116,9 +1535,56 @@ export default function ProgressMonitor() {
         {error && (
           <div className="progress-monitor__error">{error}</div>
         )}
+        {migrationNotFound && (
+          <div className="progress-monitor__error" role="status">
+            <p>
+              The browser restored an old progress-monitor link, but this migration
+              is not loaded (for example after restarting Sylos).
+            </p>
+            <button
+              type="button"
+              className="progress-monitor__results-button"
+              onClick={() => navigate("/resume")}
+            >
+              Go to Resume Migration
+            </button>
+          </div>
+        )}
         {actionError && (
           <div className="progress-monitor__error progress-monitor__error--action">
             {actionError}
+          </div>
+        )}
+        {isAborted && (
+          <div className="progress-monitor__error" role="status">
+            This migration was force-stopped and may not resume. Start a new
+            migration if you need to continue.
+          </div>
+        )}
+        {isFinalizing && (
+          <div className="progress-monitor__finalize-status" role="status">
+            <span className="progress-monitor__finalize-spinner" aria-hidden />
+            <div>
+              <strong>Finalizing database…</strong>
+              <p>
+                {(status?.dbActivity || status?.DbActivity || "").trim() ||
+                  (queueMetrics?.sizeFold
+                    ? "Calculating folder size totals."
+                    : "Rebuilding indexes and checkpointing so review can open safely.")}
+              </p>
+              <SizeFoldProgress metrics={queueMetrics?.sizeFold} />
+            </div>
+          </div>
+        )}
+        {isFinalizeFailed && (
+          <div className="progress-monitor__error" role="status">
+            Database finalize failed after the queues finished. Use Resume to
+            retry indexes and checkpoint with optional memory/thread overrides.
+            {(status?.error && String(status.error).trim()) ? (
+              <p className="progress-monitor__error-detail">
+                {String(status.error).trim()}
+              </p>
+            ) : null}
           </div>
         )}
 
@@ -1236,19 +1702,11 @@ export default function ProgressMonitor() {
               {showCopyUI ? (
                 queueMetrics?.copy ? (
                   <div className="progress-monitor__metric-details">
-                    {/* Totals */}
-                    <div className="progress-monitor__metric-row">
-                      <span>Folders:</span>
-                      <span>{formatCountFraction(queueMetrics.copy.folders, queueMetrics.copy.folders_expected)}</span>
-                    </div>
-                    <div className="progress-monitor__metric-row">
-                      <span>Files:</span>
-                      <span>{formatCountFraction(queueMetrics.copy.files, queueMetrics.copy.files_expected)}</span>
-                    </div>
-                    <div className="progress-monitor__metric-row">
-                      <span>Total:</span>
-                      <span>{formatCountFraction(queueMetrics.copy.total, queueMetrics.copy.total_expected)}</span>
-                    </div>
+                    <PhaseOutcomeGrid
+                      metrics={queueMetrics.copy}
+                      middleLabel="Already exists"
+                      middleTitle="Already on the destination; counted without re-transfer"
+                    />
                     {(queueMetrics.copy.in_progress ?? queueMetrics.copy.inProgress ?? 0) > 0 && (
                       <div className="progress-monitor__metric-row">
                         <span>In progress:</span>
@@ -1261,35 +1719,28 @@ export default function ProgressMonitor() {
                         </span>
                       </div>
                     )}
-                    {(queueMetrics.copy.total_failed ?? 0) > 0 && (
-                      <div className="progress-monitor__metric-row">
-                        <span>Failed:</span>
-                        <span>{(queueMetrics.copy.total_failed || 0).toLocaleString()}</span>
-                      </div>
-                    )}
                     <div className="progress-monitor__metric-row">
-                      <span>Bytes:</span>
-                      <span>{formatBytes(
-                        queueMetrics.copy.bytes ??
-                          queueMetrics.copy.bytes_copied_total ??
-                          queueMetrics.copy.total_bytes_copied ??
-                          0
-                      )}</span>
-                    </div>
-                    {/* Rates */}
-                    <div className="progress-monitor__metric-row">
-                      <span>Items/sec:</span>
-                      <span>{(queueMetrics.copy.items_per_second || 0).toFixed(1)}</span>
+                      <span>
+                        Items/sec:
+                        <HelpTooltip
+                          tipId="copy-items-per-sec-explanation"
+                          category="copy-items-per-sec"
+                          position="above"
+                          content={
+                            <p>
+                              A low items/sec rate is not necessarily a concern.
+                              Migrations that move large files often complete
+                              fewer items while still transferring a lot of
+                              data. Check Bytes/sec for transfer throughput.
+                            </p>
+                          }
+                        />
+                      </span>
+                      <span>{itemsPerSec(queueMetrics.copy).toFixed(1)}</span>
                     </div>
                     <div className="progress-monitor__metric-row">
                       <span>Bytes/sec:</span>
-                      <span>{formatBytesPerSec(
-                        queueMetrics.copy.bytes_per_second ??
-                        queueMetrics.copy.bytes_per_sec ??
-                        queueMetrics.copy.copy_rate_bytes_per_sec ??
-                        queueMetrics.copy.bytes_copied_per_sec ??
-                        0
-                      )}</span>
+                      <span>{formatBytesPerSec(bytesPerSec(queueMetrics.copy))}</span>
                     </div>
                   </div>
                 ) : (
@@ -1298,40 +1749,23 @@ export default function ProgressMonitor() {
               ) : showDeleteUI ? (
                 queueMetrics?.delete ? (
                   <div className="progress-monitor__metric-details">
-                    <div className="progress-monitor__metric-row">
-                      <span>Folders:</span>
-                      <span>{formatCountFraction(queueMetrics.delete.folders, queueMetrics.delete.folders_expected)}</span>
-                    </div>
-                    <div className="progress-monitor__metric-row">
-                      <span>Files:</span>
-                      <span>{formatCountFraction(queueMetrics.delete.files, queueMetrics.delete.files_expected)}</span>
-                    </div>
-                    <div className="progress-monitor__metric-row">
-                      <span>Total:</span>
-                      <span>{formatCountFraction(queueMetrics.delete.total, queueMetrics.delete.total_expected)}</span>
-                    </div>
-                    <div className="progress-monitor__metric-row">
-                      <span>Bytes:</span>
-                      <span>{formatBytes(queueMetrics.delete.bytes ?? 0)}</span>
-                    </div>
+                    <PhaseOutcomeGrid
+                      metrics={queueMetrics.delete}
+                      middleLabel="Not deleting"
+                      middleTitle="Opted out of source removal during cleanup planning"
+                    />
                     <div className="progress-monitor__metric-row">
                       <span>Items/sec:</span>
-                      <span>{(queueMetrics.delete.items_per_second || 0).toFixed(1)}</span>
+                      <span>{itemsPerSec(queueMetrics.delete).toFixed(1)}</span>
                     </div>
                     <div className="progress-monitor__metric-row">
                       <span>Bytes/sec:</span>
-                      <span>{formatBytesPerSec(queueMetrics.delete.bytes_per_second ?? 0)}</span>
+                      <span>{formatBytesPerSec(bytesPerSec(queueMetrics.delete))}</span>
                     </div>
                     {(queueMetrics.delete.total_pending ?? 0) > 0 && (
                       <div className="progress-monitor__metric-row">
                         <span>Pending:</span>
                         <span>{(queueMetrics.delete.total_pending || 0).toLocaleString()}</span>
-                      </div>
-                    )}
-                    {(queueMetrics.delete.total_failed ?? 0) > 0 && (
-                      <div className="progress-monitor__metric-row">
-                        <span>Failed:</span>
-                        <span>{(queueMetrics.delete.total_failed || 0).toLocaleString()}</span>
                       </div>
                     )}
                   </div>
@@ -1342,26 +1776,25 @@ export default function ProgressMonitor() {
                 // Traversal phase: show discovery metrics from srcTraversal
                 queueMetrics?.srcTraversal ? (
                   <div className="progress-monitor__metric-details">
-                    {queueMetrics.srcTraversal.discovery_rate_items_per_sec !== undefined && (
-                      <div className="progress-monitor__metric-row">
-                        <span>
-                          Discovery Rate:
-                          <HelpTooltip
-                            tipId="discovery-rate-explanation"
-                            category="discovery-rate-source"
-                            position="above"
-                            content={
-                              <p>
-                                Discovery rate is how many folder list operations complete per second
-                                (EMA-smoothed). It tracks traversal work even when folders have few or
-                                no new children to discover.
-                              </p>
-                            }
-                          />
-                        </span>
-                        <span>{queueMetrics.srcTraversal.discovery_rate_items_per_sec.toFixed(1)} items/sec</span>
-                      </div>
-                    )}
+                    <div className="progress-monitor__metric-row">
+                      <span>
+                        Items/sec:
+                        <HelpTooltip
+                          tipId="discovery-rate-explanation"
+                          category="discovery-rate-source"
+                          position="above"
+                          content={
+                            <p>
+                              How many files and folders are processed per second
+                              (windowed). During discovery this is newly found
+                              children, or list-task completions when those are
+                              faster (leaf folders).
+                            </p>
+                          }
+                        />
+                      </span>
+                      <span>{itemsPerSec(queueMetrics.srcTraversal).toFixed(1)}</span>
+                    </div>
                     <div className="progress-monitor__metric-row">
                       <span>
                         Batch:
@@ -1437,27 +1870,13 @@ export default function ProgressMonitor() {
                           </span>
                         </div>
                       </div>
-                      <div
-                        className="progress-monitor__progress-track"
-                        role="progressbar"
-                        aria-valuemin={0}
-                        aria-valuemax={100}
-                        aria-valuenow={Math.round(itemsProgressPercent)}
-                        aria-label="Items progress"
-                      >
-                        <div
-                          className="progress-monitor__progress-fill"
-                          style={{
-                            clipPath: `inset(0 ${100 - itemsProgressPercent}% 0 0)`,
-                          }}
-                        />
-                        {itemsFailedPercent > 0 && (
-                          <div
-                            className="progress-monitor__progress-fill progress-monitor__progress-fill--failed"
-                            style={{ width: `${itemsFailedPercent}%` }}
-                          />
-                        )}
-                      </div>
+                      <StackedProgressTrack
+                        okPercent={itemsOkPercent}
+                        alreadyExistsPercent={itemsAlreadyExistsPercent}
+                        failedPercent={itemsFailedPercent}
+                        totalPercent={itemsProgressPercent}
+                        ariaLabel="Items progress"
+                      />
                     </div>
                     <div className="progress-monitor__progress-bar-block">
                       <div className="progress-monitor__progress-header">
@@ -1468,28 +1887,18 @@ export default function ProgressMonitor() {
                           {Math.round(bytesProgressPercent)}%
                         </span>
                       </div>
-                      <div
-                        className="progress-monitor__progress-track"
-                        role="progressbar"
-                        aria-valuemin={0}
-                        aria-valuemax={100}
-                        aria-valuenow={Math.round(bytesProgressPercent)}
-                        aria-label="Data progress"
-                      >
-                        <div
-                          className="progress-monitor__progress-fill"
-                          style={{
-                            clipPath: `inset(0 ${100 - bytesProgressPercent}% 0 0)`,
-                          }}
-                        />
-                        {bytesFailedPercent > 0 && (
-                          <div
-                            className="progress-monitor__progress-fill progress-monitor__progress-fill--failed"
-                            style={{ width: `${bytesFailedPercent}%` }}
-                          />
-                        )}
-                      </div>
+                      <StackedProgressTrack
+                        okPercent={bytesOkPercent}
+                        alreadyExistsPercent={bytesAlreadyExistsPercent}
+                        failedPercent={bytesFailedPercent}
+                        totalPercent={bytesProgressPercent}
+                        ariaLabel="Data progress"
+                      />
                     </div>
+                    <ProgressSegmentLegend
+                      middleLabel={progressMiddleLabel}
+                      middleTitle={progressMiddleTitle}
+                    />
                   </div>
                 </div>
               )}
@@ -1526,26 +1935,25 @@ export default function ProgressMonitor() {
                 )}
                 {queueMetrics?.dstTraversal ? (
                   <div className="progress-monitor__metric-details">
-                    {queueMetrics.dstTraversal.discovery_rate_items_per_sec !== undefined && (
-                      <div className="progress-monitor__metric-row">
-                        <span>
-                          Discovery Rate:
-                          <HelpTooltip
-                            tipId="discovery-rate-explanation-dst"
-                            category="discovery-rate-destination"
-                            position="above"
-                            content={
-                              <p>
-                                Discovery rate is how many folder list operations complete per second
-                                (EMA-smoothed). It tracks traversal work even when folders have few or
-                                no new children to discover.
-                              </p>
-                            }
-                          />
-                        </span>
-                        <span>{queueMetrics.dstTraversal.discovery_rate_items_per_sec.toFixed(1)} items/sec</span>
-                      </div>
-                    )}
+                    <div className="progress-monitor__metric-row">
+                      <span>
+                        Items/sec:
+                        <HelpTooltip
+                          tipId="discovery-rate-explanation-dst"
+                          category="discovery-rate-destination"
+                          position="above"
+                          content={
+                            <p>
+                              How many files and folders are processed per second
+                              (windowed). During discovery this is newly found
+                              children, or list-task completions when those are
+                              faster (leaf folders).
+                            </p>
+                          }
+                        />
+                      </span>
+                      <span>{itemsPerSec(queueMetrics.dstTraversal).toFixed(1)}</span>
+                    </div>
                     <div className="progress-monitor__metric-row">
                       <span>
                         Batch:
@@ -1614,10 +2022,18 @@ export default function ProgressMonitor() {
                 onMouseEnter={openStallTooltip}
                 onMouseLeave={scheduleCloseStallTooltip}
               >
+                {stopPopoverOpen ? (
+                  <StopProgressPopover
+                    progress={stopProgress}
+                    busy={false}
+                    onHardStop={() => setConfirmKind("hardStop")}
+                    onDismiss={() => setStopPopoverOpen(false)}
+                  />
+                ) : null}
                 <button
                   type="button"
                   className="progress-monitor__control progress-monitor__control--stop"
-                  disabled={actionBusy}
+                  disabled={actionBusy || stopPopoverOpen}
                   onClick={() => setConfirmKind("stop")}
                   title={
                     possibleStall
@@ -1734,9 +2150,11 @@ export default function ProgressMonitor() {
                   disabled={actionBusy}
                   onClick={() => setConfirmKind("resume")}
                   title={
-                    isFailed
-                      ? "Run a retry sweep to try again"
-                      : "Resume with a retry sweep for the current phase"
+                    isFinalizeFailed
+                      ? "Retry database finalize (indexes and checkpoint)"
+                      : isFailed
+                        ? "Run a retry sweep to try again"
+                        : "Resume with a retry sweep for the current phase"
                   }
                 >
                   <Play size={18} style={{ marginRight: "0.5rem" }} />
@@ -1850,10 +2268,14 @@ export default function ProgressMonitor() {
                 {filteredLogLines.length.toLocaleString()} lines
               </span>
             </div>
-            <div ref={logTerminalRef} className="progress-monitor__logs-terminal">
+            <div
+              ref={logTerminalRef}
+              className="progress-monitor__logs-terminal"
+              onScroll={syncLogsStickToBottom}
+            >
               {filteredLogLines.length === 0 ? (
                 <div className="progress-monitor__logs-empty">
-                  {advancedOpen ? "Waiting for log entries…" : "Open Advanced to stream logs."}
+                  Waiting for log entries…
                 </div>
               ) : (
                 filteredLogLines.map((line) => (
@@ -1954,14 +2376,34 @@ export default function ProgressMonitor() {
         {confirmKind === "stop" && (
           <ConfirmDialog
             title="Stop migration?"
-            message="This pauses the running migration. You can resume later from where it left off. Are you sure?"
+            message="This pauses the running migration safely and saves progress so you can resume later. Continue?"
             confirmLabel="Stop migration"
             cancelLabel="Cancel"
             onCancel={() => setConfirmKind(null)}
             onConfirm={() => void handleConfirmStop()}
           />
         )}
-        {confirmKind === "resume" && (
+        {confirmKind === "hardStop" && (
+          <ConfirmDialog
+            title="Hard stop migration?"
+            message="WARNING: This is a destructive action. It may leave this migration unable to resume. Prefer this only if the safe stop is stuck. Continue?"
+            confirmLabel="Hard stop"
+            cancelLabel="Cancel"
+            onCancel={() => setConfirmKind(null)}
+            onConfirm={() => void handleConfirmHardStop()}
+          />
+        )}
+        {confirmKind === "resume" && isFinalizeFailed && (
+          <FinalizeRetryDialog
+            errorMessage={
+              (status?.error && String(status.error).trim()) || null
+            }
+            busy={actionBusy}
+            onCancel={() => setConfirmKind(null)}
+            onConfirm={(overrides) => void handleConfirmRetryFinalize(overrides)}
+          />
+        )}
+        {confirmKind === "resume" && !isFinalizeFailed && (
           <ConfirmDialog
             title="Resume migration?"
             message={
@@ -1969,6 +2411,8 @@ export default function ProgressMonitor() {
                 ? "This resumes source removal from where it stopped. It can use significant resources and run for a long time. Continue?"
                 : showCopyUI
                 ? "This resumes the copy phase from where it stopped. It can use significant resources and run for a long time. Continue?"
+                : isSuspended || stoppedMidRun
+                ? "This resumes discovery from where it stopped. Continue?"
                 : "This starts a discovery retry sweep to continue traversal. It can use significant resources and run for a long time. Continue?"
             }
             confirmLabel="Resume"

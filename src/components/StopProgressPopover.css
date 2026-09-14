@@ -1,0 +1,122 @@
+.stop-progress-popover {
+  position: absolute;
+  bottom: calc(100% + 0.75rem);
+  right: 0;
+  z-index: 90;
+  width: min(22rem, calc(100vw - 2rem));
+  padding: 1rem 1.1rem;
+  border-radius: 0.65rem;
+  background: var(--surface-elevated, #1a1d24);
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.12));
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+  color: var(--text-primary, #f2f4f8);
+  pointer-events: auto;
+}
+
+.stop-progress-popover__title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.stop-progress-popover__subtitle {
+  margin: 0.35rem 0 0;
+  font-size: 0.875rem;
+  color: var(--text-secondary, #a8b0bd);
+}
+
+.stop-progress-popover__hint {
+  margin: 0.25rem 0 0;
+  font-size: 0.8rem;
+  color: var(--text-secondary, #a8b0bd);
+}
+
+.stop-progress-popover__list {
+  list-style: none;
+  margin: 0.9rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.stop-progress-popover__item {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  font-size: 0.875rem;
+  color: var(--text-secondary, #a8b0bd);
+}
+
+.stop-progress-popover__item--active {
+  color: var(--text-primary, #f2f4f8);
+  font-weight: 500;
+}
+
+.stop-progress-popover__item--done {
+  color: var(--text-secondary, #8b93a1);
+}
+
+.stop-progress-popover__icon {
+  width: 1.1rem;
+  height: 1.1rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 0.75rem;
+}
+
+.stop-progress-popover__spinner {
+  width: 0.85rem;
+  height: 0.85rem;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  border-top-color: var(--accent, #6cb6ff);
+  border-radius: 50%;
+  animation: stop-progress-spin 0.7s linear infinite;
+}
+
+@keyframes stop-progress-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.stop-progress-popover__actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 1rem;
+  justify-content: flex-end;
+}
+
+.stop-progress-popover__btn {
+  border: none;
+  border-radius: 0.4rem;
+  padding: 0.4rem 0.75rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.stop-progress-popover__btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.stop-progress-popover__btn--hard {
+  background: #8b2e2e;
+  color: #fff;
+}
+
+.stop-progress-popover__btn--hard:hover:not(:disabled) {
+  background: #a33838;
+}
+
+.stop-progress-popover__btn--dismiss {
+  background: transparent;
+  color: var(--text-secondary, #a8b0bd);
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.12));
+}
+
+.stop-progress-popover__btn--dismiss:hover:not(:disabled) {
+  color: var(--text-primary, #f2f4f8);
+}

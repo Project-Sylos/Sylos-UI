@@ -50,7 +50,7 @@ export default function PathRenameEditor({
       const trimmed = name.trim();
       if (!trimmed) {
         setValid(false);
-        setMessages(["The destination name can’t be empty."]);
+        setMessages(["The name can’t be empty."]);
         return;
       }
       setChecking(true);
@@ -126,13 +126,13 @@ export default function PathRenameEditor({
     try {
       const res = await resetPathRemap(migrationId, item.id);
       if (!res.success) {
-        onError?.(res.message || "Could not reset destination name.");
+        onError?.(res.message || "Could not reset name.");
         return;
       }
       onApplied("");
       onClose();
     } catch (err) {
-      onError?.(err instanceof Error ? err.message : "Could not reset destination name.");
+      onError?.(err instanceof Error ? err.message : "Could not reset name.");
     } finally {
       setSubmitting(false);
       onBusy?.(null);

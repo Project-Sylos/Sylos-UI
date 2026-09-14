@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, startTransition, type ReactNode } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
-import { Palette, X, Code, Cloud, Users, AlertTriangle, ChevronDown } from "lucide-react";
+import { useNavigate, useLocation } from "react-router";
+import { Palette, X, Code, Cloud, Users, AlertTriangle, ChevronDown, Filter, Gauge } from "lucide-react";
 import "./Settings.css";
 import { GlassSurfacePanel } from "../components/GlassSurfacePanel";
 import { useTheme } from "../contexts/ThemeContext";
@@ -9,6 +9,7 @@ import { useAuth } from "../contexts/AuthContext";
 import CloudProviderOAuthSetup from "../components/CloudProviderOAuthSetup";
 import SettingsSftpHostsSection from "../components/SettingsSftpHostsSection";
 import SettingsThroughputSection from "../components/SettingsThroughputSection";
+import SettingsPerformanceSection from "../components/SettingsPerformanceSection";
 import "../components/CloudProviderOAuthSetup.css";
 import "../components/SettingsThroughputSection.css";
 import { clearAllMigrations, wipeInstall } from "../api/admin";
@@ -25,13 +26,24 @@ import SettingsUsersSection from "../components/SettingsUsersSection";
 import "../components/SettingsUsersSection.css";
 import "../components/CleanSlateDialog.css";
 import { ALL_TIP_CATEGORY_IDS, TIP_GROUPS, type TipGroup } from "./settingsTips";
+import { listPrepackagedRulesets, listRulesets } from "../api/services";
+import type { RulesetSummary } from "../types/rulesets";
 
-type SettingsSection = "appearance" | "developer" | "users" | "cloud" | "danger";
+type SettingsSection =
+  | "appearance"
+  | "filters"
+  | "developer"
+  | "users"
+  | "cloud"
+  | "advanced"
+  | "danger";
 
 const SECTION_IDS: Record<SettingsSection, string> = {
   appearance: "settings-appearance",
+  filters: "settings-filters",
   users: "settings-users",
   cloud: "settings-cloud",
+  advanced: "settings-advanced",
   danger: "settings-danger",
   developer: "settings-developer",
 };
@@ -52,6 +64,8 @@ export default function Settings() {
   const [oauthScanMinutes, setOauthScanMinutes] = useState(0);
   const [oauthScanSaving, setOauthScanSaving] = useState(false);
   const [oauthScanError, setOauthScanError] = useState<string | null>(null);
+  const [rulesetOptions, setRulesetOptions] = useState<RulesetSummary[]>([]);
+  const [rulesetsLoading, setRulesetsLoading] = useState(false);
   const { needsAttention: recoveryNeedsAttention } = useRecoveryCode();
 
   const cloudProviders = [
@@ -126,22 +140,15 @@ export default function Settings() {
   useEffect(() => {
     if (!user) return;
     let cancelled = false;
-
-    const loadOAuthHealth = () => {
-      void fetchOAuthHealthSummary()
-        .then((summary) => {
-          if (!cancelled) setOauthHealthIssues(summary.hasIssues);
-        })
-        .catch(() => {
-          if (!cancelled) setOauthHealthIssues(false);
-        });
-    };
-
-    loadOAuthHealth();
-    const interval = window.setInterval(loadOAuthHealth, 60_000);
+    void fetchOAuthHealthSummary()
+      .then((summary) => {
+        if (!cancelled) setOauthHealthIssues(summary.hasIssues);
+      })
+      .catch(() => {
+        if (!cancelled) setOauthHealthIssues(false);
+      });
     return () => {
       cancelled = true;
-      window.clearInterval(interval);
     };
   }, [user]);
 
@@ -165,11 +172,34 @@ export default function Settings() {
   }, [isAdmin]);
 
   useEffect(() => {
+    let cancelled = false;
+    setRulesetsLoading(true);
+    void Promise.all([listRulesets(), listPrepackagedRulesets()])
+      .then(([library, prepackaged]) => {
+        if (cancelled) return;
+        const byId = new Map<string, RulesetSummary>();
+        for (const item of [...prepackaged, ...library]) {
+          byId.set(item.id, item);
+        }
+        setRulesetOptions(Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name)));
+      })
+      .catch(() => {
+        if (!cancelled) setRulesetOptions([]);
+      })
+      .finally(() => {
+        if (!cancelled) setRulesetsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     const root = contentRef.current;
     if (!root) return;
 
-    const visibleSections: SettingsSection[] = ["appearance"];
-    if (user) visibleSections.push("users", "cloud");
+    const visibleSections: SettingsSection[] = ["appearance", "filters"];
+    if (user) visibleSections.push("users", "cloud", "advanced");
     if (canCleanSlate) visibleSections.push("danger");
     visibleSections.push("developer");
 
@@ -313,6 +343,7 @@ export default function Settings() {
           <nav className="settings__nav">
             <div className="settings__nav-group">
               {navButton("appearance", <Palette size={20} />, "Appearance")}
+              {navButton("filters", <Filter size={20} />, "Filter rules")}
               {user &&
                 navButton(
                   "users",
@@ -339,6 +370,7 @@ export default function Settings() {
                     />
                   ) : undefined
                 )}
+              {user && navButton("advanced", <Gauge size={20} />, "Advanced")}
               {canCleanSlate &&
                 navButton("danger", <AlertTriangle size={20} />, "Danger zone")}
             </div>
@@ -457,6 +489,45 @@ export default function Settings() {
             </div>
           </div>
 
+          <div className="settings__section settings__page-section" id={SECTION_IDS.filters}>
+            <h1 className="settings__section-title">Filter rules</h1>
+            <p className="settings__subsection-description">
+              Saved rulesets live in the Sylos library (API database). Each migration gets its own
+              copy, so editing a migration's rules never changes the saved original.
+            </p>
+
+            <div className="settings__subsection">
+              <div className="settings__subsection-header">
+                <div>
+                  <h2 className="settings__subsection-title">Applied to new migrations</h2>
+                  <p className="settings__subsection-description">
+                    Optional starter ruleset copied onto new migrations. Edit and
+                    apply filters during path review after discovery, pick a
+                    different library ruleset here, or choose None.
+                  </p>
+                </div>
+              </div>
+              <label>
+                Applied ruleset
+                <select
+                  value={preferences.defaultRulesetId || ""}
+                  disabled={rulesetsLoading}
+                  onChange={(e) => {
+                    void updatePreferences({ defaultRulesetId: e.target.value });
+                  }}
+                >
+                  <option value="">None (migrate everything you select)</option>
+                  {rulesetOptions.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name}
+                      {item.createdBy === "prepackaged" ? " (prepackaged)" : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          </div>
+
           {user && (
             <SettingsUsersSection
               sectionId={SECTION_IDS.users}
@@ -545,6 +616,18 @@ export default function Settings() {
             </div>
           )}
 
+          {user && (
+            <div className="settings__section settings__page-section" id={SECTION_IDS.advanced}>
+              <h1 className="settings__section-title">Advanced</h1>
+              <p className="settings__subsection-description">
+                Install-wide tuning for database and migration engine resource use.
+              </p>
+
+              <h2 className="settings__group-title">Performance</h2>
+              <SettingsPerformanceSection canManage={isAdmin} />
+            </div>
+          )}
+
           {canCleanSlate && (
             <div className="settings__section settings__page-section" id={SECTION_IDS.danger}>
               <h1 className="settings__section-title">Danger zone</h1>
@@ -604,12 +687,13 @@ export default function Settings() {
                     type="checkbox"
                     checked={preferences.developer?.enabled === true}
                     onChange={(e) => {
-                      const currentDeveloper = preferences.developer || { enabled: false, showSpectraService: false };
+                      const currentDeveloper = preferences.developer || { enabled: false, showSpectraService: false, disableDbQueryTimeout: false };
                       updatePreferences({
                         developer: {
                           ...currentDeveloper,
                           enabled: e.target.checked,
                           showSpectraService: e.target.checked ? currentDeveloper.showSpectraService : false,
+                          disableDbQueryTimeout: e.target.checked ? currentDeveloper.disableDbQueryTimeout : false,
                         },
                       });
                     }}
@@ -634,11 +718,40 @@ export default function Settings() {
                     checked={preferences.developer?.showSpectraService === true}
                     disabled={preferences.developer?.enabled !== true}
                     onChange={(e) => {
-                      const currentDeveloper = preferences.developer || { enabled: false, showSpectraService: false };
+                      const currentDeveloper = preferences.developer || { enabled: false, showSpectraService: false, disableDbQueryTimeout: false };
                       updatePreferences({
                         developer: {
                           ...currentDeveloper,
                           showSpectraService: e.target.checked,
+                        },
+                      });
+                    }}
+                    className="settings__toggle-input"
+                  />
+                  <span className="settings__toggle-slider"></span>
+                </label>
+              </div>
+            </div>
+
+            <div className="settings__subsection">
+              <div className="settings__subsection-header">
+                <div>
+                  <h2 className="settings__subsection-title">Disable DB query timeout</h2>
+                  <p className="settings__subsection-description">
+                    Path review search and diffs cancel after 2 minutes by default. Enable this to let long queries run without that deadline.
+                  </p>
+                </div>
+                <label className="settings__toggle">
+                  <input
+                    type="checkbox"
+                    checked={preferences.developer?.disableDbQueryTimeout === true}
+                    disabled={preferences.developer?.enabled !== true}
+                    onChange={(e) => {
+                      const currentDeveloper = preferences.developer || { enabled: false, showSpectraService: false, disableDbQueryTimeout: false };
+                      updatePreferences({
+                        developer: {
+                          ...currentDeveloper,
+                          disableDbQueryTimeout: e.target.checked,
                         },
                       });
                     }}

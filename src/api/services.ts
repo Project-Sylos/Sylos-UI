@@ -18,7 +18,17 @@ import { ServiceDescriptor, Drive, ChildrenResponse, Folder } from "../types/ser
 import { UserPreferences, DEFAULT_PREFERENCES, normalizeAppTheme } from "../types/preferences";
 import { finiteNonNeg } from "../utils/formatBytes";
 import { parseOptionalTotal } from "../utils/listSearch";
+import {
+  CreateRulesetRequest,
+  FilterRuleset,
+  MigrationRulesetResponse,
+  RuleExclusion,
+  RulesetSummary,
+  UpdateRulesetRequest,
+} from "../types/rulesets";
 import { apiFetch, getAuthToken, readErrorMessage } from "./client";
+
+export type { FilterRuleset, RuleExclusion } from "../types/rulesets";
 
 const fallbackServices: ServiceDescriptor[] = [
   { id: "local", displayName: "Local Filesystem", type: "local" },
@@ -309,6 +319,33 @@ export async function stopMigration(
   return (await response.json()) as MigrationStatusResponse;
 }
 
+export async function forceStopMigration(
+  migrationId: string
+): Promise<MigrationStatusResponse> {
+  const response = await apiFetch(
+    `/api/migrations/${migrationId}/force-stop`,
+    {
+      method: "POST",
+    }
+  );
+
+  if (!response.ok) {
+    let errorMessage = "Unknown error";
+    try {
+      const errorData = await response.json();
+      errorMessage = errorData.message || errorMessage;
+    } catch {
+      const message = await response.text();
+      errorMessage = message || errorMessage;
+    }
+    throw new Error(
+      `Failed to force-stop migration (${response.status}): ${errorMessage}`
+    );
+  }
+
+  return (await response.json()) as MigrationStatusResponse;
+}
+
 function mapDriveFromAPI(drive: Record<string, unknown>): Drive {
   return {
     path: String(drive.path ?? ""),
@@ -350,6 +387,50 @@ export async function listDrives(
   return Array.isArray(data)
     ? data.map((drive: Record<string, unknown>) => mapDriveFromAPI(drive))
     : [];
+}
+
+/** Process-user home directory on the machine running Sylos (local FS only). */
+export async function getHomeFolder(serviceId: string): Promise<Folder> {
+  const response = await apiFetch(
+    `/api/services/${encodeURIComponent(serviceId)}/home`,
+    { method: "GET" }
+  );
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(
+      `Failed to resolve home directory (${response.status}): ${
+        message || "Unknown error"
+      }`
+    );
+  }
+
+  const data = (await response.json()) as Record<string, unknown>;
+  return {
+    ServiceID: String(data.id ?? data.ID ?? data.ServiceID ?? ""),
+    Id: String(data.id ?? data.ID ?? data.ServiceID ?? ""),
+    name: String(data.displayName ?? data.DisplayName ?? data.name ?? "Home"),
+    locationPath: String(data.locationPath ?? data.LocationPath ?? ""),
+    parentId:
+      data.parentId != null
+        ? String(data.parentId)
+        : data.ParentId != null
+          ? String(data.ParentId)
+          : undefined,
+    parentPath:
+      data.parentPath != null
+        ? String(data.parentPath)
+        : data.ParentPath != null
+          ? String(data.ParentPath)
+          : undefined,
+    lastUpdated:
+      data.lastUpdated != null
+        ? String(data.lastUpdated)
+        : data.LastUpdated != null
+          ? String(data.LastUpdated)
+          : undefined,
+    type: String(data.type ?? data.Type ?? "folder"),
+  };
 }
 
 export interface StorageInfo {
@@ -661,18 +742,21 @@ export interface PathNodeItem {
   id: string;                 // Migration Engine ULID (26 chars) - USE THIS FOR API OPERATIONS
   ServiceID?: string;         // Service's native identifier (e.g., "C:/$Recycle.Bin" for local, file ID for cloud services)
   parentId?: string;          // Migration Engine ULID (26 chars) - parent node ID
-  parentPath?: string;        // UI-constructed parent path (for display/navigation)
+  parentPath?: string;        // Parent id_path (for navigation)
   name: string;        // Display name (basename of the path)
-  locationPath: string;       // UI-constructed path (e.g., "/$Recycle.Bin")
+  locationPath: string;       // id_path for tree nav (e.g. "/uuid/uuid")
+  /** Friendly name path for display (e.g. "/Reports/a.txt"). */
+  displayPath?: string;
   lastUpdated?: string;       // Last updated timestamp (RFC3339 format)
   depthLevel: number;         // Depth in the directory tree (0 = root)
   type: string;               // "folder" or "file"
-  size?: number;              // File size in bytes (only present for files)
+  size?: number;              // File bytes, or folder total of everything underneath
   traversalStatus: "pending" | "successful" | "failed" | "excluded" | "not_on_src";
   copyStatus?: string;        // "pending", "successful", "failed", …
-  deleteStatus?: string;      // delete phase: pending, deleted, failed
+  deleteStatus?: string;      // delete: pending_explicit, pending_inherited, skipped, deleted, failed
   failureLogId?: string;
   failureMessage?: string;
+  ruleExclusion?: RuleExclusion;
 }
 
 export interface PathNodes {
@@ -697,11 +781,13 @@ export interface ListChildrenDiffsResponse {
   pagination: PaginationInfo;
 }
 
-/** Response from GET /api/migrations/{id}/diffs/stats */
+/** Response from GET /api/migrations/{id}/diffs/stats and POST .../search/count */
 export interface DiffsStatsResponse {
   total: number;
   totalFolders: number;
   totalFiles: number;
+  /** True when total is a lower bound (count stopped early, e.g. 2m deadline). */
+  truncated?: boolean;
 }
 
 // Transformed item for UI consumption
@@ -711,11 +797,13 @@ export interface DiffItem {
   parentId?: string;         // Migration Engine ULID (26 chars) - parent node ID
   parentPath?: string;       // UI-constructed parent path (for display/navigation)
   name: string;       // Display name from src if available, otherwise dst
-  locationPath: string;      // UI-constructed path from src if available, otherwise dst - e.g., "/$Recycle.Bin"
+  locationPath: string;      // id_path from src if available, otherwise dst (tree nav)
+  /** Friendly name path for UI columns / inspector. */
+  displayPath?: string;
   lastUpdated?: string;      // Last updated timestamp from src if available, otherwise dst
   depthLevel: number;        // Depth level from src if available, otherwise dst
   type: "folder" | "file";   // Type from src if available, otherwise dst
-  size?: number;             // File size from src if available, otherwise dst
+  size?: number;             // File bytes, or folder total from src if available, otherwise dst
   traversalStatus: string;   // Traversal status from src if available, otherwise dst
   copyStatus?: string;       // Copy status from src if available, otherwise dst
   src?: PathNodeItem;        // Full src node (for hover card)
@@ -789,31 +877,14 @@ export async function getMigrationDiffs(
     console.error("getMigrationDiffs: Invalid response structure", data);
     throw new Error("Invalid API response: items not found");
   }
-  const paginationData = data.pagination || {
-    offset: options?.offset || 0,
-    limit: options?.limit || 100,
-    total: Object.keys(itemsMap).length,
-    totalFolders: 0,
-    totalFiles: 0,
-    hasMore: false,
-  };
-
-  // Count folders and files for pagination if not provided
-  if (!data.pagination) {
-    let folderCount = 0;
-    let fileCount = 0;
-    for (const pathNodes of Object.values(itemsMap)) {
-      const nodes = pathNodes as PathNodes;
-      const type = nodes.src?.type || nodes.dst?.type;
-      if (type === "folder") {
-        folderCount++;
-      } else if (type === "file") {
-        fileCount++;
-      }
+  const pagination = normalizeSearchPagination(
+    data.pagination as Record<string, unknown> | undefined,
+    {
+      offset: options?.offset || 0,
+      limit: options?.limit || 100,
+      itemCount: Object.keys(itemsMap).length,
     }
-    paginationData.totalFolders = folderCount;
-    paginationData.totalFiles = fileCount;
-  }
+  );
 
   // Transform the API response into a flat array of DiffItems for UI consumption
   const transformedItems: DiffItem[] = [];
@@ -845,6 +916,7 @@ export async function getMigrationDiffs(
       parentPath: primaryNode.parentPath,
       name: primaryNode.name,
       locationPath: primaryNode.locationPath,
+      displayPath: primaryNode.displayPath || undefined,
       ServiceID: primaryNode.ServiceID,
       lastUpdated: primaryNode.lastUpdated,
       depthLevel: primaryNode.depthLevel,
@@ -862,7 +934,7 @@ export async function getMigrationDiffs(
 
   return {
     items: transformedItems,
-    pagination: paginationData,
+    pagination,
   };
 }
 
@@ -925,7 +997,14 @@ export interface ExclusionResponse {
   error?: string;
   taskID?: string;  // Present for bulk operations (all: true)
   affectedCount?: number;
+  unchangedCount?: number;
+  unchangedReasons?: BulkReasonGroup[];
   deltas?: Record<string, number>;  // Per-status deltas to apply to local stats
+}
+
+export interface BulkReasonGroup {
+  reason: string;
+  count: number;
 }
 
 /**
@@ -1288,7 +1367,7 @@ export async function listPathIssues(
 ): Promise<PathIssuesListResponse> {
   const response = await apiFetch(`/api/migrations/${migrationId}/path-issues`);
   if (!response.ok) {
-    throw new Error(`Failed to load destination name issues (${response.status})`);
+    throw new Error(`Failed to load naming issues (${response.status})`);
   }
   return response.json();
 }
@@ -1348,7 +1427,7 @@ export async function validatePathProposal(
     }
   );
   if (!response.ok) {
-    throw new Error(`Failed to check destination name (${response.status})`);
+    throw new Error(`Failed to check name (${response.status})`);
   }
   return response.json();
 }
@@ -1369,7 +1448,7 @@ export async function acceptPathProposal(
   if (!response.ok) {
     return {
       success: false,
-      message: data.message || data.error || "Could not apply suggested destination name.",
+      message: data.message || data.error || "Could not apply suggested name.",
     };
   }
   return data;
@@ -1410,7 +1489,7 @@ export async function resetPathRemap(
   if (!response.ok) {
     return {
       success: false,
-      message: data.message || data.error || "Could not reset destination name.",
+      message: data.message || data.error || "Could not reset name.",
     };
   }
   return data;
@@ -1663,37 +1742,9 @@ export async function getPendingWork(
   return (await response.json()) as PendingWorkResponse;
 }
 
-// Path Review Statistics API types and functions
-interface PathReviewStatsRaw {
-  traversalStatusCounts?: {
-    pending?: number;
-    failed?: number;
-    successful?: number;
-    exclusion_explicit?: number;
-    exclusion_inherited?: number;
-    not_on_src?: number;
-    not_on_dst?: number;
-  };
-  copyStatusCounts?: {
-    pending?: number;
-    failed?: number;
-    successful?: number;
-    exclusion_explicit?: number;
-    exclusion_inherited?: number;
-  };
-  foldersCount?: number;
-  filesCount?: number;
-  foldersRatio?: number;
-  filesRatio?: number;
-  totalFileSize?: {
-    src?: number;
-    dst?: number;
-    selected?: number;
-  };
-}
-
 export interface PathReviewStats {
-  pendingCount: number;
+  /** Omitted on Discover / delete-results; present on copy-plan, copy, and source-cleanup. */
+  pendingCount?: number;
   failedCount: number;
   excludedCount: number;
   pendingRetriesCount: number;
@@ -1709,67 +1760,24 @@ export interface PathReviewStats {
   };
 }
 
-/** API can return flat PathReviewStats or legacy PathReviewStatsRaw. Normalize to PathReviewStats. */
-function normalizePathReviewStats(
-  raw: PathReviewStatsRaw | PathReviewStats,
-  phase?: "traversal" | "copy" | "delete"
-): PathReviewStats {
-  const isCopy = phase === "copy";
-  // Already flat (current API shape)
-  if (typeof (raw as PathReviewStats).pendingCount === "number") {
-    const flat = raw as PathReviewStats;
-    return {
-      pendingCount: flat.pendingCount,
-      failedCount: flat.failedCount,
-      excludedCount: flat.excludedCount,
-      pendingRetriesCount: flat.pendingRetriesCount ?? 0,
-      successfulCount: flat.successfulCount ?? 0,
-      foldersCount: flat.foldersCount ?? 0,
-      filesCount: flat.filesCount ?? 0,
-      foldersRatio: flat.foldersRatio ?? 0,
-      filesRatio: flat.filesRatio ?? 0,
-      totalFileSize: {
-        src: finiteNonNeg(flat.totalFileSize?.src),
-        dst: finiteNonNeg(flat.totalFileSize?.dst),
-        selected: finiteNonNeg(flat.totalFileSize?.selected),
-      },
-    };
-  }
-  const legacy = raw as PathReviewStatsRaw;
-  const excluded =
-    (legacy.copyStatusCounts?.exclusion_explicit ?? 0) +
-    (legacy.copyStatusCounts?.exclusion_inherited ?? 0);
-  if (isCopy) {
-    return {
-      pendingCount: legacy.copyStatusCounts?.pending ?? 0,
-      failedCount: legacy.copyStatusCounts?.failed ?? 0,
-      excludedCount: excluded,
-      pendingRetriesCount: legacy.copyStatusCounts?.pending ?? 0,
-      successfulCount: legacy.copyStatusCounts?.successful ?? 0,
-      foldersCount: legacy.foldersCount ?? 0,
-      filesCount: legacy.filesCount ?? 0,
-      foldersRatio: legacy.foldersRatio ?? 0,
-      filesRatio: legacy.filesRatio ?? 0,
-      totalFileSize: {
-        src: finiteNonNeg(legacy.totalFileSize?.src),
-        dst: finiteNonNeg(legacy.totalFileSize?.dst),
-        selected: finiteNonNeg(legacy.totalFileSize?.selected),
-      },
-    };
-  }
+/** Clamp counters to finite non-negative numbers so a partial response cannot render as NaN. */
+function coercePathReviewStats(raw: PathReviewStats): PathReviewStats {
   return {
-    pendingCount: legacy.copyStatusCounts?.pending ?? 0,
-    failedCount: legacy.traversalStatusCounts?.failed ?? 0,
-    excludedCount: excluded,
-    pendingRetriesCount: legacy.traversalStatusCounts?.pending ?? 0,
-    foldersCount: legacy.foldersCount ?? 0,
-    filesCount: legacy.filesCount ?? 0,
-    foldersRatio: legacy.foldersRatio ?? 0,
-    filesRatio: legacy.filesRatio ?? 0,
+    ...(raw.pendingCount !== undefined && raw.pendingCount !== null
+      ? { pendingCount: finiteNonNeg(raw.pendingCount) }
+      : {}),
+    failedCount: finiteNonNeg(raw.failedCount),
+    excludedCount: finiteNonNeg(raw.excludedCount),
+    pendingRetriesCount: finiteNonNeg(raw.pendingRetriesCount),
+    successfulCount: finiteNonNeg(raw.successfulCount),
+    foldersCount: finiteNonNeg(raw.foldersCount),
+    filesCount: finiteNonNeg(raw.filesCount),
+    foldersRatio: raw.foldersRatio ?? 0,
+    filesRatio: raw.filesRatio ?? 0,
     totalFileSize: {
-      src: finiteNonNeg(legacy.totalFileSize?.src),
-      dst: finiteNonNeg(legacy.totalFileSize?.dst),
-      selected: finiteNonNeg(legacy.totalFileSize?.selected),
+      src: finiteNonNeg(raw.totalFileSize?.src),
+      dst: finiteNonNeg(raw.totalFileSize?.dst),
+      selected: finiteNonNeg(raw.totalFileSize?.selected),
     },
   };
 }
@@ -1777,14 +1785,12 @@ function normalizePathReviewStats(
 /**
  * Get path review statistics
  * @param migrationId The ID of the migration
- * @param phase Optional phase used for legacy response normalization
  * @param view Optional review projection; source-cleanup uses delete-plan counters
  * @returns Promise resolving to PathReviewStats
  */
 export async function getPathReviewStats(
   migrationId: string,
-  phase?: "traversal" | "copy" | "delete",
-  view?: "source-cleanup"
+  view?: "source-cleanup" | "copy-plan"
 ): Promise<PathReviewStats> {
 
   const params = new URLSearchParams();
@@ -1806,8 +1812,7 @@ export async function getPathReviewStats(
     );
   }
 
-  const raw = (await response.json()) as PathReviewStatsRaw | PathReviewStats;
-  return normalizePathReviewStats(raw, phase);
+  return coercePathReviewStats((await response.json()) as PathReviewStats);
 }
 
 // Search API types and functions
@@ -1823,7 +1828,9 @@ export interface SearchOptions {
   foldersOnly?: boolean; // Deprecated - use typeFilter instead
   sortField?: string;  // "name", "path", "depth", "size", "type", "traversalStatus", "copyStatus"
   sortDir?: "asc" | "desc";
-  query?: string;  // Search query text
+  query?: string;  // Search query text (name mode, or single path segment fallback)
+  /** Ordered "in path" segments when searchField is path; each becomes a path condition. */
+  pathSegments?: string[];
   searchField?: "path" | "name"; // Field to search in (path or name) - defaults to "path"
   typeFilter?: "both" | "folder" | "file"; // Type filter - defaults to "both"
   depthFilter?: number | null; // Depth filter (number)
@@ -1832,7 +1839,7 @@ export interface SearchOptions {
   sizeOperator?: "equals" | "gt" | "gte" | "lt" | "lte"; // Size operator - defaults to "equals"
   traversalStatusFilter?: string | null; // Traversal status filter (pending, failed, etc.)
   copyStatusFilter?: string | null; // Copy status filter (exclusion_explicit, exclusion_inherited, pending, successful, failed)
-  deleteStatusFilter?: string | null; // Delete status filter (pending, skipped, failed, deleted)
+  deleteStatusFilter?: string | null; // Delete status filter (pending_explicit, pending_inherited, skipped, failed, deleted)
   /** Compatibility filter: issues | accepted | rejected | none | manual */
   pathIssueStatusFilter?: string | null;
   /** Compatibility finding category (InvalidChar, EmptyPart, …) */
@@ -1840,6 +1847,10 @@ export interface SearchOptions {
   statusSearchType?: "traversal" | "copy" | "delete" | "both"; // Controls which status conditions are processed
   phase?: "traversal" | "copy" | "delete"; // Phase to determine which status counts to use in stats transformation
   includeDestinationOnly?: boolean; // When false, hide destination-only rows server-side
+  /** Folder + descendants scope (id_path). Empty or "/" = global. */
+  underPath?: string;
+  /** Optional filter-rules predicate (compiled to SQL server-side). */
+  ruleset?: FilterRuleset | null;
 }
 
 export interface SearchRequest {
@@ -1850,6 +1861,8 @@ export interface SearchRequest {
   };
   statusSearchType?: "traversal" | "copy" | "delete" | "both"; // Controls which status conditions are processed
   includeDestinationOnly?: boolean;
+  underPath?: string;
+  ruleset?: FilterRuleset;
 }
 
 /** Build the POST body shared by /search and /search/count. */
@@ -1859,7 +1872,20 @@ export function buildSearchRequest(options?: SearchOptions): SearchRequest {
   };
 
   const searchField = options?.searchField || "path";
-  if (options?.query !== undefined && options.query.trim() !== "") {
+  if (searchField === "path") {
+    const segments =
+      options?.pathSegments && options.pathSegments.length > 0
+        ? options.pathSegments
+        : options?.query !== undefined && options.query.trim() !== ""
+          ? [options.query.trim()]
+          : [];
+    for (const seg of segments) {
+      const value = seg.trim();
+      if (value !== "") {
+        requestBody.conditions!.push({ field: "path", value });
+      }
+    }
+  } else if (options?.query !== undefined && options.query.trim() !== "") {
     requestBody.conditions!.push({
       field: searchField,
       value: options.query.trim(),
@@ -1978,6 +2004,15 @@ export function buildSearchRequest(options?: SearchOptions): SearchRequest {
     requestBody.includeDestinationOnly = options.includeDestinationOnly;
   }
 
+  const under = options?.underPath?.trim();
+  if (under && under !== "/") {
+    requestBody.underPath = under;
+  }
+
+  if (options?.ruleset) {
+    requestBody.ruleset = options.ruleset;
+  }
+
   if (requestBody.conditions!.length === 0) {
     requestBody.conditions = undefined;
   }
@@ -2022,7 +2057,8 @@ function normalizeSearchPagination(
  */
 export async function searchPathReviewItems(
   migrationId: string,
-  options?: SearchOptions
+  options?: SearchOptions,
+  init?: { signal?: AbortSignal }
 ): Promise<{ items: DiffItem[]; pagination: PaginationInfo; stats: PathReviewStats | null }> {
 
   const params = new URLSearchParams();
@@ -2046,6 +2082,7 @@ export async function searchPathReviewItems(
   const response = await apiFetch(url, {
     method: "POST",
     body: JSON.stringify(requestBody),
+    signal: init?.signal,
   });
 
   if (!response.ok) {
@@ -2126,6 +2163,7 @@ export async function searchPathReviewItems(
       parentPath: primaryNode.parentPath,
       name: primaryNode.name,
       locationPath: primaryNode.locationPath,
+      displayPath: primaryNode.displayPath || undefined,
       ServiceID: primaryNode.ServiceID,
       lastUpdated: primaryNode.lastUpdated,
       depthLevel: primaryNode.depthLevel,
@@ -2144,8 +2182,7 @@ export async function searchPathReviewItems(
   // Extract and transform stats from response if present
   let transformedStats: PathReviewStats | null = null;
   if (data.stats) {
-    const rawStats = data.stats as PathReviewStatsRaw | PathReviewStats;
-    transformedStats = normalizePathReviewStats(rawStats, options?.phase);
+    transformedStats = coercePathReviewStats(data.stats as PathReviewStats);
   }
 
   return {
@@ -2161,12 +2198,14 @@ export async function searchPathReviewItems(
  */
 export async function countPathReviewSearchMatches(
   migrationId: string,
-  options?: SearchOptions
+  options?: SearchOptions,
+  init?: { signal?: AbortSignal }
 ): Promise<DiffsStatsResponse> {
   const requestBody = buildSearchRequest(options);
   const response = await apiFetch(`/api/migrations/${migrationId}/search/count`, {
     method: "POST",
     body: JSON.stringify(requestBody),
+    signal: init?.signal,
   });
 
   if (!response.ok) {
@@ -2183,7 +2222,27 @@ export async function countPathReviewSearchMatches(
   const totalFolders =
     parseOptionalTotal(data.TotalFolders ?? data.totalFolders) ?? 0;
   const totalFiles = parseOptionalTotal(data.TotalFiles ?? data.totalFiles) ?? 0;
-  return { total, totalFolders, totalFiles };
+  const truncated = data.truncated === true || data.Truncated === true;
+  return { total, totalFolders, totalFiles, truncated };
+}
+
+/** In-flight path-review writer status (bulk exclude/unexclude). */
+export async function getReviewOpsStatus(
+  migrationId: string
+): Promise<{ bulkMutationInProgress: boolean }> {
+  const response = await apiFetch(`/api/migrations/${migrationId}/review-ops`);
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(
+      `Failed to load review ops (${response.status}): ${message || "Unknown error"}`
+    );
+  }
+  const data = (await response.json()) as Record<string, unknown>;
+  return {
+    bulkMutationInProgress:
+      data.bulkMutationInProgress === true ||
+      data.BulkMutationInProgress === true,
+  };
 }
 
 // Bulk exclusion API types and functions
@@ -2193,6 +2252,34 @@ export interface BulkExclusionRequest {
   filter?: {
     status?: string;   // Status filter when all: true (e.g., "failed") - optional
   };
+  /** Exclude/unexclude by the same SearchRequest as list search. */
+  search?: SearchRequest;
+  /** Node IDs spared from a search-based exclude. */
+  except?: string[];
+}
+
+/**
+ * Exclude all nodes matching the active list search (optional except list).
+ */
+export async function excludeMatchingSearch(
+  migrationId: string,
+  options: SearchOptions,
+  except: string[] = []
+): Promise<ExclusionResponse> {
+  const search = buildSearchRequest(options);
+  return bulkExcludeNodes(migrationId, { search, except });
+}
+
+/**
+ * Unexclude all nodes matching the active list search (optional except list).
+ */
+export async function unexcludeMatchingSearch(
+  migrationId: string,
+  options: SearchOptions,
+  except: string[] = []
+): Promise<ExclusionResponse> {
+  const search = buildSearchRequest(options);
+  return bulkUnexcludeNodes(migrationId, { search, except });
 }
 
 /**
@@ -2267,6 +2354,69 @@ export async function bulkUnexcludeNodes(
 
   const data = await response.json();
   return data;
+}
+
+export type BulkRetryKind = "discovery" | "copy" | "delete";
+
+export interface BulkRetryRequest {
+  nodeIDs: string[];
+  kind?: BulkRetryKind;
+  markAsFailed?: boolean;
+}
+
+/**
+ * Bulk mark nodes for retry (or mark as failed when markAsFailed is set).
+ */
+export async function bulkMarkNodesForRetry(
+  migrationId: string,
+  request: BulkRetryRequest
+): Promise<ExclusionResponse> {
+  const response = await apiFetch(`/api/migrations/${migrationId}/mark-retry`, {
+    method: "POST",
+    body: JSON.stringify({
+      nodeIDs: request.nodeIDs,
+      kind: request.kind,
+      markAsFailed: request.markAsFailed === true,
+    }),
+  });
+  if (!response.ok) {
+    let errorMessage = "Failed to update retry status";
+    try {
+      const errorData = await response.json();
+      errorMessage = errorData.error || errorMessage;
+    } catch {
+      errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+    }
+    return { success: false, error: errorMessage };
+  }
+  return response.json();
+}
+
+/**
+ * Bulk mark nodes as failed (clear pending retry).
+ */
+export async function bulkUnmarkNodesForRetry(
+  migrationId: string,
+  request: BulkRetryRequest
+): Promise<ExclusionResponse> {
+  const response = await apiFetch(`/api/migrations/${migrationId}/unmark-retry`, {
+    method: "POST",
+    body: JSON.stringify({
+      nodeIDs: request.nodeIDs,
+      kind: request.kind,
+    }),
+  });
+  if (!response.ok) {
+    let errorMessage = "Failed to mark nodes failed";
+    try {
+      const errorData = await response.json();
+      errorMessage = errorData.error || errorMessage;
+    } catch {
+      errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+    }
+    return { success: false, error: errorMessage };
+  }
+  return response.json();
 }
 
 // Background tasks API types and functions
@@ -2364,6 +2514,10 @@ export interface RetrySweepRequest {
   skipListener?: boolean;
   startupDelaySeconds?: number;
   progressTickMillis?: number;
+  /** Index-build override for *-finalize-failed retry (0 = engine default 2GB). */
+  memoryLimitGB?: number;
+  /** Index-build override for *-finalize-failed retry (0 = engine default 1; max 4). */
+  threads?: number;
 }
 
 export interface RetrySweepResponse {
@@ -2386,6 +2540,28 @@ export async function resumeMigration(
     return {
       success: false,
       error: data.error || `Failed to resume migration (${response.status})`,
+    };
+  }
+
+  const data = await response.json();
+  return data as RetrySweepResponse;
+}
+
+/** Retry seal stop / secondary indexes / checkpoint after *-finalize-failed. */
+export async function retryFinalize(
+  migrationId: string,
+  config?: Pick<RetrySweepRequest, "memoryLimitGB" | "threads">
+): Promise<RetrySweepResponse> {
+  const response = await apiFetch(`/api/migrations/${migrationId}/retry-finalize`, {
+    method: "POST",
+    body: JSON.stringify(config || {}),
+  });
+
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    return {
+      success: false,
+      error: data.error || `Failed to retry finalize (${response.status})`,
     };
   }
 
@@ -2449,6 +2625,7 @@ export async function getPreferences(): Promise<UserPreferences> {
       theme,
       sidebarCollapsed: typeof data.sidebarCollapsed === "boolean" ? data.sidebarCollapsed : DEFAULT_PREFERENCES.sidebarCollapsed,
       hideUnsetServices: typeof data.hideUnsetServices === "boolean" ? data.hideUnsetServices : DEFAULT_PREFERENCES.hideUnsetServices,
+      defaultRulesetId: typeof data.defaultRulesetId === "string" ? data.defaultRulesetId : DEFAULT_PREFERENCES.defaultRulesetId,
       tips: data.tips && typeof data.tips === "object" ? {
         enabled: typeof data.tips.enabled === "boolean" ? data.tips.enabled : DEFAULT_PREFERENCES.tips!.enabled,
         categories: typeof data.tips.categories === "object" && data.tips.categories !== null ? data.tips.categories : DEFAULT_PREFERENCES.tips!.categories,
@@ -2456,6 +2633,7 @@ export async function getPreferences(): Promise<UserPreferences> {
       developer: data.developer && typeof data.developer === "object" ? {
         enabled: typeof data.developer.enabled === "boolean" ? data.developer.enabled : DEFAULT_PREFERENCES.developer!.enabled,
         showSpectraService: typeof data.developer.showSpectraService === "boolean" ? data.developer.showSpectraService : DEFAULT_PREFERENCES.developer!.showSpectraService,
+        disableDbQueryTimeout: typeof data.developer.disableDbQueryTimeout === "boolean" ? data.developer.disableDbQueryTimeout : DEFAULT_PREFERENCES.developer!.disableDbQueryTimeout,
       } : DEFAULT_PREFERENCES.developer,
     };
   } catch (error) {
@@ -2488,5 +2666,145 @@ export async function savePreferences(prefs: UserPreferences): Promise<void> {
       }`
     );
   }
+}
+
+export async function listRulesets(createdBy?: string): Promise<RulesetSummary[]> {
+  const params = createdBy ? `?createdBy=${encodeURIComponent(createdBy)}` : "";
+  const response = await apiFetch(`/api/rulesets${params}`, { method: "GET" });
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, "Failed to list rulesets"));
+  }
+  const data = await response.json();
+  return Array.isArray(data) ? data : [];
+}
+
+export async function listPrepackagedRulesets(): Promise<RulesetSummary[]> {
+  const response = await apiFetch(`/api/rulesets/prepackaged`, { method: "GET" });
+  if (!response.ok) {
+    throw new Error(
+      await readErrorMessage(response, "Failed to list prepackaged rulesets")
+    );
+  }
+  const data = await response.json();
+  return Array.isArray(data) ? data : [];
+}
+
+export async function getRuleset(id: string): Promise<RulesetSummary> {
+  const response = await apiFetch(`/api/rulesets/${encodeURIComponent(id)}`, {
+    method: "GET",
+  });
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, "Failed to get ruleset"));
+  }
+  return (await response.json()) as RulesetSummary;
+}
+
+export async function createRuleset(
+  payload: CreateRulesetRequest
+): Promise<RulesetSummary> {
+  const response = await apiFetch(`/api/rulesets`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, "Failed to create ruleset"));
+  }
+  return (await response.json()) as RulesetSummary;
+}
+
+export async function updateRuleset(
+  id: string,
+  payload: UpdateRulesetRequest
+): Promise<RulesetSummary> {
+  const response = await apiFetch(`/api/rulesets/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, "Failed to update ruleset"));
+  }
+  return (await response.json()) as RulesetSummary;
+}
+
+export async function deleteRuleset(id: string): Promise<void> {
+  const response = await apiFetch(`/api/rulesets/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, "Failed to delete ruleset"));
+  }
+}
+
+export async function importRuleset(ruleset: FilterRuleset): Promise<RulesetSummary> {
+  const response = await apiFetch(`/api/rulesets/import`, {
+    method: "POST",
+    body: JSON.stringify(ruleset),
+  });
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, "Failed to import ruleset"));
+  }
+  return (await response.json()) as RulesetSummary;
+}
+
+export async function exportRuleset(id: string): Promise<FilterRuleset> {
+  const response = await apiFetch(`/api/rulesets/${encodeURIComponent(id)}/export`, {
+    method: "GET",
+  });
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, "Failed to export ruleset"));
+  }
+  return (await response.json()) as FilterRuleset;
+}
+
+export async function getMigrationRuleset(
+  migrationId: string
+): Promise<MigrationRulesetResponse> {
+  const response = await apiFetch(
+    `/api/migrations/${encodeURIComponent(migrationId)}/ruleset`,
+    { method: "GET" }
+  );
+  if (!response.ok) {
+    throw new Error(
+      await readErrorMessage(response, "Failed to get migration ruleset")
+    );
+  }
+  return (await response.json()) as MigrationRulesetResponse;
+}
+
+export async function setMigrationRuleset(
+  migrationId: string,
+  ruleset: FilterRuleset
+): Promise<void> {
+  const response = await apiFetch(
+    `/api/migrations/${encodeURIComponent(migrationId)}/ruleset`,
+    {
+      method: "PUT",
+      body: JSON.stringify({ ruleset }),
+    }
+  );
+  if (!response.ok) {
+    throw new Error(
+      await readErrorMessage(response, "Failed to save migration ruleset")
+    );
+  }
+}
+
+export async function reapplyMigrationRuleset(
+  migrationId: string,
+  config?: { includePending?: boolean }
+): Promise<{ success: boolean; error?: string }> {
+  const response = await apiFetch(
+    `/api/migrations/${encodeURIComponent(migrationId)}/ruleset/reapply`,
+    {
+      method: "POST",
+      body: JSON.stringify(config ?? {}),
+    }
+  );
+  if (!response.ok) {
+    throw new Error(
+      await readErrorMessage(response, "Failed to reapply migration ruleset")
+    );
+  }
+  return (await response.json()) as { success: boolean; error?: string };
 }
 

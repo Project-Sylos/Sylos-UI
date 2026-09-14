@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
 import {
   Folder,
   File,
@@ -11,6 +11,7 @@ import {
   X,
   ArrowUpDown,
   ExternalLink,
+  Plus,
 } from "lucide-react";
 import {
   searchPathReviewItems,
@@ -28,20 +29,56 @@ import {
   unmarkNodeForRetryDelete,
   bulkExcludeNodes,
   bulkUnexcludeNodes,
+  bulkMarkNodesForRetry,
+  bulkUnmarkNodesForRetry,
+  excludeMatchingSearch,
+  unexcludeMatchingSearch,
   getBackgroundTasks,
+  getReviewOpsStatus,
   BackgroundTask,
   PathReviewStats,
   getMigrationStatus,
   PathIssue,
   applyPathIssuesToDiffItems,
   listPathIssues,
+  createRuleset,
+  getRuleset,
+  listRulesets,
+  type BulkRetryKind,
+  type ExclusionResponse,
 } from "../api/services";
+import type { RulesetSummary } from "../types/rulesets";
 import { hasListSearchPredicate } from "../utils/listSearch";
+import {
+  allMatchingSelectedLabel,
+  excludeApplyLabel,
+  showSelectAllMatchingEscalate,
+  unexcludeApplyLabel,
+} from "../utils/pathReviewSelectMatching";
+import {
+  EXCLUSION_OP_TITLE,
+  RETRY_OP_TITLE,
+  canStartMutation,
+  inFlightOpTitle,
+  itemMutationIds,
+  withInFlightOp,
+} from "../utils/pathReviewMutationGuard";
+import {
+  mapPathReviewStatusFilter,
+  statusFilterOptionLabel,
+} from "../utils/pathReviewStatusFilters";
+import HelpTooltip from "../components/HelpTooltip";
+import type { PathReviewListJumpTarget } from "../components/PathReviewIssuesPanel";
+import { formatBulkActionToast } from "../utils/bulkActionToast";
+import { isDeletePendingExplicit } from "../utils/pathReviewDeletePlan";
 import CompatibilityCaution from "../components/CompatibilityCaution";
 import DestinationRenameHint from "../components/DestinationRenameHint";
 import PathReviewContextMenu from "../components/PathReviewContextMenu";
+import FilterRulesBuilder from "../components/filterRules/FilterRulesBuilder";
+import FilterRuleExamples from "../components/filterRules/FilterRuleExamples";
 import {
   PATH_REVIEW_COPY,
+  itemDisplayPath,
   pathIssueShortLabel,
   summarizePathIssues,
 } from "../utils/pathReviewCopy";
@@ -54,6 +91,10 @@ import {
   getPathReviewDisplayPhase,
   getPathReviewUIPhase,
 } from "../utils/pathReviewPhase";
+import {
+  getPathReviewItemStatus,
+  itemStatusPhase,
+} from "../utils/pathReviewItemStatus";
 import { isCopyComplete } from "../utils/copyStatus";
 import { useListDensity } from "../contexts/ListDensityContext";
 import PathReviewStatusIcon from "../components/PathReviewStatusIcon";
@@ -61,18 +102,32 @@ import PathReviewLegend from "../components/PathReviewLegend";
 import PathReviewIssuesButton from "../components/PathReviewIssuesButton";
 import ListViewPagination from "../components/ListViewPagination";
 import ListItemMeta from "../components/ListItemMeta";
+import PathReviewSizeColumnHeader from "../components/PathReviewSizeColumnHeader";
 import { getDiffItemFailureMessage } from "../utils/diffFailureMessage";
 import {
+  applyDiscoveryRetryOptimistic,
   getTraversalRetryNodeId,
   isTraversalRetryPending,
-  isTraversalSkipped,
 } from "../utils/pathReviewTraversalStatus";
 import type { PathReviewContextAction } from "../components/PathReviewContextMenu";
+import {
+  canIncludeRuleExcludedSubtree,
+  excludedByRuleText,
+  includeRuleExcludedSubtree,
+} from "../utils/pathReviewRuleExclusion";
+import {
+  createEmptyRuleset,
+  isRulesetEffectivelyEmpty,
+  prepareRulesetForSave,
+  presentRulesetForEditor,
+  rulesetFromSummary,
+  seedListSearchRuleset,
+} from "../utils/rulesets";
 import "./PathReview.css";
 
 export interface PathReviewListViewProps {
   migrationId: string;
-  reviewView?: "default" | "source-cleanup";
+  reviewView?: "default" | "copy-plan" | "source-cleanup";
   onSkipDeleteClick?: (item: DiffItem) => void;
   /** Incremented from tree view after successful exclude/retry so list search results stay in sync. */
   treeListRefreshToken?: number;
@@ -90,6 +145,9 @@ export interface PathReviewListViewProps {
   onSelectionStatsWarning?: (hasWarning: boolean) => void; // Callback to show/hide selection warning
   onPaginationChange?: (pagination: PaginationInfo | null, itemsPerPage: number) => void; // Callback for pagination info
   onNavigateToTreeView?: (item: DiffItem) => void; // Callback to navigate to tree view and highlight item
+  /** Shared in-flight path ops so tree navigation stays blocked until the backend finishes. */
+  mutationOps?: ReadonlyMap<string, string>;
+  setMutationOps?: Dispatch<SetStateAction<Map<string, string>>>;
   onToast?: (message: string, type: "success" | "error") => void; // Callback to show toast (e.g. retry/exclude success or error)
   isActive?: boolean;
   pathIssues?: PathIssue[];
@@ -108,13 +166,20 @@ export interface PathReviewListViewProps {
   issuesWarningCount?: number;
   issuesPanelOpen?: boolean;
   onOpenIssuesPanel?: () => void;
-  /** When token changes, apply jump filters from Issues panel. */
+  /** When token changes, apply jump filters from Issues panel or tree search. */
   listJumpToken?: number;
-  listJumpTarget?: {
-    statusFilter?: string;
-    pathIssueStatus?: string;
-    pathIssueCategory?: string;
-  } | null;
+  listJumpTarget?: PathReviewListJumpTarget | null;
+  /** SRC folder+file count for large-migration search tip. */
+  sourceItemCount?: number;
+  /** Controlled advanced filter rules page (parent owns chrome / back button). */
+  advancedFiltersOpen?: boolean;
+  onAdvancedFiltersOpenChange?: (open: boolean) => void;
+  advancedFiltersClearRef?: MutableRefObject<() => void>;
+  advancedFiltersApplyRef?: MutableRefObject<() => void>;
+  onAdvancedFiltersCanApplyChange?: (canApply: boolean) => void;
+  /** Parent footer can trigger calculate total matches. */
+  calculateTotalRef?: MutableRefObject<() => void>;
+  onCalculatedTotalChange?: (total: number | null, counting: boolean) => void;
 }
 
 export default function PathReviewListView({
@@ -133,6 +198,8 @@ export default function PathReviewListView({
   onSelectionStatsWarning,
   onPaginationChange,
   onNavigateToTreeView,
+  mutationOps: mutationOpsProp,
+  setMutationOps: setMutationOpsProp,
   onToast,
   isActive = true,
   pathIssues = [],
@@ -148,6 +215,14 @@ export default function PathReviewListView({
   onOpenIssuesPanel,
   listJumpToken = 0,
   listJumpTarget = null,
+  sourceItemCount = 0,
+  advancedFiltersOpen = false,
+  onAdvancedFiltersOpenChange,
+  advancedFiltersClearRef,
+  advancedFiltersApplyRef,
+  onAdvancedFiltersCanApplyChange,
+  calculateTotalRef,
+  onCalculatedTotalChange,
 }: PathReviewListViewProps) {
   const { densityStyle, setListViewportElement } = useListDensity();
   const [items, setItems] = useState<DiffItem[]>([]);
@@ -155,18 +230,43 @@ export default function PathReviewListView({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [calculatedTotal, setCalculatedTotal] = useState<number | null>(null);
+  const [calculatedTotalTruncated, setCalculatedTotalTruncated] = useState(false);
   const [countingTotal, setCountingTotal] = useState(false);
+  const [draftRuleset, setDraftRuleset] = useState(() =>
+    createEmptyRuleset(migrationId || "search")
+  );
+  const [activeRuleset, setActiveRuleset] = useState(() =>
+    createEmptyRuleset(migrationId || "search")
+  );
   const [countError, setCountError] = useState<string | null>(null);
   const countRequestVersion = useRef(0);
+  const searchAbortRef = useRef<AbortController | null>(null);
+  const countAbortRef = useRef<AbortController | null>(null);
+  const [localMutationOps, setLocalMutationOps] = useState<Map<string, string>>(
+    () => new Map()
+  );
+  const mutationOps = mutationOpsProp ?? localMutationOps;
+  const setMutationOps = setMutationOpsProp ?? setLocalMutationOps;
+  const [serverBulkMutationInProgress, setServerBulkMutationInProgress] =
+    useState(false);
   const [explicitSelected, setExplicitSelected] = useState<Set<string>>(new Set());
   const [explicitSelectedPaths, setExplicitSelectedPaths] = useState<Map<string, string>>(new Map()); // itemId -> path (persists across pages)
   const [explicitSelectedItemData, setExplicitSelectedItemData] = useState<Map<string, DiffItem>>(new Map()); // itemId -> item data (for API calls)
+  const [allMatchingSelected, setAllMatchingSelected] = useState(false);
+  const [applyMenuOpen, setApplyMenuOpen] = useState(false);
+  const applyMenuRef = useRef<HTMLDivElement>(null);
   const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(null);
   const [sortField, setSortField] = useState<string | null>("path");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [searchQuery, setSearchQuery] = useState("");
   const [activeSearchQuery, setActiveSearchQuery] = useState<string>("");
-  const [searchField, setSearchField] = useState<"path" | "name">("path"); // Field to search in (path or name)
+  const [underPath, setUnderPath] = useState<string>("");
+  const [underPathLabel, setUnderPathLabel] = useState<string>("");
+  /** Ordered "in path" segment boxes (path mode only). */
+  const [pathSegments, setPathSegments] = useState<string[]>([""]);
+  const [activePathSegments, setActivePathSegments] = useState<string[]>([]);
+  const [searchField, setSearchField] = useState<"path" | "name">("name"); // Field to search in (path or name)
+  const MAX_PATH_SEGMENTS = 6;
   const [typeFilter, setTypeFilter] = useState<"both" | "folder" | "file">("both"); // Type filter: both, folder, or file
   const [depthFilter, setDepthFilter] = useState<string>(""); // Depth filter (as string for input)
   const [depthOperator, setDepthOperator] = useState<"equals" | "gt" | "gte" | "lt" | "lte">("equals"); // Depth operator
@@ -184,9 +284,20 @@ export default function PathReviewListView({
   const [taskStatuses, setTaskStatuses] = useState<Map<string, BackgroundTask>>(new Map());
   const [showFilterMenu, setShowFilterMenu] = useState(false);
   const [showSortMenu, setShowSortMenu] = useState(false);
+  const [showSaveRulesDialog, setShowSaveRulesDialog] = useState(false);
+  const [showLoadRulesDialog, setShowLoadRulesDialog] = useState(false);
+  const [showRuleExamples, setShowRuleExamples] = useState(false);
+  const [saveRulesName, setSaveRulesName] = useState("");
+  const [saveRulesNotes, setSaveRulesNotes] = useState("");
+  const [saveRulesBusy, setSaveRulesBusy] = useState(false);
+  const [saveRulesError, setSaveRulesError] = useState<string | null>(null);
+  const [libraryRulesets, setLibraryRulesets] = useState<RulesetSummary[]>([]);
+  const [libraryBusy, setLibraryBusy] = useState(false);
+  const [libraryError, setLibraryError] = useState<string | null>(null);
+  const importRulesInputRef = useRef<HTMLInputElement>(null);
+  const advancedWasOpenRef = useRef(false);
   const [apiStats, setApiStats] = useState<PathReviewStats | null>(null);
   const [migrationStatus, setMigrationStatus] = useState<MigrationStatusResponse | null>(null);
-  const filterMenuRef = useRef<HTMLDivElement>(null);
   const filterButtonRef = useRef<HTMLButtonElement>(null);
   const sortMenuRef = useRef<HTMLDivElement>(null);
   const listItemsRef = useRef<HTMLDivElement | null>(null);
@@ -214,6 +325,7 @@ export default function PathReviewListView({
     isDeleteReviewPhase(status);
 
   const isSourceCleanupView = reviewView === "source-cleanup";
+  const isCopyPlanView = reviewView === "copy-plan";
 
   const getCurrentPhase = () => getPathReviewUIPhase(migrationStatus);
 
@@ -431,53 +543,18 @@ export default function PathReviewListView({
     statusSearchType: SearchOptions["statusSearchType"];
     traversalStatusFilterValue: string | undefined;
     copyStatusFilterValue: string | undefined;
+    deleteStatusFilterValue: string | undefined;
   } => {
-    const phase = getCurrentPhase();
-    const isCopy = phase === "copy";
-
-    let statusSearchType: SearchOptions["statusSearchType"] = undefined;
-    let traversalStatusFilterValue: string | undefined = undefined;
-    let copyStatusFilterValue: string | undefined = undefined;
-
-    if (isCopy) {
-      statusSearchType = "copy";
-
-      if (traversalStatusFilter === "failed") {
-        copyStatusFilterValue = "failed";
-      } else if (traversalStatusFilter === "pending") {
-        copyStatusFilterValue = "pending";
-      } else if (traversalStatusFilter === "successful") {
-        copyStatusFilterValue = "successful";
-      } else if (traversalStatusFilter === "excluded") {
-        copyStatusFilterValue = "excluded";
-      } else if (traversalStatusFilter === "not_on_src") {
-        statusSearchType = "traversal";
-        traversalStatusFilterValue = "not_on_src";
-      } else if (traversalStatusFilter === "pending_retry") {
-        copyStatusFilterValue = "pending";
-      }
-    } else {
-      statusSearchType = "traversal";
-
-      if (traversalStatusFilter === "failed") {
-        traversalStatusFilterValue = "failed";
-      } else if (traversalStatusFilter === "pending_retry") {
-        traversalStatusFilterValue = "pending";
-      } else if (traversalStatusFilter === "excluded") {
-        statusSearchType = "copy";
-        copyStatusFilterValue = "excluded";
-      } else if (traversalStatusFilter === "pending") {
-        statusSearchType = "copy";
-        copyStatusFilterValue = "pending";
-      } else if (traversalStatusFilter === "successful") {
-        statusSearchType = "copy";
-        copyStatusFilterValue = "successful";
-      } else if (traversalStatusFilter === "not_on_src") {
-        traversalStatusFilterValue = "not_on_src";
-      }
-    }
-
-    return { statusSearchType, traversalStatusFilterValue, copyStatusFilterValue };
+    const mapped = mapPathReviewStatusFilter(
+      getDisplayPhase(),
+      traversalStatusFilter
+    );
+    return {
+      statusSearchType: mapped.statusSearchType,
+      traversalStatusFilterValue: mapped.traversalStatusFilter,
+      copyStatusFilterValue: mapped.copyStatusFilter,
+      deleteStatusFilterValue: mapped.deleteStatusFilter,
+    };
   };
 
   const buildCurrentSearchOptions = (): SearchOptions => {
@@ -489,14 +566,26 @@ export default function PathReviewListView({
       statusSearchType,
       traversalStatusFilterValue,
       copyStatusFilterValue,
+      deleteStatusFilterValue,
     } = buildPhaseStatusFilters();
+
+    const trimmedSegments = activePathSegments
+      .map((s) => sanitizeSearchQuery(s))
+      .filter((s) => s !== "");
 
     return {
       offset: currentPage * itemsPerPage,
       limit: itemsPerPage,
       sortField: sortField || undefined,
       sortDir: sortDir,
-      query: activeSearchQuery || undefined,
+      query:
+        searchField === "name"
+          ? activeSearchQuery || undefined
+          : undefined,
+      pathSegments:
+        searchField === "path" && trimmedSegments.length > 0
+          ? trimmedSegments
+          : undefined,
       searchField: searchField,
       typeFilter: typeFilter,
       depthFilter:
@@ -517,12 +606,24 @@ export default function PathReviewListView({
           : undefined,
       traversalStatusFilter: traversalStatusFilterValue,
       copyStatusFilter: copyStatusFilterValue,
+      deleteStatusFilter: deleteStatusFilterValue,
       pathIssueStatusFilter: pathIssueStatusFilter || undefined,
       pathIssueCategoryFilter: pathIssueCategoryFilter || undefined,
       statusSearchType: statusSearchType,
       phase: phase,
       includeDestinationOnly,
+      underPath: underPath.trim() && underPath.trim() !== "/" ? underPath.trim() : undefined,
+      ruleset: isRulesetEffectivelyEmpty(activeRuleset)
+        ? undefined
+        : prepareRulesetForSave(activeRuleset),
     };
+  };
+
+  const advancedRulesActive = !isRulesetEffectivelyEmpty(activeRuleset);
+  const draftAdvancedRulesActive = !isRulesetEffectivelyEmpty(draftRuleset);
+
+  const commitDraftRuleset = () => {
+    setActiveRuleset(draftRuleset);
   };
 
   const loadItems = async (
@@ -534,12 +635,15 @@ export default function PathReviewListView({
     if (
       !hasListSearchPredicate({
         query: activeSearchQuery,
+        pathSegments: activePathSegments,
+        underPath,
         typeFilter,
         depthFilter,
         sizeFilter,
         traversalStatusFilter,
         pathIssueStatusFilter,
         pathIssueCategoryFilter,
+        hasAdvancedRules: advancedRulesActive,
       })
     ) {
       setItems([]);
@@ -555,11 +659,18 @@ export default function PathReviewListView({
       setError(null);
     }
 
+    searchAbortRef.current?.abort();
+    const ac = new AbortController();
+    searchAbortRef.current = ac;
+
     try {
       const response = await searchPathReviewItems(
         migrationId,
-        buildCurrentSearchOptions()
+        buildCurrentSearchOptions(),
+        { signal: ac.signal }
       );
+
+      if (ac.signal.aborted) return;
 
       if (append) {
         setItems((prev) => [
@@ -573,13 +684,16 @@ export default function PathReviewListView({
       setPagination(response.pagination);
       // Stats will be updated via useEffect hook when apiStats changes
     } catch (err) {
+      if (ac.signal.aborted || (err instanceof DOMException && err.name === "AbortError")) {
+        return;
+      }
       setError(
         err instanceof Error
           ? err.message
           : "Failed to load path review items."
       );
     } finally {
-      if (showFullLoading) {
+      if (showFullLoading && !ac.signal.aborted) {
         setLoading(false);
       }
     }
@@ -590,12 +704,44 @@ export default function PathReviewListView({
     fetchMigrationStatus();
   }, [migrationId]);
 
-  // Clear "pending" filter when switching to copy phase (since it's not available in copy phase)
+  // Poll server bulk-mutation flag while a local bulk request may still be finishing on another tab/session.
   useEffect(() => {
-    if (isCopyPhase(migrationStatus) && traversalStatusFilter === "pending") {
+    if (!migrationId) return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const ops = await getReviewOpsStatus(migrationId);
+        if (!cancelled) {
+          setServerBulkMutationInProgress(ops.bulkMutationInProgress);
+        }
+      } catch {
+        // ignore
+      }
+    };
+    void tick();
+    const id = window.setInterval(() => {
+      if (bulkLoading || serverBulkMutationInProgress) {
+        void tick();
+      }
+    }, 2000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [migrationId, bulkLoading, serverBulkMutationInProgress]);
+
+  // Clear "pending" filter when switching away from phases that support it.
+  useEffect(() => {
+    const phase = getDisplayPhase();
+    if (
+      traversalStatusFilter === "pending" &&
+      phase !== "source-cleanup" &&
+      phase !== "delete" &&
+      phase !== "copy-plan"
+    ) {
       setTraversalStatusFilter("");
     }
-  }, [migrationStatus, traversalStatusFilter]);
+  }, [migrationStatus, reviewView, traversalStatusFilter]);
 
   // Reset to first page when destination-only visibility changes so totals stay aligned.
   useEffect(() => {
@@ -608,21 +754,78 @@ export default function PathReviewListView({
     }
   }, [showDestinationOnly, traversalStatusFilter]);
 
-  // Apply Issues-panel jump filters (switch already happened in parent).
+  const clearTextSearchState = () => {
+    setSearchQuery("");
+    setActiveSearchQuery("");
+    setPathSegments([""]);
+    setActivePathSegments([]);
+  };
+
+  const clearAllFilters = () => {
+    clearTextSearchState();
+    setUnderPath("");
+    setUnderPathLabel("");
+    setSearchField("name");
+    setTypeFilter("both");
+    setDepthFilter("");
+    setDepthOperator("equals");
+    setSizeFilter("");
+    setSizeOperator("equals");
+    setSizeDisplayUnit("MB");
+    setTraversalStatusFilter("");
+    setPathIssueStatusFilter("");
+    setPathIssueCategoryFilter("");
+    const empty = createEmptyRuleset(migrationId || "search");
+    setDraftRuleset(empty);
+    setActiveRuleset(empty);
+    if (showDestinationOnlyToggle) {
+      onShowDestinationOnlyChange?.(false);
+    }
+    setCurrentPage(0);
+  };
+
+  // Apply Issues-panel / tree-search jump filters (switch already happened in parent).
   useEffect(() => {
     if (!listJumpToken || !listJumpTarget) return;
     setCurrentPage(0);
-    setActiveSearchQuery("");
-    setSearchQuery("");
+    clearTextSearchState();
+    const nextUnder = (listJumpTarget.underPath || "").trim();
+    if (nextUnder && nextUnder !== "/") {
+      setUnderPath(nextUnder);
+      setUnderPathLabel(
+        (listJumpTarget.underPathLabel || nextUnder).trim() || nextUnder
+      );
+    } else {
+      setUnderPath("");
+      setUnderPathLabel("");
+    }
+    const nameQ = (listJumpTarget.nameQuery || "").trim();
+    if (nameQ) {
+      setSearchField("name");
+      setSearchQuery(nameQ);
+      setActiveSearchQuery(nameQ);
+      setPathSegments([""]);
+      setActivePathSegments([]);
+    }
     if (listJumpTarget.statusFilter) {
       setTraversalStatusFilter(listJumpTarget.statusFilter);
       setPathIssueStatusFilter("");
       setPathIssueCategoryFilter("");
-    } else {
+    } else if (
+      listJumpTarget.pathIssueStatus ||
+      listJumpTarget.pathIssueCategory
+    ) {
       setTraversalStatusFilter("");
       setPathIssueStatusFilter(listJumpTarget.pathIssueStatus || "");
       setPathIssueCategoryFilter(listJumpTarget.pathIssueCategory || "");
+    } else if (listJumpTarget.underPath || listJumpTarget.nameQuery) {
+      // Tree / folder-scoped jump: drop prior status filters.
+      setTraversalStatusFilter("");
+      setPathIssueStatusFilter("");
+      setPathIssueCategoryFilter("");
     }
+    // clearTextSearchState only uses state setters
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [listJumpToken, listJumpTarget]);
 
 
@@ -630,9 +833,14 @@ export default function PathReviewListView({
     countRequestVersion.current += 1;
     setCountingTotal(false);
     setCalculatedTotal(null);
+    setCalculatedTotalTruncated(false);
+    setAllMatchingSelected(false);
+    onCalculatedTotalChange?.(null, false);
     setCountError(null);
   }, [
     activeSearchQuery,
+    activePathSegments,
+    underPath,
     searchField,
     typeFilter,
     depthFilter,
@@ -644,12 +852,19 @@ export default function PathReviewListView({
     pathIssueStatusFilter,
     pathIssueCategoryFilter,
     includeDestinationOnly,
+    activeRuleset,
   ]);
 
   useEffect(() => {
     loadItems();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [migrationId, currentPage, itemsPerPage, sortField, sortDir, activeSearchQuery, searchField, typeFilter, depthFilter, depthOperator, sizeFilter, sizeOperator, sizeDisplayUnit, traversalStatusFilter, pathIssueStatusFilter, pathIssueCategoryFilter, treeListRefreshToken, includeDestinationOnly]);
+  }, [migrationId, currentPage, itemsPerPage, sortField, sortDir, activeSearchQuery, activePathSegments, underPath, searchField, typeFilter, depthFilter, depthOperator, sizeFilter, sizeOperator, sizeDisplayUnit, traversalStatusFilter, pathIssueStatusFilter, pathIssueCategoryFilter, treeListRefreshToken, includeDestinationOnly, activeRuleset]);
+
+  useEffect(() => {
+    const empty = createEmptyRuleset(migrationId || "search");
+    setDraftRuleset(empty);
+    setActiveRuleset(empty);
+  }, [migrationId]);
 
   // Poll background tasks
   useEffect(() => {
@@ -701,19 +916,27 @@ export default function PathReviewListView({
 
   const handleSearch = () => {
     const sanitized = sanitizeSearchQuery(searchQuery);
+    const sanitizedSegments = pathSegments
+      .map((s) => sanitizeSearchQuery(s))
+      .filter((s) => s !== "");
     const nextHasPredicate = hasListSearchPredicate({
-      query: sanitized,
+      query: searchField === "name" ? sanitized : "",
+      pathSegments: searchField === "path" ? sanitizedSegments : undefined,
+      underPath,
       typeFilter,
       depthFilter,
       sizeFilter,
       traversalStatusFilter,
       pathIssueStatusFilter,
       pathIssueCategoryFilter,
+      hasAdvancedRules: draftAdvancedRulesActive,
     });
     if (!nextHasPredicate) {
       return;
     }
-    setActiveSearchQuery(sanitized);
+    commitDraftRuleset();
+    setActiveSearchQuery(searchField === "name" ? sanitized : "");
+    setActivePathSegments(searchField === "path" ? sanitizedSegments : []);
     setCurrentPage(0);
   };
 
@@ -722,27 +945,37 @@ export default function PathReviewListView({
     if (
       !hasListSearchPredicate({
         query: activeSearchQuery,
+        pathSegments: activePathSegments,
+        underPath,
         typeFilter,
         depthFilter,
         sizeFilter,
         traversalStatusFilter,
         pathIssueStatusFilter,
         pathIssueCategoryFilter,
+        hasAdvancedRules: advancedRulesActive,
       })
     ) {
       return;
     }
 
     setCountingTotal(true);
+    onCalculatedTotalChange?.(calculatedTotal, true);
     setCountError(null);
     const requestVersion = ++countRequestVersion.current;
+    countAbortRef.current?.abort();
+    const ac = new AbortController();
+    countAbortRef.current = ac;
     try {
       const stats = await countPathReviewSearchMatches(
         migrationId,
-        buildCurrentSearchOptions()
+        buildCurrentSearchOptions(),
+        { signal: ac.signal }
       );
-      if (requestVersion !== countRequestVersion.current) return;
+      if (requestVersion !== countRequestVersion.current || ac.signal.aborted) return;
       setCalculatedTotal(stats.total);
+      setCalculatedTotalTruncated(!!stats.truncated);
+      onCalculatedTotalChange?.(stats.total, false);
       setPagination((prev) =>
         prev
           ? {
@@ -754,10 +987,17 @@ export default function PathReviewListView({
           : prev
       );
     } catch (err) {
-      if (requestVersion !== countRequestVersion.current) return;
+      if (
+        requestVersion !== countRequestVersion.current ||
+        ac.signal.aborted ||
+        (err instanceof DOMException && err.name === "AbortError")
+      ) {
+        return;
+      }
       setCountError(
         err instanceof Error ? err.message : "Failed to calculate total matches."
       );
+      onCalculatedTotalChange?.(calculatedTotal, false);
     } finally {
       if (requestVersion === countRequestVersion.current) {
         setCountingTotal(false);
@@ -765,10 +1005,192 @@ export default function PathReviewListView({
     }
   };
 
+  useEffect(() => {
+    if (!calculateTotalRef) return;
+    calculateTotalRef.current = () => {
+      void handleCalculateTotal();
+    };
+  });
+
+  useEffect(() => {
+    if (!applyMenuOpen) return;
+    const onDoc = (event: MouseEvent) => {
+      if (
+        applyMenuRef.current &&
+        !applyMenuRef.current.contains(event.target as Node)
+      ) {
+        setApplyMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [applyMenuOpen]);
+
+  const clearSelection = () => {
+    setExplicitSelected(new Set());
+    setExplicitSelectedPaths(new Map());
+    setExplicitSelectedItemData(new Map());
+    setLastSelectedIndex(null);
+    setAllMatchingSelected(false);
+    setApplyMenuOpen(false);
+  };
+
+  const collectSelectedNodeIDs = (): string[] => {
+    const normalized = normalizeExplicitSelection(explicitSelected);
+    const nodeIDs: string[] = [];
+    normalized.forEach((itemId) => {
+      const item = explicitSelectedItemData.get(itemId);
+      if (!item) return;
+      if (item.src?.id) nodeIDs.push(item.src.id);
+      if (item.dst?.id && (!item.src?.id || item.dst.id !== item.src.id)) {
+        nodeIDs.push(item.dst.id);
+      }
+    });
+    return nodeIDs;
+  };
+
+  const retryKindForPhase = (): BulkRetryKind => {
+    const phase = getCurrentPhase();
+    if (phase === "delete") return "delete";
+    if (phase === "copy") return "copy";
+    return "discovery";
+  };
+
+  const finishBulkResult = async (
+    actionLabel: string,
+    result: ExclusionResponse
+  ) => {
+    const toast = formatBulkActionToast(actionLabel, result);
+    onToast?.(toast.message, toast.type);
+    if (result.taskID) {
+      setActiveTaskIds((prev) => new Set(prev).add(result.taskID!));
+      onItemUpdate?.();
+    } else {
+      if (result.deltas && Object.keys(result.deltas).length > 0) {
+        onApplyStatsDeltas?.(result.deltas);
+      }
+      try {
+        const refreshed = await listPathIssues(migrationId!);
+        onPathIssuesChange?.(refreshed.issues || []);
+      } catch {
+        // list reload below still refreshes row state
+      }
+      await loadItems(false, { silent: true });
+      onListDataMutated?.();
+    }
+    clearSelection();
+  };
+
+  const handleApplyAction = async (
+    action: "exclude" | "unexclude" | "mark_retry" | "mark_failed"
+  ) => {
+    if (!migrationId || bulkLoading) return;
+    setApplyMenuOpen(false);
+    setBulkLoading(true);
+    setServerBulkMutationInProgress(true);
+    try {
+      if (allMatchingSelected && (action === "exclude" || action === "unexclude")) {
+        const result =
+          action === "exclude"
+            ? await excludeMatchingSearch(migrationId, buildCurrentSearchOptions(), [])
+            : await unexcludeMatchingSearch(
+                migrationId,
+                buildCurrentSearchOptions(),
+                []
+              );
+        await finishBulkResult(
+          action === "exclude" ? "Exclude" : "Unexclude",
+          result
+        );
+        return;
+      }
+
+      if (allMatchingSelected && (action === "mark_retry" || action === "mark_failed")) {
+        onToast?.(
+          "Mark for retry / Mark failed need an explicit row selection. Use Select all visible, or Apply Exclude/Unexclude for all matching.",
+          "error"
+        );
+        return;
+      }
+
+      const nodeIDs = collectSelectedNodeIDs();
+      if (nodeIDs.length === 0) {
+        onToast?.("No selectable nodes in the current selection.", "error");
+        return;
+      }
+
+      let result: ExclusionResponse;
+      const kind = retryKindForPhase();
+      switch (action) {
+        case "exclude":
+          result = await bulkExcludeNodes(migrationId, { nodeIDs });
+          await finishBulkResult("Exclude", result);
+          break;
+        case "unexclude":
+          result = await bulkUnexcludeNodes(migrationId, { nodeIDs });
+          await finishBulkResult("Unexclude", result);
+          break;
+        case "mark_retry":
+          result = await bulkMarkNodesForRetry(migrationId, { nodeIDs, kind });
+          await finishBulkResult("Mark for retry", result);
+          break;
+        case "mark_failed":
+          result = await bulkUnmarkNodesForRetry(migrationId, { nodeIDs, kind });
+          await finishBulkResult("Mark failed", result);
+          break;
+      }
+    } catch (err) {
+      onToast?.(
+        err instanceof Error ? err.message : "Bulk action failed",
+        "error"
+      );
+    } finally {
+      setBulkLoading(false);
+      try {
+        const ops = await getReviewOpsStatus(migrationId);
+        setServerBulkMutationInProgress(ops.bulkMutationInProgress);
+      } catch {
+        setServerBulkMutationInProgress(false);
+      }
+    }
+  };
+
+  const selectAllVisible = () => {
+    setAllMatchingSelected(false);
+    const nextIds = new Set(explicitSelected);
+    const nextPaths = new Map(explicitSelectedPaths);
+    const nextData = new Map(explicitSelectedItemData);
+    for (const item of items) {
+      nextIds.add(item.id);
+      nextPaths.set(item.id, itemDisplayPath(item) || item.id);
+      nextData.set(item.id, item);
+    }
+    setExplicitSelected(nextIds);
+    setExplicitSelectedPaths(nextPaths);
+    setExplicitSelectedItemData(nextData);
+  };
+
+  const selectAllMatching = () => {
+    setAllMatchingSelected(true);
+    const nextIds = new Set<string>();
+    const nextPaths = new Map<string, string>();
+    const nextData = new Map<string, DiffItem>();
+    for (const item of items) {
+      nextIds.add(item.id);
+      nextPaths.set(item.id, itemDisplayPath(item) || item.id);
+      nextData.set(item.id, item);
+    }
+    setExplicitSelected(nextIds);
+    setExplicitSelectedPaths(nextPaths);
+    setExplicitSelectedItemData(nextData);
+    if (calculatedTotal == null) {
+      void handleCalculateTotal();
+    }
+  };
+
   const applySuggestedFilter = (kind: "failed" | "naming") => {
     setCurrentPage(0);
-    setActiveSearchQuery("");
-    setSearchQuery("");
+    clearTextSearchState();
     if (kind === "failed") {
       setTraversalStatusFilter("failed");
       setPathIssueStatusFilter("");
@@ -781,6 +1203,7 @@ export default function PathReviewListView({
   };
 
   const handleSelectAll = () => {
+    setAllMatchingSelected(false);
     if (explicitSelected.size === items.length && 
         items.every(item => explicitSelected.has(item.id))) {
       // Deselect all items on current page
@@ -824,6 +1247,7 @@ export default function PathReviewListView({
   const handleItemSelect = (itemId: string, itemIndex: number, event?: React.MouseEvent) => {
     const isShiftClick = event?.shiftKey && lastSelectedIndex !== null;
     const item = items.find(i => i.id === itemId);
+    setAllMatchingSelected(false);
     
     if (isShiftClick) {
       // Shift-click: select visual range
@@ -887,8 +1311,12 @@ export default function PathReviewListView({
   ) => {
     if (!migrationId) return;
 
-    // In copy phase, exclusion/inclusion are read-only (no actions allowed)
-    if (isCopyPhase(migrationStatus)) {
+    // Copy results / delete / source-cleanup: exclusion read-only. Copy-plan allows exclude.
+    if (
+      (isCopyPhase(migrationStatus) && !isCopyPlanView) ||
+      isDeletePhase(migrationStatus) ||
+      isSourceCleanupView
+    ) {
       return;
     }
 
@@ -917,8 +1345,21 @@ export default function PathReviewListView({
       return;
     }
 
+    const primaryId = srcNodeId || dstNodeId || item.id;
+    if (!canStartMutation(mutationOps, primaryId)) {
+      onToast?.(
+        "An operation is already running on this path; try again once it finishes.",
+        "error"
+      );
+      return;
+    }
+
     // Store original item state for rollback
     const originalItem = { ...item };
+
+    setMutationOps((prev) =>
+      withInFlightOp(prev, [primaryId, srcNodeId, dstNodeId, item.id], EXCLUSION_OP_TITLE)
+    );
 
     // Optimistic update: immediately update item's copyStatus
     setItems((prevItems) =>
@@ -1034,6 +1475,10 @@ export default function PathReviewListView({
       );
       const message = err instanceof Error ? err.message : `Network error: Failed to ${isExcluding ? "exclude" : "unexclude"} node.`;
       onToast?.(message, "error");
+    } finally {
+      setMutationOps((prev) =>
+        withInFlightOp(prev, [primaryId, srcNodeId, dstNodeId, item.id], null)
+      );
     }
   };
 
@@ -1044,17 +1489,16 @@ export default function PathReviewListView({
     const isCopy = currentPhase === "copy";
     const isDelete = currentPhase === "delete";
     const srcNodeId = item.src?.id;
-    const dstNodeId = item.dst?.id;
-    
+
     // Determine which node has failed or pending status (failed takes priority)
     let nodeIdToUpdate: string | null = null;
     let isMarkedForRetry = false;
     
     if (isDelete) {
       const deleteStatus = item.src?.deleteStatus || "";
-      if ((deleteStatus === "failed" || deleteStatus === "pending") && srcNodeId) {
+      if ((deleteStatus === "failed" || isDeletePendingExplicit(deleteStatus)) && srcNodeId) {
         nodeIdToUpdate = srcNodeId;
-        isMarkedForRetry = deleteStatus === "pending";
+        isMarkedForRetry = isDeletePendingExplicit(deleteStatus);
       }
     } else if (isCopy) {
       // Copy phase: check copyStatus (only on src nodes)
@@ -1071,7 +1515,7 @@ export default function PathReviewListView({
       const nodeId = getTraversalRetryNodeId(item);
       if (nodeId) {
         nodeIdToUpdate = nodeId;
-        isMarkedForRetry = item.src?.traversalStatus === "pending";
+        isMarkedForRetry = isTraversalRetryPending(item);
       }
     }
 
@@ -1083,67 +1527,46 @@ export default function PathReviewListView({
       return;
     }
 
-    const fromSkippedDiscovery =
-      !isCopy && !isDelete && item.src?.traversalStatus === "excluded";
+    if (!canStartMutation(mutationOps, nodeIdToUpdate)) {
+      onToast?.(
+        "An operation is already running on this path; try again once it finishes.",
+        "error"
+      );
+      return;
+    }
+
     const newRetryState = !isMarkedForRetry;
 
     // Store original item state for rollback
     const originalItem = { ...item };
 
-    // Optimistic update: immediately update item's status based on which node we're updating
+    setMutationOps((prev) =>
+      withInFlightOp(prev, [nodeIdToUpdate, item.id], RETRY_OP_TITLE)
+    );
+
     setItems((prevItems) =>
       prevItems.map((i) => {
-        if (i.id === item.id) {
-          // Update the node we're modifying
-          const updatedItem = { ...i };
-          if (nodeIdToUpdate === srcNodeId && i.src) {
-            if (isDelete) {
-              updatedItem.src = {
-                ...i.src,
-                deleteStatus: isMarkedForRetry ? "failed" : "pending",
-              };
-            } else if (isCopy) {
-              // Copy phase: update copyStatus
-              updatedItem.src = {
-                ...i.src,
-                copyStatus: isMarkedForRetry ? "failed" : "pending",
-              };
-              updatedItem.copyStatus = isMarkedForRetry ? "failed" : "pending";
-            } else if (fromSkippedDiscovery && newRetryState) {
-              updatedItem.src = {
-                ...i.src,
-                traversalStatus: "pending",
-                copyStatus: "pending",
-              };
-              updatedItem.copyStatus = "pending";
-              if (i.id === srcNodeId) {
-                updatedItem.traversalStatus = "pending";
-              }
-            } else {
-              // Traversal phase: update traversalStatus (reload after success restores skipped)
-              updatedItem.src = {
-                ...i.src,
-                traversalStatus: isMarkedForRetry ? "failed" : "pending",
-              };
-              if (i.id === srcNodeId) {
-                updatedItem.traversalStatus = isMarkedForRetry
-                  ? "failed"
-                  : "pending";
-              }
-            }
-          } else if (nodeIdToUpdate === dstNodeId && i.dst) {
-            // Only traversal phase uses dst nodes for retry
-            updatedItem.dst = {
-              ...i.dst,
-              traversalStatus: isMarkedForRetry ? "failed" : "pending",
-            };
-            if (i.id === dstNodeId) {
-              updatedItem.traversalStatus = isMarkedForRetry ? "failed" : "pending";
-            }
-          }
-          return updatedItem;
+        if (i.id !== item.id) {
+          return i;
         }
-        return i;
+        if (isDelete && i.src) {
+          return {
+            ...i,
+            src: {
+              ...i.src,
+              deleteStatus: isMarkedForRetry ? "failed" : "pending_explicit",
+            },
+          };
+        }
+        if (isCopy && i.src) {
+          const nextCopy = isMarkedForRetry ? "failed" : "pending";
+          return {
+            ...i,
+            src: { ...i.src, copyStatus: nextCopy },
+            copyStatus: nextCopy,
+          };
+        }
+        return applyDiscoveryRetryOptimistic(i, newRetryState, "failed");
       })
     );
 
@@ -1193,105 +1616,41 @@ export default function PathReviewListView({
       );
       const message = err instanceof Error ? err.message : "Network error: Failed to update node. Please try again.";
       onToast?.(message, "error");
+    } finally {
+      setMutationOps((prev) =>
+        withInFlightOp(prev, [nodeIdToUpdate, item.id], null)
+      );
     }
   };
 
 
-  // Get item status based on API data (copyStatus and traversalStatus)
-  // Uses phase-appropriate status fields: copyStatus in copy phase, traversalStatus in traversal phase
-  const getItemStatus = (item: DiffItem) => {
-    const currentPhase = getCurrentPhase();
+  // Phase-aware row status (shared with tree view).
+  const getItemStatus = (item: DiffItem) =>
+    getPathReviewItemStatus(item, itemStatusPhase(getDisplayPhase()));
 
-    if (currentPhase === "delete") {
-      const existsOnlyOnDst =
-        !item.src &&
-        (!!item.dst ||
-          item.traversalStatus === "not_on_src" ||
-          item.dst?.traversalStatus === "not_on_src");
-      if (existsOnlyOnDst) {
-        return {
-          isExcluded: false,
-          isTraversalSkipped: false,
-          isPending: false,
-          isSuccessful: false,
-          isDeleted: false,
-          existsOnBoth: false,
-          existsOnlyOnDst: true,
-          isFailed: false,
-        };
+  const handleIncludeRuleExcludedSubtree = async (item: DiffItem) => {
+    if (!canIncludeRuleExcludedSubtree(item)) return;
+    const nodeId = item.src?.id || item.id;
+    try {
+      const result = await includeRuleExcludedSubtree(migrationId, nodeId);
+      if (!result.success) {
+        onToast?.(
+          result.error || "Could not include and re-scan subtree",
+          "error"
+        );
+        return;
       }
-      const deleteStatus = item.src?.deleteStatus || "";
-      const isDeleted = deleteStatus === "deleted";
-      const isFailed = deleteStatus === "failed";
-      const isPendingRetry = deleteStatus === "pending";
-      return {
-        isExcluded: false,
-        isTraversalSkipped: false,
-        isPending: isPendingRetry,
-        isSuccessful: isDeleted,
-        isDeleted,
-        existsOnBoth: false,
-        existsOnlyOnDst: false,
-        isFailed,
-      };
-    }
-
-    const isCopy = currentPhase === "copy";
-    
-    if (isCopy) {
-      // Copy phase: use copyStatus field
-      const copyStatus = item.src?.copyStatus || item.copyStatus || "pending";
-      const isFailed = copyStatus === "failed";
-      const existsOnlyOnDst = !item.src && !!item.dst; // dst-only node (no src node)
-      
-      // Copy phase status logic:
-      // 1. Failed = src.copyStatus === "failed" (copy failed)
-      // 2. Successful = copy complete (successful / already_existed) OR item is dst-only
-      // 3. Pending = src.copyStatus === "pending" (didn't get brought over - treat same as failed)
-      // 4. Excluded = copyStatus shows exclusion (read-only in copy phase)
-      
-      const isExcluded =
-        copyStatus === "exclusion_explicit" ||
-        copyStatus === "exclusion_inherited" ||
-        copyStatus === "excluded";
-      const isPending = copyStatus === "pending";
-      const isSuccessful = isCopyComplete(copyStatus) || existsOnlyOnDst;
-      const existsOnBoth = isCopyComplete(copyStatus); // Copy complete means it exists on both
-      
-      return {
-        isExcluded,
-        isTraversalSkipped: false,
-        isPending,
-        isSuccessful,
-        existsOnBoth,
-        existsOnlyOnDst,
-        isFailed,
-      };
-    } else {
-      // Traversal (discovery) phase: copyStatus from src when present (exclude state, editable)
-      const copyStatus = item.src?.copyStatus || item.copyStatus || "pending";
-      const isFailed = item.src?.traversalStatus === "failed" || item.dst?.traversalStatus === "failed" || item.traversalStatus === "failed";
-      const existsOnlyOnDst = item.traversalStatus === "not_on_src" || item.dst?.traversalStatus === "not_on_src";
-      const skippedDiscovery = isTraversalSkipped(item);
-      
-      const isExcluded =
-        !skippedDiscovery &&
-        (copyStatus === "exclusion_explicit" ||
-          copyStatus === "exclusion_inherited" ||
-          copyStatus === "excluded");
-      const isPending = copyStatus === "pending";
-      const isSuccessful = isCopyComplete(copyStatus);
-      const existsOnBoth = isSuccessful; // Copy complete means it exists on both
-      
-      return {
-        isExcluded,
-        isTraversalSkipped: skippedDiscovery,
-        isPending,
-        isSuccessful,
-        existsOnBoth,
-        existsOnlyOnDst,
-        isFailed,
-      };
+      onToast?.("Subtree included and marked for discovery retry", "success");
+      await loadItems(false, { silent: true });
+      onListDataMutated?.();
+      onItemUpdate?.();
+    } catch (err) {
+      onToast?.(
+        err instanceof Error
+          ? err.message
+          : "Could not include and re-scan subtree",
+        "error"
+      );
     }
   };
 
@@ -1303,13 +1662,12 @@ export default function PathReviewListView({
     const copyStatus = item.src?.copyStatus || item.copyStatus || "";
     const deleteStatus = item.src?.deleteStatus || "";
     const isMarkedForRetry = isDelete
-      ? deleteStatus === "pending"
+      ? isDeletePendingExplicit(deleteStatus)
       : isCopy
         ? copyStatus === "pending"
         : isTraversalRetryPending(item);
     const canExclude =
-      !isCopy &&
-      !isDelete &&
+      (isCopyPlanView || (!isCopy && !isDelete)) &&
       !isSourceCleanupView &&
       !status.isTraversalSkipped &&
       !(
@@ -1337,11 +1695,32 @@ export default function PathReviewListView({
       isCopyComplete(item.src.copyStatus || item.copyStatus || "");
 
     const actions: PathReviewContextAction[] = [];
+    actions.push({
+      key: "select-visible",
+      label: "Select all visible",
+      onClick: () => selectAllVisible(),
+    });
+    if (searchPredicateActive) {
+      actions.push({
+        key: "select-matching",
+        label: "Select all that match the search",
+        onClick: () => selectAllMatching(),
+      });
+    }
     if (onNavigateToTreeView) {
       actions.push({
         key: "show-in-tree",
         label: PATH_REVIEW_COPY.showInTreeView,
         onClick: () => onNavigateToTreeView(item),
+      });
+    }
+    if (canIncludeRuleExcludedSubtree(item)) {
+      actions.push({
+        key: "include-rescan",
+        label: PATH_REVIEW_COPY.includeRuleExcludedSubtree,
+        onClick: () => {
+          void handleIncludeRuleExcludedSubtree(item);
+        },
       });
     }
     if (canExclude) {
@@ -1415,12 +1794,16 @@ export default function PathReviewListView({
   const hasActiveFilters = () => {
     return (
       activeSearchQuery.trim() !== "" ||
+      activePathSegments.some((s) => s.trim() !== "") ||
+      (underPath.trim() !== "" && underPath.trim() !== "/") ||
       typeFilter !== "both" ||
       depthFilter.trim() !== "" ||
       sizeFilter.trim() !== "" ||
       traversalStatusFilter !== "" ||
       pathIssueStatusFilter !== "" ||
       pathIssueCategoryFilter !== "" ||
+      advancedRulesActive ||
+      draftAdvancedRulesActive ||
       (showDestinationOnlyToggle && showDestinationOnly)
     );
   };
@@ -1428,25 +1811,718 @@ export default function PathReviewListView({
   const isFilterActive = hasActiveFilters();
   const searchPredicateActive = hasListSearchPredicate({
     query: activeSearchQuery,
+    pathSegments: activePathSegments,
+    underPath,
     typeFilter,
     depthFilter,
     sizeFilter,
     traversalStatusFilter,
     pathIssueStatusFilter,
     pathIssueCategoryFilter,
+    hasAdvancedRules: advancedRulesActive,
   });
+  const draftPathSegments = pathSegments
+    .map((s) => s.trim())
+    .filter((s) => s !== "");
   const canSubmitSearch = hasListSearchPredicate({
-    query: searchQuery.trim() !== "" ? searchQuery : activeSearchQuery,
+    query:
+      searchField === "name"
+        ? searchQuery.trim() !== ""
+          ? searchQuery
+          : activeSearchQuery
+        : "",
+    pathSegments:
+      searchField === "path"
+        ? draftPathSegments.length > 0
+          ? draftPathSegments
+          : activePathSegments
+        : undefined,
+    underPath,
     typeFilter,
     depthFilter,
     sizeFilter,
     traversalStatusFilter,
     pathIssueStatusFilter,
     pathIssueCategoryFilter,
+    hasAdvancedRules: draftAdvancedRulesActive,
   });
 
   // Check if sort is active (not default: "path" with "asc")
   const isSortActive = sortField !== "path" || sortDir !== "asc";
+
+  const setAdvancedFiltersPageOpen = (open: boolean) => {
+    onAdvancedFiltersOpenChange?.(open);
+  };
+
+  // Parent back button closes advanced without Apply; keep draft committed.
+  useEffect(() => {
+    if (advancedWasOpenRef.current && !advancedFiltersOpen) {
+      commitDraftRuleset();
+      setShowSaveRulesDialog(false);
+      setShowLoadRulesDialog(false);
+    }
+    advancedWasOpenRef.current = advancedFiltersOpen;
+  }, [advancedFiltersOpen]);
+
+  const clearSeededBasicFields = () => {
+    clearTextSearchState();
+    setSizeFilter("");
+    setSizeOperator("equals");
+    setTraversalStatusFilter("");
+    setPathIssueStatusFilter("");
+    setPathIssueCategoryFilter("");
+  };
+
+  const openAdvancedFiltersPage = () => {
+    const sizeBytes =
+      sizeFilter.trim() !== ""
+        ? parseFileSize(sizeFilter, sizeDisplayUnit)
+        : null;
+    const { ruleset, seeded } = seedListSearchRuleset({
+      migrationId: migrationId || "search",
+      existing: draftRuleset,
+      searchField,
+      nameQuery: searchQuery,
+      pathSegments,
+      typeFilter,
+      sizeBytes,
+      sizeOperator,
+      reviewStatus: traversalStatusFilter,
+      pathIssueStatus: pathIssueStatusFilter,
+      pathIssueCategory: pathIssueCategoryFilter,
+    });
+    setDraftRuleset(ruleset);
+    if (seeded) {
+      if (
+        traversalStatusFilter === "not_on_src" &&
+        showDestinationOnlyToggle
+      ) {
+        onShowDestinationOnlyChange?.(true);
+      }
+      clearSeededBasicFields();
+    }
+    setShowFilterMenu(false);
+    setAdvancedFiltersPageOpen(true);
+  };
+
+  const applyBasicFilters = () => {
+    handleSearch();
+    setShowFilterMenu(false);
+  };
+
+  const applyAdvancedFilters = () => {
+    handleSearch();
+    setAdvancedFiltersPageOpen(false);
+  };
+
+  const clearAdvancedFilters = () => {
+    const empty = createEmptyRuleset(migrationId || "search");
+    setDraftRuleset(empty);
+    setActiveRuleset(empty);
+  };
+
+  if (advancedFiltersClearRef) {
+    advancedFiltersClearRef.current = clearAdvancedFilters;
+  }
+  if (advancedFiltersApplyRef) {
+    advancedFiltersApplyRef.current = applyAdvancedFilters;
+  }
+
+  useEffect(() => {
+    if (!advancedFiltersOpen) {
+      onAdvancedFiltersCanApplyChange?.(false);
+      return;
+    }
+    onAdvancedFiltersCanApplyChange?.(canSubmitSearch);
+  }, [advancedFiltersOpen, canSubmitSearch, onAdvancedFiltersCanApplyChange]);
+
+  const exportAdvancedRulesJson = () => {
+    const payload = prepareRulesetForSave(draftRuleset);
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${(payload.name || "filters").replace(/\s+/g, "-").toLowerCase()}.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const importAdvancedRulesJson = async (file: File) => {
+    setLibraryError(null);
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text) as unknown;
+      if (!parsed || typeof parsed !== "object") {
+        throw new Error("JSON must be a filter ruleset object");
+      }
+      const raw = parsed as Record<string, unknown>;
+      const root =
+        (raw.root_group as typeof draftRuleset.root_group | undefined) ??
+        (raw.rootGroup as typeof draftRuleset.root_group | undefined);
+      if (!root || typeof root !== "object") {
+        throw new Error("JSON is missing root_group");
+      }
+      setDraftRuleset(
+        presentRulesetForEditor({
+          ruleset_id:
+            typeof raw.ruleset_id === "string"
+              ? raw.ruleset_id
+              : `${migrationId || "search"}-ruleset`,
+          name:
+            typeof raw.name === "string" && raw.name.trim()
+              ? raw.name
+              : "Imported filters",
+          description:
+            typeof raw.description === "string" ? raw.description : undefined,
+          schema_version:
+            typeof raw.schema_version === "number"
+              ? raw.schema_version
+              : typeof raw.schemaVersion === "number"
+                ? raw.schemaVersion
+                : 1,
+          root_group: root,
+        })
+      );
+    } catch (err) {
+      setLibraryError(
+        err instanceof Error ? err.message : "Failed to import filter JSON"
+      );
+    }
+  };
+
+  const openSaveRulesDialog = () => {
+    setSaveRulesName(draftRuleset.name?.trim() || "Saved list filters");
+    setSaveRulesNotes(draftRuleset.description ?? "");
+    setSaveRulesError(null);
+    setShowSaveRulesDialog(true);
+  };
+
+  const saveRulesToAccount = async () => {
+    const name = saveRulesName.trim();
+    if (!name) {
+      setSaveRulesError("Name is required");
+      return;
+    }
+    setSaveRulesBusy(true);
+    setSaveRulesError(null);
+    try {
+      const prepared = prepareRulesetForSave({
+        ...draftRuleset,
+        name,
+        description: saveRulesNotes.trim() || undefined,
+      });
+      await createRuleset({
+        name: prepared.name,
+        description: prepared.description,
+        schemaVersion: prepared.schema_version,
+        rootGroup: prepared.root_group,
+      });
+      setDraftRuleset({
+        ...draftRuleset,
+        name: prepared.name,
+        description: prepared.description,
+      });
+      setShowSaveRulesDialog(false);
+      onToast?.("Filters saved to your account", "success");
+    } catch (err) {
+      setSaveRulesError(
+        err instanceof Error ? err.message : "Failed to save filters"
+      );
+    } finally {
+      setSaveRulesBusy(false);
+    }
+  };
+
+  const openLoadRulesDialog = async () => {
+    setShowLoadRulesDialog(true);
+    setLibraryError(null);
+    setLibraryBusy(true);
+    try {
+      const items = await listRulesets();
+      setLibraryRulesets(items.filter((item) => item.createdBy !== "prepackaged"));
+    } catch (err) {
+      setLibraryError(
+        err instanceof Error ? err.message : "Failed to load saved filters"
+      );
+      setLibraryRulesets([]);
+    } finally {
+      setLibraryBusy(false);
+    }
+  };
+
+  const loadSavedRuleset = async (id: string) => {
+    setLibraryBusy(true);
+    setLibraryError(null);
+    try {
+      const summary = await getRuleset(id);
+      setDraftRuleset(rulesetFromSummary(summary, migrationId || "search"));
+      setShowLoadRulesDialog(false);
+    } catch (err) {
+      setLibraryError(
+        err instanceof Error ? err.message : "Failed to load saved filters"
+      );
+    } finally {
+      setLibraryBusy(false);
+    }
+  };
+
+  const basicFilterSections = (
+    <>
+      <div className="path-review-list__filter-menu-section">
+        <label className="path-review-list__filter-menu-label">Search In</label>
+        <div className="path-review-list__filter-menu-toggle">
+          <button
+            type="button"
+            className={`path-review-list__filter-menu-toggle-button ${searchField === "path" ? "path-review-list__filter-menu-toggle-button--active" : ""}`}
+            onClick={() => setSearchField("path")}
+          >
+            In path
+          </button>
+          <button
+            type="button"
+            className={`path-review-list__filter-menu-toggle-button ${searchField === "name" ? "path-review-list__filter-menu-toggle-button--active" : ""}`}
+            onClick={() => setSearchField("name")}
+          >
+            Name
+          </button>
+        </div>
+        {searchField === "path" && (
+          <p className="path-review-list__filter-menu-hint">
+            Segments match folder/file names in order; gaps between them are allowed.
+          </p>
+        )}
+      </div>
+
+      <div className="path-review-list__filter-menu-section">
+        <label className="path-review-list__filter-menu-label">Type</label>
+        <div className="path-review-list__filter-menu-options">
+          {(
+            [
+              { value: "both" as const, label: "Both" },
+              { value: "folder" as const, label: "Folders" },
+              { value: "file" as const, label: "Files" },
+            ] as const
+          ).map(({ value, label }) => (
+            <button
+              key={value}
+              type="button"
+              className={`path-review-list__filter-menu-option ${
+                typeFilter === value ? "path-review-list__filter-menu-option--active" : ""
+              }`}
+              onClick={() => {
+                setTypeFilter(value);
+                if (value === "folder") {
+                  setSizeFilter("");
+                }
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="path-review-list__filter-menu-section">
+        <label className="path-review-list__filter-menu-label" htmlFor="size-filter">
+          File Size
+        </label>
+        <div className="path-review-list__filter-menu-numeric-controls">
+          <select
+            className="path-review-list__filter-menu-operator"
+            value={sizeOperator}
+            onChange={(e) =>
+              setSizeOperator(e.target.value as "equals" | "gt" | "gte" | "lt" | "lte")
+            }
+            disabled={typeFilter === "folder"}
+          >
+            <option value="equals">=</option>
+            <option value="gt">&gt;</option>
+            <option value="gte">≥</option>
+            <option value="lt">&lt;</option>
+            <option value="lte">≤</option>
+          </select>
+          <input
+            id="size-filter"
+            type="number"
+            className="path-review-list__filter-menu-input"
+            placeholder="Any"
+            value={sizeFilter}
+            onChange={(e) => setSizeFilter(e.target.value)}
+            min="0"
+            step="0.01"
+            disabled={typeFilter === "folder"}
+          />
+          <select
+            className="path-review-list__filter-menu-unit"
+            value={sizeDisplayUnit}
+            onChange={(e) =>
+              setSizeDisplayUnit(e.target.value as "bytes" | "KB" | "MB" | "GB")
+            }
+            disabled={typeFilter === "folder"}
+          >
+            <option value="bytes">Bytes</option>
+            <option value="KB">KB</option>
+            <option value="MB">MB</option>
+            <option value="GB">GB</option>
+          </select>
+        </div>
+      </div>
+
+      <div className="path-review-list__filter-menu-section">
+        <label className="path-review-list__filter-menu-label" htmlFor="status-filter">
+          Status
+        </label>
+        <select
+          id="status-filter"
+          className="path-review-list__filter-menu-select"
+          value={traversalStatusFilter}
+          onChange={(e) => {
+            const next = e.target.value;
+            setTraversalStatusFilter(next);
+            if (next === "not_on_src" && showDestinationOnlyToggle) {
+              onShowDestinationOnlyChange?.(true);
+            }
+          }}
+        >
+          <option value="">All</option>
+          {(getDisplayPhase() === "source-cleanup" ||
+            getDisplayPhase() === "delete" ||
+            getDisplayPhase() === "copy-plan") && (
+            <option value="pending">
+              {statusFilterOptionLabel(getDisplayPhase(), "pending")}
+            </option>
+          )}
+          {getDisplayPhase() !== "copy-plan" && (
+            <option value="pending_retry">
+              {statusFilterOptionLabel(getDisplayPhase(), "pending_retry")}
+            </option>
+          )}
+          <option value="excluded">
+            {statusFilterOptionLabel(getDisplayPhase(), "excluded")}
+          </option>
+          <option value="failed">
+            {statusFilterOptionLabel(getDisplayPhase(), "failed")}
+          </option>
+          <option value="successful">
+            {statusFilterOptionLabel(getDisplayPhase(), "successful")}
+          </option>
+          <option value="not_on_src">
+            {statusFilterOptionLabel(getDisplayPhase(), "not_on_src")}
+          </option>
+        </select>
+      </div>
+
+      {showCompatUI ? (
+        <div className="path-review-list__filter-menu-section">
+          <label
+            className="path-review-list__filter-menu-label"
+            htmlFor="compatibility-filter"
+          >
+            {PATH_REVIEW_COPY.compatibilityFilterLabel}
+          </label>
+          <select
+            id="compatibility-filter"
+            className="path-review-list__filter-menu-select"
+            value={
+              pathIssueCategoryFilter
+                ? `cat:${pathIssueCategoryFilter}`
+                : pathIssueStatusFilter
+            }
+            onChange={(e) => {
+              const next = e.target.value;
+              if (next.startsWith("cat:")) {
+                setPathIssueStatusFilter("issues");
+                setPathIssueCategoryFilter(next.slice(4));
+              } else {
+                setPathIssueStatusFilter(next);
+                setPathIssueCategoryFilter("");
+              }
+              setCurrentPage(0);
+            }}
+          >
+            <option value="">{PATH_REVIEW_COPY.compatibilityFilterAll}</option>
+            <option value="issues">{PATH_REVIEW_COPY.compatibilityFilterIssues}</option>
+            <option value="manual">
+              {PATH_REVIEW_COPY.compatibilityFilterManual}
+            </option>
+            <option value="rejected">
+              {PATH_REVIEW_COPY.compatibilityFilterRejected}
+            </option>
+            <option value="none">{PATH_REVIEW_COPY.compatibilityFilterNone}</option>
+            {pathIssueCategoryCounts.length > 0 ? (
+              <optgroup label={PATH_REVIEW_COPY.compatibilityFilterByType}>
+                {pathIssueCategoryCounts.map(([category, count]) => (
+                  <option key={category} value={`cat:${category}`}>
+                    {pathIssueShortLabel([{ category }])} ({count})
+                  </option>
+                ))}
+              </optgroup>
+            ) : null}
+          </select>
+        </div>
+      ) : null}
+
+      {showDestinationOnlyToggle && (
+        <div className="path-review-list__filter-menu-section">
+          <label className="path-review-list__filter-menu-checkbox">
+            <input
+              type="checkbox"
+              checked={showDestinationOnly}
+              onChange={(e) => {
+                const next = e.target.checked;
+                onShowDestinationOnlyChange?.(next);
+                if (!next && traversalStatusFilter === "not_on_src") {
+                  setTraversalStatusFilter("");
+                }
+                setCurrentPage(0);
+              }}
+            />
+            Show destination-only items
+          </label>
+        </div>
+      )}
+    </>
+  );
+
+  if (advancedFiltersOpen) {
+    return (
+      <div className="path-review-list path-review-list--filters-page" style={densityStyle}>
+        <p className="path-review-list-filters__summary">
+          Build match rules for name, path, extension, size, modified time,
+          status, and compatibility. Drag the handle to move rules between
+          groups or back to the top level. Apply returns to results and runs
+          the search.
+        </p>
+
+        <div className="path-review-list-filters__library">
+          <input
+            ref={importRulesInputRef}
+            type="file"
+            accept="application/json,.json"
+            className="path-review-list-filters__file-input"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              if (file) void importAdvancedRulesJson(file);
+            }}
+          />
+          <button
+            type="button"
+            className="path-review-list-filters__library-btn"
+            onClick={() => importRulesInputRef.current?.click()}
+          >
+            Import JSON
+          </button>
+          <button
+            type="button"
+            className="path-review-list-filters__library-btn"
+            onClick={exportAdvancedRulesJson}
+            disabled={isRulesetEffectivelyEmpty(draftRuleset)}
+          >
+            Export JSON
+          </button>
+          <button
+            type="button"
+            className="path-review-list-filters__library-btn"
+            onClick={openSaveRulesDialog}
+            disabled={isRulesetEffectivelyEmpty(draftRuleset)}
+          >
+            Save for later
+          </button>
+          <button
+            type="button"
+            className="path-review-list-filters__library-btn"
+            onClick={() => void openLoadRulesDialog()}
+          >
+            Load saved
+          </button>
+          <button
+            type="button"
+            className="path-review-list-filters__library-btn"
+            onClick={() => setShowRuleExamples(true)}
+          >
+            See examples…
+          </button>
+        </div>
+
+        {libraryError ? (
+          <div className="path-review-list__error">{libraryError}</div>
+        ) : null}
+
+        <div className="path-review-list-filters__advanced-body">
+          <FilterRulesBuilder
+            ruleset={draftRuleset}
+            onChange={setDraftRuleset}
+            compact
+            matchMode="search"
+            isCopyPhase={isCopyPhase(migrationStatus)}
+            isTraversalPhase={getDisplayPhase() === "traversal"}
+            showCompatFields={showCompatUI}
+            pathIssueCategories={pathIssueCategoryCounts.map(
+              ([category, count]) => ({
+                category,
+                count,
+                label: pathIssueShortLabel([{ category }]),
+              })
+            )}
+          />
+        </div>
+
+        {showRuleExamples ? (
+          <FilterRuleExamples
+            onClose={() => setShowRuleExamples(false)}
+            onUse={(ruleset) => {
+              setDraftRuleset(ruleset);
+              setShowRuleExamples(false);
+            }}
+          />
+        ) : null}
+
+        {showSaveRulesDialog ? (
+          <div
+            className="path-review-list__filter-modal-overlay"
+            onClick={() => setShowSaveRulesDialog(false)}
+          >
+            <div
+              className="path-review-list__filter-modal path-review-list__rules-dialog"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="path-review-list__filter-modal-header">
+                <h2 className="path-review-list__filter-modal-title">
+                  Save filters for later
+                </h2>
+                <button
+                  type="button"
+                  className="path-review-list__filter-modal-close"
+                  onClick={() => setShowSaveRulesDialog(false)}
+                  aria-label="Close"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+              <div className="path-review-list__filter-modal-content">
+                <div className="path-review-list__filter-menu-section">
+                  <label
+                    className="path-review-list__filter-menu-label"
+                    htmlFor="save-rules-name"
+                  >
+                    Name
+                  </label>
+                  <input
+                    id="save-rules-name"
+                    className="path-review-list__filter-menu-input"
+                    value={saveRulesName}
+                    onChange={(e) => setSaveRulesName(e.target.value)}
+                    placeholder="e.g. Large videos"
+                  />
+                </div>
+                <div className="path-review-list__filter-menu-section">
+                  <label
+                    className="path-review-list__filter-menu-label"
+                    htmlFor="save-rules-notes"
+                  >
+                    Notes
+                  </label>
+                  <textarea
+                    id="save-rules-notes"
+                    className="path-review-list__rules-dialog-notes"
+                    value={saveRulesNotes}
+                    onChange={(e) => setSaveRulesNotes(e.target.value)}
+                    placeholder="Optional notes"
+                    rows={3}
+                  />
+                </div>
+                {saveRulesError ? (
+                  <div className="path-review-list__error">{saveRulesError}</div>
+                ) : null}
+              </div>
+              <div className="path-review-list__filter-modal-footer">
+                <button
+                  type="button"
+                  className="path-review-list__filter-modal-button path-review-list__filter-modal-button--secondary"
+                  onClick={() => setShowSaveRulesDialog(false)}
+                  disabled={saveRulesBusy}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="path-review-list__filter-modal-button path-review-list__filter-modal-button--primary"
+                  onClick={() => void saveRulesToAccount()}
+                  disabled={saveRulesBusy}
+                >
+                  {saveRulesBusy ? "Saving…" : "Save"}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {showLoadRulesDialog ? (
+          <div
+            className="path-review-list__filter-modal-overlay"
+            onClick={() => setShowLoadRulesDialog(false)}
+          >
+            <div
+              className="path-review-list__filter-modal path-review-list__rules-dialog"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="path-review-list__filter-modal-header">
+                <h2 className="path-review-list__filter-modal-title">
+                  Load saved filters
+                </h2>
+                <button
+                  type="button"
+                  className="path-review-list__filter-modal-close"
+                  onClick={() => setShowLoadRulesDialog(false)}
+                  aria-label="Close"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+              <div className="path-review-list__filter-modal-content">
+                {libraryBusy ? (
+                  <p className="path-review-list__filter-menu-hint">Loading…</p>
+                ) : libraryRulesets.length === 0 ? (
+                  <p className="path-review-list__filter-menu-hint">
+                    No saved filter sets yet. Use Save for later to store one.
+                  </p>
+                ) : (
+                  <div className="path-review-list__filter-menu-options">
+                    {libraryRulesets.map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        className="path-review-list__filter-menu-option"
+                        disabled={libraryBusy}
+                        onClick={() => void loadSavedRuleset(item.id)}
+                      >
+                        <span>{item.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {libraryError ? (
+                  <div className="path-review-list__error">{libraryError}</div>
+                ) : null}
+              </div>
+              <div className="path-review-list__filter-modal-footer">
+                <button
+                  type="button"
+                  className="path-review-list__filter-modal-button path-review-list__filter-modal-button--secondary"
+                  onClick={() => setShowLoadRulesDialog(false)}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
 
   return (
     <div className="path-review-list" style={densityStyle}>
@@ -1458,23 +2534,155 @@ export default function PathReviewListView({
             checked={items.length > 0 && items.every(item => explicitSelected.has(item.id))}
             onChange={handleSelectAll}
             className="path-review-list__select-all-checkbox"
-            title="Select All"
-            aria-label="Select All"
+            title="Select all visible"
+            aria-label="Select all visible"
           />
+          {showSelectAllMatchingEscalate({
+            searchPredicateActive,
+            allMatchingSelected,
+            visibleCount: items.length,
+            allVisibleSelected: items.every((item) =>
+              explicitSelected.has(item.id)
+            ),
+          }) ? (
+            <button
+              type="button"
+              className="path-review-list__select-matching-link"
+              onClick={() => selectAllMatching()}
+            >
+              Select all that match this criteria
+            </button>
+          ) : null}
         </div>
         <div className="path-review-list__search-bar">
-          <input
-            type="text"
-            className="path-review-list__search-input"
-            placeholder="Search..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && canSubmitSearch) {
-                handleSearch();
+          {underPath.trim() !== "" && underPath.trim() !== "/" ? (
+            <div className="path-review-list__under-path-chip" title={underPathLabel || underPath}>
+              <span className="path-review-list__under-path-chip-label">
+                In this folder: {underPathLabel || underPath}
+              </span>
+              <button
+                type="button"
+                className="path-review-list__under-path-chip-clear"
+                title="Clear folder scope"
+                aria-label="Clear folder scope"
+                onClick={() => {
+                  setUnderPath("");
+                  setUnderPathLabel("");
+                  setCurrentPage(0);
+                }}
+              >
+                <X size={14} />
+              </button>
+            </div>
+          ) : null}
+          {sourceItemCount > 500_000 ? (
+            <HelpTooltip
+              tipId="path-review-large-search"
+              category="path-review"
+              position="below"
+              content={
+                <p>
+                  This migration has a lot of items. Searching by name or path
+                  across everything can be slow or time out. Browse into a
+                  folder first and search from there, or filter by status.
+                </p>
               }
-            }}
-          />
+            />
+          ) : null}
+          {searchField === "path" ? (
+            <div className="path-review-list__path-segments">
+              {pathSegments.map((seg, index) => (
+                <div key={index} className="path-review-list__path-segment">
+                  <input
+                    type="text"
+                    className="path-review-list__search-input path-review-list__path-segment-input"
+                    placeholder={index === 0 ? "In path…" : "then…"}
+                    value={seg}
+                    onChange={(e) => {
+                      const next = [...pathSegments];
+                      next[index] = e.target.value;
+                      setPathSegments(next);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && canSubmitSearch) {
+                        handleSearch();
+                      }
+                    }}
+                    aria-label={`Path segment ${index + 1}`}
+                  />
+                  <div className="path-review-list__path-segment-actions">
+                    <button
+                      type="button"
+                      className="path-review-list__path-segment-btn"
+                      title="Move up"
+                      aria-label={`Move segment ${index + 1} up`}
+                      disabled={index === 0}
+                      onClick={() => {
+                        if (index === 0) return;
+                        const next = [...pathSegments];
+                        [next[index - 1], next[index]] = [next[index], next[index - 1]];
+                        setPathSegments(next);
+                      }}
+                    >
+                      <ChevronUp size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      className="path-review-list__path-segment-btn"
+                      title="Move down"
+                      aria-label={`Move segment ${index + 1} down`}
+                      disabled={index >= pathSegments.length - 1}
+                      onClick={() => {
+                        if (index >= pathSegments.length - 1) return;
+                        const next = [...pathSegments];
+                        [next[index], next[index + 1]] = [next[index + 1], next[index]];
+                        setPathSegments(next);
+                      }}
+                    >
+                      <ChevronDown size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      className="path-review-list__path-segment-btn"
+                      title="Remove segment"
+                      aria-label={`Remove segment ${index + 1}`}
+                      disabled={pathSegments.length <= 1}
+                      onClick={() => {
+                        if (pathSegments.length <= 1) return;
+                        setPathSegments(pathSegments.filter((_, i) => i !== index));
+                      }}
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {pathSegments.length < MAX_PATH_SEGMENTS && (
+                <button
+                  type="button"
+                  className="path-review-list__path-segment-add"
+                  title="Add path segment"
+                  aria-label="Add path segment"
+                  onClick={() => setPathSegments([...pathSegments, ""])}
+                >
+                  <Plus size={16} />
+                </button>
+              )}
+            </div>
+          ) : (
+            <input
+              type="text"
+              className="path-review-list__search-input"
+              placeholder="Search by name…"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && canSubmitSearch) {
+                  handleSearch();
+                }
+              }}
+            />
+          )}
           <button
             ref={filterButtonRef}
             type="button"
@@ -1488,6 +2696,61 @@ export default function PathReviewListView({
               <span className="path-review-list__filter-indicator" aria-hidden="true" />
             )}
           </button>
+          {showFilterMenu && (
+            <div
+              className="path-review-list__filter-modal-overlay"
+              onClick={() => setShowFilterMenu(false)}
+            >
+              <div
+                className="path-review-list__filter-modal"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="path-review-list__filter-modal-header">
+                  <h2 className="path-review-list__filter-modal-title">Filters</h2>
+                  <button
+                    type="button"
+                    className="path-review-list__filter-modal-close"
+                    onClick={() => setShowFilterMenu(false)}
+                    aria-label="Close"
+                  >
+                    <X size={20} />
+                  </button>
+                </div>
+                <div className="path-review-list__filter-modal-content">
+                  {basicFilterSections}
+                </div>
+                <div className="path-review-list__filter-modal-advanced">
+                  <button
+                    type="button"
+                    className="path-review-list__filter-modal-button path-review-list__filter-modal-button--secondary path-review-list__filter-modal-advanced-button"
+                    onClick={openAdvancedFiltersPage}
+                  >
+                    Advanced filter options
+                    {draftAdvancedRulesActive ? " (active)" : ""}
+                  </button>
+                </div>
+                <div className="path-review-list__filter-modal-footer">
+                  <button
+                    type="button"
+                    className="path-review-list__filter-modal-button path-review-list__filter-modal-button--secondary"
+                    onClick={() => {
+                      clearAllFilters();
+                    }}
+                  >
+                    Clear all
+                  </button>
+                  <button
+                    type="button"
+                    className="path-review-list__filter-modal-button path-review-list__filter-modal-button--primary"
+                    onClick={applyBasicFilters}
+                    disabled={!canSubmitSearch}
+                  >
+                    Apply
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
           <button
             ref={sortButtonRef}
             type="button"
@@ -1501,256 +2764,6 @@ export default function PathReviewListView({
               <span className="path-review-list__filter-indicator" aria-hidden="true" />
             )}
           </button>
-          {showFilterMenu && (
-            <div className="path-review-list__filter-modal-overlay" onClick={() => setShowFilterMenu(false)}>
-              <div ref={filterMenuRef} className="path-review-list__filter-modal" onClick={(e) => e.stopPropagation()}>
-                <div className="path-review-list__filter-modal-header">
-                  <h2 className="path-review-list__filter-modal-title">Filter</h2>
-                  <button
-                    type="button"
-                    className="path-review-list__filter-modal-close"
-                    onClick={() => setShowFilterMenu(false)}
-                    aria-label="Close"
-                  >
-                    <X size={20} />
-                  </button>
-                </div>
-                <div className="path-review-list__filter-modal-content">
-                {/* Search Field Toggle */}
-                <div className="path-review-list__filter-menu-section">
-                  <label className="path-review-list__filter-menu-label">Search In</label>
-                  <div className="path-review-list__filter-menu-toggle">
-                    <button
-                      type="button"
-                      className={`path-review-list__filter-menu-toggle-button ${searchField === "path" ? "path-review-list__filter-menu-toggle-button--active" : ""}`}
-                      onClick={() => setSearchField("path")}
-                    >
-                      Path
-                    </button>
-                    <button
-                      type="button"
-                      className={`path-review-list__filter-menu-toggle-button ${searchField === "name" ? "path-review-list__filter-menu-toggle-button--active" : ""}`}
-                      onClick={() => setSearchField("name")}
-                    >
-                      Name
-                    </button>
-                  </div>
-                </div>
-
-                {/* Type Filter */}
-                <div className="path-review-list__filter-menu-section">
-                  <label className="path-review-list__filter-menu-label">Type</label>
-                  <div className="path-review-list__filter-menu-options">
-                    {[
-                      { value: "both" as const, label: "Both" },
-                      { value: "folder" as const, label: "Folders" },
-                      { value: "file" as const, label: "Files" },
-                    ].map(({ value, label }) => (
-                      <button
-                        key={value}
-                        type="button"
-                        className={`path-review-list__filter-menu-option ${
-                          typeFilter === value ? "path-review-list__filter-menu-option--active" : ""
-                        }`}
-                        onClick={() => {
-                          setTypeFilter(value);
-                          if (value === "folder") {
-                            setSizeFilter(""); // Clear size filter when folders only
-                          }
-                        }}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Size Filter */}
-                <div className="path-review-list__filter-menu-section">
-                  <label className="path-review-list__filter-menu-label" htmlFor="size-filter">
-                    File Size
-                  </label>
-                  <div className="path-review-list__filter-menu-numeric-controls">
-                    <select
-                      className="path-review-list__filter-menu-operator"
-                      value={sizeOperator}
-                      onChange={(e) => setSizeOperator(e.target.value as "equals" | "gt" | "gte" | "lt" | "lte")}
-                      disabled={typeFilter === "folder"}
-                    >
-                      <option value="equals">=</option>
-                      <option value="gt">&gt;</option>
-                      <option value="gte">≥</option>
-                      <option value="lt">&lt;</option>
-                      <option value="lte">≤</option>
-                    </select>
-                    <input
-                      id="size-filter"
-                      type="number"
-                      className="path-review-list__filter-menu-input"
-                      placeholder="Any"
-                      value={sizeFilter}
-                      onChange={(e) => setSizeFilter(e.target.value)}
-                      min="0"
-                      step="0.01"
-                      disabled={typeFilter === "folder"}
-                    />
-                    <select
-                      className="path-review-list__filter-menu-unit"
-                      value={sizeDisplayUnit}
-                      onChange={(e) => setSizeDisplayUnit(e.target.value as "bytes" | "KB" | "MB" | "GB")}
-                      disabled={typeFilter === "folder"}
-                    >
-                      <option value="bytes">Bytes</option>
-                      <option value="KB">KB</option>
-                      <option value="MB">MB</option>
-                      <option value="GB">GB</option>
-                    </select>
-                  </div>
-                </div>
-
-                {/* Status Filter */}
-                <div className="path-review-list__filter-menu-section">
-                  <label className="path-review-list__filter-menu-label" htmlFor="status-filter">
-                    Status
-                  </label>
-                  <select
-                    id="status-filter"
-                    className="path-review-list__filter-menu-select"
-                    value={traversalStatusFilter}
-                    onChange={(e) => {
-                      const next = e.target.value;
-                      setTraversalStatusFilter(next);
-                      if (next === "not_on_src" && showDestinationOnlyToggle) {
-                        onShowDestinationOnlyChange?.(true);
-                      }
-                    }}
-                  >
-                    <option value="">All</option>
-                    {!isCopyPhase(migrationStatus) && (
-                      <option value="pending">Pending (will be copied over)</option>
-                    )}
-                    <option value="pending_retry">Pending Retry</option>
-                    <option value="excluded">
-                      {isCopyPhase(migrationStatus) 
-                        ? "Excluded (was not copied over)" 
-                        : "Excluded (will not be copied over)"}
-                    </option>
-                    <option value="failed">
-                      {isCopyPhase(migrationStatus) 
-                        ? "Failed" 
-                        : "Failed (discovery of items inside failed)"}
-                    </option>
-                    <option value="successful">Exists (on both)</option>
-                    <option value="not_on_src">Exists (on destination only)</option>
-                  </select>
-                </div>
-
-                {/* Compatibility Filter */}
-                {showCompatUI ? (
-                <div className="path-review-list__filter-menu-section">
-                  <label
-                    className="path-review-list__filter-menu-label"
-                    htmlFor="compatibility-filter"
-                  >
-                    {PATH_REVIEW_COPY.compatibilityFilterLabel}
-                  </label>
-                  <select
-                    id="compatibility-filter"
-                    className="path-review-list__filter-menu-select"
-                    value={
-                      pathIssueCategoryFilter
-                        ? `cat:${pathIssueCategoryFilter}`
-                        : pathIssueStatusFilter
-                    }
-                    onChange={(e) => {
-                      const next = e.target.value;
-                      if (next.startsWith("cat:")) {
-                        setPathIssueStatusFilter("issues");
-                        setPathIssueCategoryFilter(next.slice(4));
-                      } else {
-                        setPathIssueStatusFilter(next);
-                        setPathIssueCategoryFilter("");
-                      }
-                      setCurrentPage(0);
-                    }}
-                  >
-                    <option value="">{PATH_REVIEW_COPY.compatibilityFilterAll}</option>
-                    <option value="issues">{PATH_REVIEW_COPY.compatibilityFilterIssues}</option>
-                    <option value="manual">
-                      {PATH_REVIEW_COPY.compatibilityFilterManual}
-                    </option>
-                    <option value="rejected">
-                      {PATH_REVIEW_COPY.compatibilityFilterRejected}
-                    </option>
-                    <option value="none">{PATH_REVIEW_COPY.compatibilityFilterNone}</option>
-                    {pathIssueCategoryCounts.length > 0 ? (
-                      <optgroup label={PATH_REVIEW_COPY.compatibilityFilterByType}>
-                        {pathIssueCategoryCounts.map(([category, count]) => (
-                          <option key={category} value={`cat:${category}`}>
-                            {pathIssueShortLabel([{ category }])} ({count})
-                          </option>
-                        ))}
-                      </optgroup>
-                    ) : null}
-                  </select>
-                </div>
-                ) : null}
-
-                {showDestinationOnlyToggle && (
-                  <div className="path-review-list__filter-menu-section">
-                    <label className="path-review-list__filter-menu-checkbox">
-                      <input
-                        type="checkbox"
-                        checked={showDestinationOnly}
-                        onChange={(e) => {
-                          const next = e.target.checked;
-                          onShowDestinationOnlyChange?.(next);
-                          if (!next && traversalStatusFilter === "not_on_src") {
-                            setTraversalStatusFilter("");
-                          }
-                          setCurrentPage(0);
-                        }}
-                      />
-                      Show destination-only items
-                    </label>
-                  </div>
-                )}
-
-                </div>
-                <div className="path-review-list__filter-modal-footer">
-                  <button
-                    type="button"
-                    className="path-review-list__filter-modal-button path-review-list__filter-modal-button--secondary"
-                    onClick={() => {
-                      setSearchField("path");
-                      setTypeFilter("both");
-                      setDepthFilter("");
-                      setDepthOperator("equals");
-                      setSizeFilter("");
-                      setSizeOperator("equals");
-                      setSizeDisplayUnit("MB");
-                      setTraversalStatusFilter("");
-                      setPathIssueStatusFilter("");
-                      setPathIssueCategoryFilter("");
-                      if (showDestinationOnlyToggle) {
-                        onShowDestinationOnlyChange?.(false);
-                      }
-                      setCurrentPage(0);
-                    }}
-                  >
-                    Clear All Filters
-                  </button>
-                  <button
-                    type="button"
-                    className="path-review-list__filter-modal-button path-review-list__filter-modal-button--primary"
-                    onClick={() => setShowFilterMenu(false)}
-                  >
-                    Apply Filters
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
           {showSortMenu && (
             <div className="path-review-list__sort-modal-overlay" onClick={() => setShowSortMenu(false)}>
               <div ref={sortMenuRef} className="path-review-list__sort-modal" onClick={(e) => e.stopPropagation()}>
@@ -1875,6 +2888,14 @@ export default function PathReviewListView({
       </div>
 
       {/* Background Task Status */}
+      {(bulkLoading || serverBulkMutationInProgress) && (
+        <div className="path-review-list__task-status" role="status">
+          <div className="path-review-list__task-item">
+            An exclude/unexclude is still running; list results may be stale until
+            it finishes.
+          </div>
+        </div>
+      )}
       {activeTaskIds.size > 0 && (
         <div className="path-review-list__task-status">
           {Array.from(activeTaskIds).map((taskId) => {
@@ -1899,172 +2920,84 @@ export default function PathReviewListView({
       )}
 
       {/* Bulk Actions */}
-      {(explicitSelected.size > 0 || getInheritedSelections(explicitSelected).size > 0) && (
+      {(allMatchingSelected ||
+        explicitSelected.size > 0 ||
+        getInheritedSelections(explicitSelected).size > 0) && (
         <div className="path-review-list__bulk-actions">
           <span className="path-review-list__bulk-count">
-            {explicitSelected.size + getInheritedSelections(explicitSelected).size} item{(explicitSelected.size + getInheritedSelections(explicitSelected).size) !== 1 ? "s" : ""}{" "}
-            selected
+            {allMatchingSelected
+              ? allMatchingSelectedLabel(calculatedTotal, calculatedTotalTruncated)
+              : `${explicitSelected.size + getInheritedSelections(explicitSelected).size} item${
+                  explicitSelected.size + getInheritedSelections(explicitSelected).size !== 1
+                    ? "s"
+                    : ""
+                } selected`}
           </span>
           <div className="path-review-list__bulk-buttons">
-            <button
-              type="button"
-              className="glass-button glass-button--small"
-              disabled={isCopyPhase(migrationStatus) || isDeletePhase(migrationStatus) || bulkLoading}
-              title={
-                isCopyPhase(migrationStatus)
-                  ? "Exclusion is only available during traversal review"
-                  : isDeletePhase(migrationStatus)
-                  ? "Exclusion is not available during removal review"
-                  : ""
-              }
-              onClick={async () => {
-                if (!migrationId || explicitSelected.size === 0 || bulkLoading || isCopyPhase(migrationStatus) || isDeletePhase(migrationStatus)) return;
-                
-                setBulkLoading(true);
-                try {
-                  // Normalize selection: remove items whose ancestor paths are also selected
-                  const normalized = normalizeExplicitSelection(explicitSelected);
-                  
-                  // Get node IDs for normalized selected items from all pages
-                  const nodeIDs: string[] = [];
-                  normalized.forEach((itemId) => {
-                    const item = explicitSelectedItemData.get(itemId);
-                    if (item) {
-                      if (item.src?.id) {
-                        nodeIDs.push(item.src.id);
-                      }
-                      if (item.dst?.id && (!item.src?.id || item.dst.id !== item.src.id)) {
-                        nodeIDs.push(item.dst.id);
-                      }
-                    }
-                  });
-
-                  const result = await bulkExcludeNodes(migrationId, {
-                    nodeIDs: nodeIDs,
-                  });
-
-                  if (result.success) {
-                    // Clear selection and associated data
-                    setExplicitSelected(new Set());
-                    setExplicitSelectedPaths(new Map());
-                    setExplicitSelectedItemData(new Map());
-                    setLastSelectedIndex(null);
-                    
-                    if (result.taskID) {
-                      // Background task started - add to active tasks
-                      setActiveTaskIds((prev) => new Set(prev).add(result.taskID!));
-                      if (onItemUpdate) onItemUpdate();
-                    } else {
-                      if (result.deltas && Object.keys(result.deltas).length > 0) onApplyStatsDeltas?.(result.deltas);
-                      try {
-                        const refreshed = await listPathIssues(migrationId);
-                        onPathIssuesChange?.(refreshed.issues || []);
-                      } catch {
-                        // list reload below still refreshes row state
-                      }
-                      await loadItems(false, { silent: true });
-                      onListDataMutated?.();
-                    }
-                  }
-                } catch (err) {
-                  console.error("Failed to bulk exclude items:", err);
-                  // Check if error is due to phase locking
-                  const errorMessage = err instanceof Error ? err.message : "Failed to bulk exclude items";
-                  if (errorMessage.includes("copy phase") || errorMessage.includes("exclusion operations are not available")) {
-                    // Don't show error - UI should already be disabled, but log for debugging
-                    console.warn("Bulk exclude blocked in copy phase");
-                  }
-                } finally {
-                  setBulkLoading(false);
-                }
-              }}
-            >
-              {bulkLoading ? "Processing..." : "Exclude Selected"}
-            </button>
-            <button
-              type="button"
-              className="glass-button glass-button--small"
-              disabled={isCopyPhase(migrationStatus) || isDeletePhase(migrationStatus) || bulkLoading}
-              title={
-                isCopyPhase(migrationStatus)
-                  ? "Exclusion is only available during traversal review"
-                  : isDeletePhase(migrationStatus)
-                  ? "Exclusion is not available during removal review"
-                  : ""
-              }
-              onClick={async () => {
-                if (!migrationId || explicitSelected.size === 0 || bulkLoading || isCopyPhase(migrationStatus) || isDeletePhase(migrationStatus)) return;
-                
-                setBulkLoading(true);
-                try {
-                  // Normalize selection: remove items whose ancestor paths are also selected
-                  const normalized = normalizeExplicitSelection(explicitSelected);
-                  
-                  // Get node IDs for normalized selected items from all pages
-                  const nodeIDs: string[] = [];
-                  normalized.forEach((itemId) => {
-                    const item = explicitSelectedItemData.get(itemId);
-                    if (item) {
-                      if (item.src?.id) {
-                        nodeIDs.push(item.src.id);
-                      }
-                      if (item.dst?.id && (!item.src?.id || item.dst.id !== item.src.id)) {
-                        nodeIDs.push(item.dst.id);
-                      }
-                    }
-                  });
-
-                  const result = await bulkUnexcludeNodes(migrationId, {
-                    nodeIDs: nodeIDs,
-                  });
-
-                  if (result.success) {
-                    // Clear selection and associated data
-                    setExplicitSelected(new Set());
-                    setExplicitSelectedPaths(new Map());
-                    setExplicitSelectedItemData(new Map());
-                    setLastSelectedIndex(null);
-                    
-                    if (result.taskID) {
-                      // Background task started - add to active tasks
-                      setActiveTaskIds((prev) => new Set(prev).add(result.taskID!));
-                      if (onItemUpdate) onItemUpdate();
-                    } else {
-                      if (result.deltas && Object.keys(result.deltas).length > 0) onApplyStatsDeltas?.(result.deltas);
-                      try {
-                        const refreshed = await listPathIssues(migrationId);
-                        onPathIssuesChange?.(refreshed.issues || []);
-                      } catch {
-                        // list reload below still refreshes row state
-                      }
-                      await loadItems(false, { silent: true });
-                      onListDataMutated?.();
-                    }
-                  }
-                } catch (err) {
-                  console.error("Failed to bulk unexclude items:", err);
-                  // Check if error is due to phase locking
-                  const errorMessage = err instanceof Error ? err.message : "Failed to bulk unexclude items";
-                  if (errorMessage.includes("copy phase") || errorMessage.includes("exclusion operations are not available")) {
-                    // Don't show error - UI should already be disabled, but log for debugging
-                    console.warn("Bulk unexclude blocked in copy phase");
-                  }
-                } finally {
-                  setBulkLoading(false);
-                }
-              }}
-            >
-              {bulkLoading ? "Processing..." : "Unexclude Selected"}
-            </button>
+            <div className="path-review-list__apply-action" ref={applyMenuRef}>
+              <button
+                type="button"
+                className="glass-button glass-button--small"
+                disabled={bulkLoading}
+                onClick={() => setApplyMenuOpen((open) => !open)}
+                aria-haspopup="menu"
+                aria-expanded={applyMenuOpen}
+              >
+                {bulkLoading ? "Working…" : "Apply action"}
+                <ChevronDown size={14} style={{ marginLeft: "0.35rem" }} />
+              </button>
+              {applyMenuOpen ? (
+                <div className="path-review-list__apply-action-menu" role="menu">
+                  {(isCopyPlanView ||
+                    (!isCopyPhase(migrationStatus) &&
+                      !isDeletePhase(migrationStatus))) &&
+                  !isSourceCleanupView ? (
+                    <>
+                      <button
+                        type="button"
+                        className="path-review-list__apply-action-option"
+                        role="menuitem"
+                        disabled={bulkLoading}
+                        onClick={() => void handleApplyAction("exclude")}
+                      >
+                        {excludeApplyLabel(allMatchingSelected)}
+                      </button>
+                      <button
+                        type="button"
+                        className="path-review-list__apply-action-option"
+                        role="menuitem"
+                        disabled={bulkLoading}
+                        onClick={() => void handleApplyAction("unexclude")}
+                      >
+                        {unexcludeApplyLabel(allMatchingSelected)}
+                      </button>
+                    </>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="path-review-list__apply-action-option"
+                    role="menuitem"
+                    disabled={bulkLoading}
+                    onClick={() => void handleApplyAction("mark_retry")}
+                  >
+                    Mark for retry
+                  </button>
+                  <button
+                    type="button"
+                    className="path-review-list__apply-action-option"
+                    role="menuitem"
+                    disabled={bulkLoading}
+                    onClick={() => void handleApplyAction("mark_failed")}
+                  >
+                    Mark failed
+                  </button>
+                </div>
+              ) : null}
+            </div>
             <button
               type="button"
               className="path-review-list__clear-selection"
-              onClick={() => {
-                setExplicitSelected(new Set());
-                setExplicitSelectedPaths(new Map());
-                setExplicitSelectedItemData(new Map());
-                setLastSelectedIndex(null);
-              }}
+              onClick={clearSelection}
             >
               Clear Selection
             </button>
@@ -2087,29 +3020,27 @@ export default function PathReviewListView({
               ) : null}
             </div>
             <div className="path-review-list__legend-end">
-              <div className="path-review-list__count-controls">
-                <button
-                  type="button"
-                  className="path-review-list__count-button"
-                  onClick={() => void handleCalculateTotal()}
-                  disabled={countingTotal}
-                >
-                  {countingTotal ? "Counting…" : "Calculate total matches"}
-                </button>
-                {calculatedTotal !== null && (
-                  <span className="path-review-list__count-result">
-                    {calculatedTotal.toLocaleString()} total
-                  </span>
-                )}
-                {countError && (
-                  <span className="path-review-list__count-error">{countError}</span>
-                )}
-                {(countingTotal || calculatedTotal !== null) && (
-                  <span className="path-review-list__count-stale-note">
-                    Items changed while this count runs may make the total stale.
-                  </span>
-                )}
-              </div>
+              {(countError ||
+                countingTotal ||
+                calculatedTotal !== null) && (
+                <div className="path-review-list__count-controls">
+                  {calculatedTotal !== null && (
+                    <span className="path-review-list__count-result">
+                      {calculatedTotalTruncated
+                        ? `At least ${calculatedTotal.toLocaleString()}`
+                        : `${calculatedTotal.toLocaleString()} total`}
+                    </span>
+                  )}
+                  {countError && (
+                    <span className="path-review-list__count-error">{countError}</span>
+                  )}
+                  {(countingTotal || calculatedTotal !== null) && (
+                    <span className="path-review-list__count-stale-note">
+                      Count may go stale if items change.
+                    </span>
+                  )}
+                </div>
+              )}
               {pagination && items.length > 0 && (
                 <ListViewPagination
                   pagination={pagination}
@@ -2121,6 +3052,9 @@ export default function PathReviewListView({
                     setCurrentPage(0);
                   }}
                   zoomLevel={1}
+                  onCalculateTotal={() => void handleCalculateTotal()}
+                  calculatingTotal={countingTotal}
+                  calculatedTotal={calculatedTotal}
                 />
               )}
             </div>
@@ -2188,7 +3122,7 @@ export default function PathReviewListView({
             ref={listItemsRef}
             className="path-review-list__items"
           >
-            {/* Items */}
+            <PathReviewSizeColumnHeader variant="list" />
             {items.map((item, index) => {
               const status = getItemStatus(item);
               const isExplicit = explicitSelected.has(item.id);
@@ -2201,7 +3135,7 @@ export default function PathReviewListView({
 
               const isMarkedForRetry =
                 getCurrentPhase() === "delete"
-                  ? (item.src?.deleteStatus || "") === "pending"
+                  ? isDeletePendingExplicit(item.src?.deleteStatus)
                   : isTraversalRetryPending(item);
 
               const isInspectorFocused = inspectorItemId === item.id;
@@ -2271,6 +3205,7 @@ export default function PathReviewListView({
                       size={16}
                       className="path-review-list__item-status-icon"
                       phase={getDisplayPhase()}
+                      opInProgressTitle={inFlightOpTitle(mutationOps, itemMutationIds(item))}
                       onRetryClick={handleRetryClick}
                       onExcludeClick={(item, currentChecked) => handleCheckboxChange(item, currentChecked)}
                       onSkipDeleteClick={onSkipDeleteClick}
@@ -2319,11 +3254,22 @@ export default function PathReviewListView({
                         {failureMessage}
                       </div>
                     )}
+                    {excludedByRuleText(item) ? (
+                      <div
+                        className="path-review-list__item-rule-exclusion"
+                        title={excludedByRuleText(item)}
+                      >
+                        {excludedByRuleText(item)}
+                      </div>
+                    ) : null}
                   </div>
 
                   {/* Path Column */}
-                  <div className="path-review-list__item-path-col" title={item.locationPath}>
-                    <div className="path-review-list__item-path">{item.locationPath}</div>
+                  <div
+                    className="path-review-list__item-path-col"
+                    title={itemDisplayPath(item)}
+                  >
+                    <div className="path-review-list__item-path">{itemDisplayPath(item)}</div>
                   </div>
 
                   <ListItemMeta

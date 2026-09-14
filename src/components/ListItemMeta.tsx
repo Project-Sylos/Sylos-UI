@@ -11,13 +11,12 @@ interface ListItemMetaProps {
 export default function ListItemMeta({
   lastUpdated,
   size,
-  type = "folder",
   className = "",
 }: ListItemMetaProps) {
   const modified = formatItemTimestamp(lastUpdated);
   const parts: string[] = [];
 
-  if (type === "file" && size != null && size >= 0) {
+  if (size != null && size >= 0) {
     parts.push(formatBytes(size));
   }
   if (modified) {

@@ -21,12 +21,17 @@ describe("hasListSearchPredicate", () => {
 
   it("accepts text query or any active filter", () => {
     expect(hasListSearchPredicate({ query: "foo" })).toBe(true);
+    expect(hasListSearchPredicate({ underPath: "/reports" })).toBe(true);
+    expect(hasListSearchPredicate({ underPath: "/" })).toBe(false);
+    expect(hasListSearchPredicate({ pathSegments: ["Reports", "Q1"] })).toBe(true);
+    expect(hasListSearchPredicate({ pathSegments: ["", "  "] })).toBe(false);
     expect(hasListSearchPredicate({ typeFilter: "file" })).toBe(true);
     expect(hasListSearchPredicate({ depthFilter: "2" })).toBe(true);
     expect(hasListSearchPredicate({ sizeFilter: 1024 })).toBe(true);
     expect(hasListSearchPredicate({ traversalStatusFilter: "failed" })).toBe(true);
     expect(hasListSearchPredicate({ pathIssueStatusFilter: "issues" })).toBe(true);
     expect(hasListSearchPredicate({ pathIssueCategoryFilter: "EmptyPart" })).toBe(true);
+    expect(hasListSearchPredicate({ hasAdvancedRules: true })).toBe(true);
   });
 });
 
@@ -73,7 +78,10 @@ describe("formatListShowingRange", () => {
     ).toBe("1 to 100 of 250 items");
     expect(
       formatListShowingRange({ offset: 0, limit: 100, hasMore: true }, 100)
-    ).toBe("1 to 100+");
+    ).toBe("1 to 100+ of ?");
+    expect(
+      formatListShowingRange({ offset: 0, limit: 100, hasMore: false }, 100)
+    ).toBe("1 to 100 of ?");
     expect(
       formatListShowingRange({ offset: 0, limit: 100, total: 0, hasMore: false }, 100)
     ).toBe("0 items");

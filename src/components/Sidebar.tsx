@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router";
 import "./Sidebar.css";
 import logo from "../assets/logos/main-app-logo-transparent.png";
 import { useAuth } from "../contexts/AuthContext";
@@ -10,6 +10,34 @@ import {
   defaultHelpModalBody,
   useHelpModal,
 } from "../contexts/HelpModalContext";
+
+/** Settings and root-selection flows; login refresh is handled separately via user. */
+function isOAuthHealthRefreshPath(pathname: string): boolean {
+  return (
+    pathname.startsWith("/settings") ||
+    pathname === "/connect" ||
+    pathname === "/destination" ||
+    pathname === "/browse" ||
+    pathname === "/browse-cloud" ||
+    pathname === "/cloud/connect"
+  );
+}
+
+function refreshOAuthHealthBadge(
+  setIssues: (hasIssues: boolean) => void
+): () => void {
+  let cancelled = false;
+  void fetchOAuthHealthSummary()
+    .then((summary) => {
+      if (!cancelled) setIssues(summary.hasIssues);
+    })
+    .catch(() => {
+      if (!cancelled) setIssues(false);
+    });
+  return () => {
+    cancelled = true;
+  };
+}
 
 export default function Sidebar() {
   const { preferences, updatePreferences } = usePreferences();
@@ -26,25 +54,13 @@ export default function Sidebar() {
       setOauthHealthIssues(false);
       return;
     }
-    let cancelled = false;
-
-    const load = () => {
-      void fetchOAuthHealthSummary()
-        .then((summary) => {
-          if (!cancelled) setOauthHealthIssues(summary.hasIssues);
-        })
-        .catch(() => {
-          if (!cancelled) setOauthHealthIssues(false);
-        });
-    };
-
-    load();
-    const interval = window.setInterval(load, 60_000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-    };
+    return refreshOAuthHealthBadge(setOauthHealthIssues);
   }, [user]);
+
+  useEffect(() => {
+    if (!user || !isOAuthHealthRefreshPath(location.pathname)) return;
+    return refreshOAuthHealthBadge(setOauthHealthIssues);
+  }, [user, location.pathname]);
 
   if (location.pathname === "/login" || location.pathname === "/setup") {
     return null;

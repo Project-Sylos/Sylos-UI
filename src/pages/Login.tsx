@@ -1,5 +1,5 @@
 import { FormEvent, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router";
 
 import logo from "../assets/logos/main-app-logo-transparent.png";
 import { recoverPassword } from "../api/auth";

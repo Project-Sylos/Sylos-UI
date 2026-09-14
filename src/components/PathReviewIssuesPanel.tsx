@@ -21,6 +21,12 @@ export type PathReviewListJumpTarget = {
   pathIssueStatus?: string;
   /** Compat finding category (InvalidChar, …). */
   pathIssueCategory?: string;
+  /** Folder + descendants scope (id_path). */
+  underPath?: string;
+  /** Friendly label for the underPath chip. */
+  underPathLabel?: string;
+  /** Prefill name contains-search (switches list search to name mode). */
+  nameQuery?: string;
 };
 
 type PathReviewIssuesPanelProps = {

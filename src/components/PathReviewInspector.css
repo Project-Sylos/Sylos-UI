@@ -20,29 +20,6 @@
   );
 }
 
-.path-review-inspector__empty {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 0.4rem;
-  padding: 1rem 0.9rem;
-  height: 100%;
-}
-
-.path-review-inspector__empty-title {
-  margin: 0;
-  font-size: 0.88rem;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.path-review-inspector__empty-body {
-  margin: 0;
-  font-size: 0.8rem;
-  line-height: 1.4;
-  color: var(--text-muted);
-}
-
 .path-review-inspector__header {
   display: flex;
   align-items: flex-start;
@@ -117,6 +94,14 @@
 
 .path-review-inspector__section--compat-action {
   border-color: rgba(251, 191, 36, 0.45);
+}
+
+.path-review-inspector__section--rule-exclusion {
+  border-color: rgba(251, 191, 36, 0.45);
+}
+
+.path-review-inspector__section--rule-exclusion .path-review-inspector__section-title {
+  color: rgba(251, 191, 36, 0.95);
 }
 
 .path-review-inspector__section-title {

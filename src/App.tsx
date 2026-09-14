@@ -1,7 +1,7 @@
 import "./App.css";
 import "./oauthBootstrap";
 import { useEffect } from "react";
-import { HashRouter, Route, Routes } from "react-router-dom";
+import { HashRouter, Navigate, Route, Routes } from "react-router";
 
 import { enhanceMomentumScrolling } from "./utils/momentumScroll";
 
@@ -105,10 +105,26 @@ function AppShell() {
           }
         />
         <Route
+          path="/filters/:migrationId"
+          element={
+            <ProtectedRoute>
+              <Navigate to="/summary" replace />
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="/progress-monitor/:migrationId"
           element={
             <ProtectedRoute>
               <ProgressMonitor />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/path-review/:migrationId/copy-plan"
+          element={
+            <ProtectedRoute>
+              <PathReview reviewView="copy-plan" />
             </ProtectedRoute>
           }
         />

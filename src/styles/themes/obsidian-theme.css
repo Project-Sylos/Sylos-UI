@@ -1,89 +1,156 @@
-/* Obsidian - dark blue-tinted glass shell, accents between muted utility and full neon */
+/* Obsidian: dark theme */
 
 :root[data-theme="obsidian"] {
-  /* Slightly cleaner glass: less smoke, still clearly blue */
-  --glass-bg-opacity-primary: 0.25;
-  --glass-bg-opacity-secondary: 0.17;
-  --glass-bg-opacity-tertiary: 0.11;
-  --glass-bg-opacity-hover: 0.3;
-  --glass-bg-opacity-active: 0.35;
+  color-scheme: dark;
 
-  --glass-blur-primary: 16px;
-  --glass-blur-secondary: 12px;
-  --glass-blur-tertiary: 8px;
+  --page-bg: #0e0f11;
+  --surface-bg: #17181c;
+  --surface-bg-subtle: #121316;
+  --surface-bg-hover: #1f2025;
+  --border: #2a2c31;
+  --border-strong: #3f434c;
 
-  --glass-border-opacity-default: 0.32;
-  --glass-border-opacity-subtle: 0.18;
-  --glass-border-opacity-strong: 0.4;
-  --glass-border-opacity-hover: 0.42;
+  --surface-opacity-primary: 1;
+  --surface-opacity-secondary: 0.85;
+  --surface-opacity-tertiary: 0.6;
+  --surface-opacity-hover: 0.95;
+  --surface-opacity-active: 1;
 
-  --glass-shadow-opacity-sm: 0.12;
-  --glass-shadow-opacity-md: 0.22;
-  --glass-shadow-opacity-lg: 0.32;
-  --glass-shadow-blur-sm: 16px;
-  --glass-shadow-blur-md: 24px;
-  --glass-shadow-blur-lg: 90px;
-  --glass-shadow-spread-sm: 4px;
-  --glass-shadow-spread-md: 8px;
-  --glass-shadow-spread-lg: 40px;
+  --border-opacity-default: 0.6;
+  --border-opacity-subtle: 0.4;
+  --border-opacity-strong: 0.85;
+  --border-opacity-hover: 0.9;
 
-  --text-primary: #ffffff;
-  --text-secondary: rgba(255, 255, 255, 0.88);
-  --text-tertiary: rgba(255, 255, 255, 0.76);
-  --text-muted: rgba(255, 255, 255, 0.58);
-  --text-disabled: rgba(255, 255, 255, 0.48);
+  --shadow-opacity-sm: 0.2;
+  --shadow-opacity-md: 0.25;
+  --shadow-opacity-lg: 0.3;
+
+  --text-primary: #f2f3f5;
+  --text-secondary: rgba(226, 229, 234, 0.82);
+  --text-tertiary: rgba(200, 205, 214, 0.68);
+  --text-muted: rgba(170, 176, 186, 0.55);
+  --text-disabled: rgba(150, 156, 166, 0.45);
   --text-hover: #ffffff;
 
-  --button-bg-opacity-default: 0.1;
-  --button-bg-opacity-hover: 0.16;
-  --button-bg-opacity-active: 0.2;
-  --button-bg-opacity-secondary: 0.07;
-  --button-bg-opacity-secondary-hover: 0.14;
-  --button-border-opacity-default: 0.22;
-  --button-border-opacity-hover: 0.32;
-  --button-border-opacity-secondary: 0.16;
-  --button-border-opacity-secondary-hover: 0.26;
-  --button-shadow-opacity: 0.1;
-  --button-shadow-opacity-hover: 0.2;
+  --icon-on-surface: #c6cbd4;
 
-  /* Tiny saturation lift so the shell reads blue instead of gray smoke */
-  --glass-bg-base-r: 20;
-  --glass-bg-base-g: 40;
-  --glass-bg-base-b: 76;
+  --button-bg-opacity-default: 0.12;
+  --button-bg-opacity-hover: 0.2;
+  --button-bg-opacity-active: 0.26;
+  --button-bg-opacity-secondary: 0.08;
+  --button-bg-opacity-secondary-hover: 0.16;
+  --button-border-opacity-default: 0.5;
+  --button-border-opacity-hover: 0.7;
+  --button-border-opacity-secondary: 0.4;
+  --button-border-opacity-secondary-hover: 0.6;
+  --button-shadow-opacity: 0;
+  --button-shadow-opacity-hover: 0;
 
-  --color-base-dark-r: 12;
-  --color-base-dark-g: 16;
+  --surface-base-r: 23;
+  --surface-base-g: 24;
+  --surface-base-b: 28;
+  --border-base-r: 120;
+  --border-base-g: 128;
+  --border-base-b: 140;
+
+  --color-base-dark-r: 18;
+  --color-base-dark-g: 19;
   --color-base-dark-b: 23;
-  --color-base-light-r: 248;
-  --color-base-light-g: 250;
-  --color-base-light-b: 252;
-  /* Cooler slate for glass borders / chrome */
-  --color-base-slate-r: 132;
-  --color-base-slate-g: 158;
-  --color-base-slate-b: 196;
+  --color-base-light-r: 242;
+  --color-base-light-g: 243;
+  --color-base-light-b: 245;
+  --color-base-slate-r: 138;
+  --color-base-slate-g: 146;
+  --color-base-slate-b: 158;
   --color-base-e2-r: 226;
-  --color-base-e2-g: 232;
-  --color-base-e2-b: 240;
+  --color-base-e2-g: 229;
+  --color-base-e2-b: 234;
 
-  --bg-base-dark: #080b12;
-  --bg-base-light: #f8fafc;
-  --bg-base-container: #05070c;
+  --bg-base-dark: #0e0f11;
+  --bg-base-light: #f2f3f5;
+  --bg-base-container: #0a0b0c;
 
-  /* Soft cool sheen on glass (reads slightly blue vs flat white) */
-  --glass-inset-sheen: rgba(190, 220, 255, 0.11);
+  --surface-inset-highlight: transparent;
 
-  /*
-   * Accents ~ halfway between previous obsidian utility (#5eb0d4 / #b9a3dc)
-   * and full neon (#00ffff / #ff00ff).
-   */
-  --accent-cyan: #2fd7e9;
-  --accent-magenta: #dc51ee;
-  --accent-magenta-opacity-10: rgba(220, 81, 238, 0.16);
-  --accent-magenta-opacity-20: rgba(220, 81, 238, 0.28);
-  --accent-cyan-opacity-10: rgba(47, 215, 233, 0.16);
-  --accent-cyan-opacity-20: rgba(47, 215, 233, 0.28);
+  --accent: #38cfe4;
+  --accent-hover: #63dcf2;
+  --accent-fg: #ffffff;
+  --accent-solid: #0d9db8;
+  --accent-solid-hover: #12aec9;
+  --accent-secondary: #d471e3;
+  --accent-secondary-hover: #e08cec;
+  --accent-opacity-10: rgba(56, 207, 228, 0.15);
+  --accent-opacity-20: rgba(56, 207, 228, 0.28);
+  --accent-secondary-opacity-10: rgba(212, 113, 227, 0.13);
+  --accent-secondary-opacity-20: rgba(212, 113, 227, 0.26);
 
-  /* Slightly softer row/card contact than base dark default */
-  --elevation-contact-rest: 0 1px 2px rgba(0, 0, 0, 0.18);
-  --elevation-contact-hover: 0 1px 3px rgba(0, 0, 0, 0.24);
+  --brand-ink: #0b0c0e;
+  --brand-outline-width: 2.5px;
+  --brand-cyan: #28dcfd;
+  --brand-cyan-hover: #4ee5ff;
+  --brand-magenta: #f20ff2;
+  --brand-magenta-hover: #ff4dff;
+  --brand-danger: #ff4d5e;
+  --brand-danger-hover: #ff6b79;
+
+  /* Same paint+ink mark recipe as Quartz (Start button language) */
+  --brand-mark-fg: var(--brand-ink);
+  --brand-mark-bg-cyan: var(--brand-cyan);
+  --brand-mark-bg-magenta: var(--brand-magenta);
+  --brand-mark-outline: var(--brand-ink);
+  --brand-mark-outline-width: 1.5px;
+  --brand-chip-fg: var(--brand-ink);
+  --brand-chip-bg-cyan: var(--brand-cyan);
+  --brand-chip-bg-magenta: var(--brand-magenta);
+  --brand-tab-line: var(--brand-cyan);
+  --brand-tab-fg-active: var(--text-primary);
+
+  --elevation-contact-rest: 0 1px 2px rgba(0, 0, 0, 0.25);
+  --elevation-contact-hover: 0 1px 2px rgba(0, 0, 0, 0.3);
+
+  --sidebar-surface-bg: #131418;
+  --sidebar-surface-border: 1px solid #232529;
+  --sidebar-button-bg-hover: #1f2025;
+  --sidebar-button-bg-active: #24262c;
+  --sidebar-button-primary-bg: rgba(56, 207, 228, 0.16);
+  --sidebar-button-primary-bg-hover: rgba(56, 207, 228, 0.26);
+
+  --ui-border: #2a2c31;
+  --ui-border-strong: #3f434c;
+  --ui-field-bg: #1a1b1f;
+  --ui-field-bg-focus: #1f2025;
+  --ui-field-border: #34373e;
+  --ui-inset-bg: #121316;
+  --ui-inset-bg-strong: #0e0f11;
+  --ui-inset-border: #2a2c31;
+  --ui-table-head-bg: #1a1b1f;
+  --ui-table-row-border: #232529;
+  --ui-icon-button-bg: #1a1b1f;
+  --ui-icon-button-bg-hover: #24262c;
+  --ui-icon-button-border: #34373e;
+  --ui-icon-button-border-hover: #454a54;
+
+  --ui-button-primary-fg: var(--brand-ink);
+  --ui-button-primary-bg: var(--brand-cyan);
+  --ui-button-primary-border: var(--brand-ink);
+  --ui-button-primary-bg-hover: var(--brand-cyan-hover);
+
+  --ui-button-magenta-fg: var(--brand-ink);
+  --ui-button-magenta-bg: var(--brand-magenta);
+  --ui-button-magenta-border: var(--brand-ink);
+  --ui-button-magenta-bg-hover: var(--brand-magenta-hover);
+
+  --ui-button-secondary-fg: var(--text-primary);
+  --ui-button-secondary-bg: #1a1b1f;
+  --ui-button-secondary-border: #34373e;
+  --ui-button-secondary-bg-hover: #24262c;
+
+  --chrome-icon-fill-r: 138;
+  --chrome-icon-fill-g: 146;
+  --chrome-icon-fill-b: 158;
+  --chrome-icon-fill-alpha: 0.16;
+  --chrome-icon-fill-alpha-hover: 0.26;
+  --chrome-icon-border-r: 138;
+  --chrome-icon-border-g: 146;
+  --chrome-icon-border-b: 158;
 }

@@ -50,7 +50,7 @@
 }
 
 .settings-users__table-row--self {
-  background: var(--accent-cyan-opacity-10);
+  background: var(--accent-opacity-10);
 }
 
 .settings-users__col-label {
@@ -87,7 +87,7 @@
 .settings-users__row-select input {
   width: 15px;
   height: 15px;
-  accent-color: var(--accent-cyan);
+  accent-color: var(--accent);
   cursor: pointer;
 }
 
@@ -164,7 +164,7 @@
 }
 
 .settings-users__icon-button--add {
-  border-color: color-mix(in srgb, var(--accent-cyan) 35%, var(--ui-icon-button-border));
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--ui-icon-button-border));
 }
 
 .settings-users__icon-button:hover:not(:disabled) {
@@ -229,8 +229,8 @@
 .settings-users__edit-form input:focus,
 .settings-users__edit-form select:focus {
   outline: none;
-  border-color: var(--accent-cyan);
-  box-shadow: 0 0 0 2px var(--accent-cyan-opacity-20);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-opacity-20);
 }
 
 @media (max-width: 900px) {

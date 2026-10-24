@@ -53,8 +53,9 @@ function MomentumScrollEnhancer() {
 
 function AppShell() {
   return (
-    <>
+    <div className="app-layout">
       <Sidebar />
+      <div className="app-main">
       <Routes>
         <Route
           path="/"
@@ -193,7 +194,8 @@ function AppShell() {
           }
         />
       </Routes>
-    </>
+      </div>
+    </div>
   );
 }
 

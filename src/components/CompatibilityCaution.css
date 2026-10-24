@@ -9,7 +9,7 @@
   border: 1px solid transparent;
   border-radius: 6px;
   background: transparent;
-  color: #fbbf24;
+  color: var(--ui-status-warning);
   pointer-events: none;
   vertical-align: middle;
 }
@@ -19,7 +19,7 @@
 }
 
 .compatibility-caution--action {
-  color: #fbbf24;
+  color: var(--ui-status-warning);
 }
 
 .compatibility-caution--compact {

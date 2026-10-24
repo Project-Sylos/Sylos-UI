@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Search } from "lucide-react";
+import { ALargeSmall } from "lucide-react";
 
+import InteractionHint from "./InteractionHint";
 import { useListDensity } from "../contexts/ListDensityContext";
 import {
   LIST_DENSITY_MAX,
@@ -10,6 +11,8 @@ import {
   LIST_ROWS_MIN,
 } from "../utils/listDensity";
 import "./ListDensityControl.css";
+
+const DENSITY_HINT_TIP_ID = "list-density-control";
 
 export default function ListDensityControl() {
   const { density, setDensity } = useListDensity();
@@ -73,10 +76,10 @@ export default function ListDensityControl() {
           className="list-density-control__popover"
           style={popoverStyle}
           role="dialog"
-          aria-label="List density"
+          aria-label="Row size"
         >
           <div className="list-density-control__header">
-            <span className="list-density-control__title">List density</span>
+            <span className="list-density-control__title">Row size</span>
           </div>
           <div className="list-density-control__labels">
             <span>{LIST_ROWS_MAX} rows</span>
@@ -98,30 +101,40 @@ export default function ListDensityControl() {
 
   return (
     <div className="list-density-control">
-      <button
-        ref={buttonRef}
-        type="button"
-        className="list-density-control__button"
-        onClick={() => {
-          const next = !isOpen;
-          if (next && buttonRef.current) {
-            const rect = buttonRef.current.getBoundingClientRect();
-            setPopoverStyle({
-              position: "fixed",
-              top: rect.top - 8,
-              left: rect.left + rect.width / 2,
-              transform: "translate(-50%, -100%)",
-              zIndex: 100000,
-            });
-          }
-          setIsOpen(next);
-        }}
-        aria-label="Adjust list density"
-        aria-expanded={isOpen}
-        title="List density"
+      <InteractionHint
+        tipId={DENSITY_HINT_TIP_ID}
+        position="above"
+        content={
+          <p>
+            Make list rows bigger or smaller. Your choice is saved for next time.
+          </p>
+        }
       >
-        <Search size={18} />
-      </button>
+        <button
+          ref={buttonRef}
+          type="button"
+          className="list-density-control__button"
+          onClick={() => {
+            const next = !isOpen;
+            if (next && buttonRef.current) {
+              const rect = buttonRef.current.getBoundingClientRect();
+              setPopoverStyle({
+                position: "fixed",
+                top: rect.top - 8,
+                left: rect.left + rect.width / 2,
+                transform: "translate(-50%, -100%)",
+                zIndex: 100000,
+              });
+            }
+            setIsOpen(next);
+          }}
+          aria-label="Adjust row size"
+          aria-expanded={isOpen}
+          title="Row size"
+        >
+          <ALargeSmall size={18} strokeWidth={1.75} aria-hidden="true" />
+        </button>
+      </InteractionHint>
       {popover}
     </div>
   );

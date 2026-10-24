@@ -5,7 +5,9 @@ import { isParentPathExclusionReason } from "../../utils/browseFilterPreview";
 type BrowseIncludeControlProps = {
   included: boolean;
   filterReason?: string;
-  onToggle: () => void;
+  onToggle?: () => void;
+  /** When true, the control is display-only (e.g. dest relative match preview). */
+  readOnly?: boolean;
 };
 
 /** Checkbox, or red X with reason when a filter preview marked the item skipped. */
@@ -13,6 +15,7 @@ export default function BrowseIncludeControl({
   included,
   filterReason,
   onToggle,
+  readOnly = false,
 }: BrowseIncludeControlProps) {
   if (filterReason && !included) {
     const parentCascade = isParentPathExclusionReason(filterReason);
@@ -24,10 +27,11 @@ export default function BrowseIncludeControl({
         }`}
         title={filterReason}
         aria-label={filterReason}
+        disabled={readOnly || parentCascade}
         onClick={(e) => {
           e.stopPropagation();
-          if (!parentCascade) {
-            onToggle();
+          if (!readOnly && !parentCascade) {
+            onToggle?.();
           }
         }}
       >
@@ -41,9 +45,28 @@ export default function BrowseIncludeControl({
       type="checkbox"
       className="browse-folder__include-checkbox"
       checked={included}
-      title={included ? "Included" : "Skipped"}
-      aria-label={included ? "Included" : "Skipped"}
-      onChange={onToggle}
+      disabled={readOnly}
+      title={
+        readOnly
+          ? included
+            ? "Exists on source"
+            : "Not on source"
+          : included
+            ? "Included"
+            : "Skipped"
+      }
+      aria-label={
+        readOnly
+          ? included
+            ? "Exists on source"
+            : "Not on source"
+          : included
+            ? "Included"
+            : "Skipped"
+      }
+      onChange={() => {
+        if (!readOnly) onToggle?.();
+      }}
       onClick={(e) => e.stopPropagation()}
     />
   );

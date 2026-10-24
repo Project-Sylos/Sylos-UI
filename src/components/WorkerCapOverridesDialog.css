@@ -45,8 +45,8 @@
 .worker-cap-dialog__mode {
   padding: 0.65rem 0.7rem;
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--ui-border);
+  background: var(--ui-inset-bg);
 }
 
 .worker-cap-dialog__mode--current {
@@ -109,7 +109,7 @@
 
 .worker-cap-dialog__error {
   margin: 0.85rem 0 0;
-  color: #ff8d8d;
+  color: var(--ui-status-danger);
   font-size: 0.85rem;
 }
 
@@ -144,12 +144,12 @@
 
 .worker-cap-dialog__button--ghost {
   background: transparent;
-  border-color: rgba(255, 255, 255, 0.18);
+  border-color: var(--ui-border);
   color: inherit;
 }
 
 .worker-cap-dialog__button--cancel {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--ui-inset-bg);
   color: inherit;
 }
 
@@ -160,6 +160,15 @@
 }
 
 .worker-cap-dialog__button--confirm {
-  background: #3d7dd6;
-  color: #fff;
+  background: var(--brand-cyan);
+  border-width: var(--brand-outline-width);
+  border-color: var(--brand-ink);
+  color: var(--brand-ink);
+  font-weight: 700;
+}
+
+.worker-cap-dialog__button--confirm:hover:not(:disabled) {
+  background: var(--brand-cyan-hover);
+  border-color: var(--brand-ink);
+  color: var(--brand-ink);
 }

@@ -16,7 +16,7 @@ export default function ChooseMigrationType() {
         name: "Start New Migration",
         description:
           "Configure a source and destination, then run discovery to build a migration plan.",
-        icon: <PlayCircle size={40} />,
+        icon: <PlayCircle size={40} strokeWidth={1.6} />,
         iconAccent: "a",
       },
       {
@@ -24,7 +24,7 @@ export default function ChooseMigrationType() {
         name: "Resume Existing Migration",
         description:
           "Pick a saved migration from the list, or upload a database file to continue one.",
-        icon: <RotateCcw size={40} />,
+        icon: <RotateCcw size={40} strokeWidth={1.6} />,
         iconAccent: "b",
       },
     ],
@@ -42,9 +42,10 @@ export default function ChooseMigrationType() {
 
   return (
     <SelectionPage
+      variant="brand"
       title={
         <>
-          Choose your <span className="selection-page__highlight--magenta">migration</span>{" "}
+          Choose your <span className="selection-page__highlight">migration</span>{" "}
           type
         </>
       }

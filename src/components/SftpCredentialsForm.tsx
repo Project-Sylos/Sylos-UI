@@ -293,7 +293,7 @@ export default function SftpCredentialsForm({
         <div className="sftp-credentials-form__actions">
           <button
             type="button"
-            className="glass-button"
+            className="action-button"
             onClick={() => {
               setStep("credentials");
               setError(null);
@@ -304,7 +304,7 @@ export default function SftpCredentialsForm({
           </button>
           <button
             type="button"
-            className="glass-button glass-button--progress-cta"
+            className="action-button action-button--primary"
             onClick={() => void handleTrustHost()}
             disabled={busy}
           >
@@ -429,10 +429,10 @@ export default function SftpCredentialsForm({
       )}
       {error && <p className="browse-folder__error">{error}</p>}
       <div className="sftp-credentials-form__actions">
-        <button type="button" className="glass-button" onClick={onCancel} disabled={busy}>
+        <button type="button" className="action-button" onClick={onCancel} disabled={busy}>
           Cancel
         </button>
-        <button type="submit" className="glass-button glass-button--progress-cta" disabled={busy}>
+        <button type="submit" className="action-button action-button--primary" disabled={busy}>
           {busy ? (
             <>
               <Loader2 size={16} className="browse-folder__spin" aria-hidden="true" /> Connecting…

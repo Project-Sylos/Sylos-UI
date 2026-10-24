@@ -1,15 +1,16 @@
-@import "../styles/components/glass-container.css";
+@import "../styles/components/surface.css";
 @import "../styles/components/back-button.css";
 @import "../styles/components/text-styles.css";
 
 .progress-monitor {
   position: relative;
-  min-height: 100vh;
+  height: 100%;
+  min-height: 0;
   width: 100%;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: clamp(1.5rem, 3vw, 2.5rem);
+  align-items: stretch;
+  justify-content: stretch;
+  padding: 1rem 1.25rem;
   box-sizing: border-box;
   color: var(--text-primary);
   font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
@@ -20,23 +21,25 @@
   z-index: 0;
 }
 
-/* Panel stays centered. Glass keeps overflow:hidden for radius —
-   .progress-monitor__scroll owns the height cap and scrolls when Advanced expands. */
-.glass-surface--panel.progress-monitor__content {
+/* Full-page layout; .progress-monitor__scroll owns scrolling. */
+.page-shell.progress-monitor__content {
   position: relative;
   z-index: 1;
-  width: min(1400px, 100%);
+  width: 100%;
+  height: 100%;
   display: flex;
   flex-direction: column;
   gap: 0;
-  padding: clamp(0.75rem, 1.5vw, 1.25rem);
+  padding: 0;
   overflow: hidden;
   align-items: stretch;
   box-sizing: border-box;
 }
 
 .progress-monitor__scroll {
-  max-height: calc(100dvh - 7rem);
+  flex: 1;
+  min-height: 0;
+  max-height: none;
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -118,7 +121,7 @@
     var(--color-base-slate-b),
     0.35
   );
-  border-top-color: var(--accent-cyan);
+  border-top-color: var(--accent);
   animation: progress-monitor-finalize-spin 0.8s linear infinite;
   flex-shrink: 0;
 }
@@ -135,15 +138,15 @@
   line-height: 1.35;
   color: var(--text-secondary);
   background: rgba(
-    var(--glass-bg-base-r),
-    var(--glass-bg-base-g),
-    var(--glass-bg-base-b),
-    var(--glass-bg-opacity-secondary)
+    var(--surface-base-r),
+    var(--surface-base-g),
+    var(--surface-base-b),
+    var(--surface-opacity-secondary)
   );
   border: 1px solid rgba(
-    var(--glass-border-base-r),
-    var(--glass-border-base-g),
-    var(--glass-border-base-b),
+    var(--border-base-r),
+    var(--border-base-g),
+    var(--border-base-b),
     0.35
   );
   border-radius: 8px;
@@ -169,16 +172,16 @@
 .progress-monitor__advanced {
   margin-top: 0.35rem;
   border: 1px solid rgba(
-    var(--glass-border-base-r),
-    var(--glass-border-base-g),
-    var(--glass-border-base-b),
+    var(--border-base-r),
+    var(--border-base-g),
+    var(--border-base-b),
     0.4
   );
   border-radius: 10px;
   background: rgba(
-    var(--glass-bg-base-r),
-    var(--glass-bg-base-g),
-    var(--glass-bg-base-b),
+    var(--surface-base-r),
+    var(--surface-base-g),
+    var(--surface-base-b),
     0.35
   );
   overflow: visible;
@@ -248,16 +251,16 @@
   height: 1.6rem;
   padding: 0;
   border: 1px solid rgba(
-    var(--glass-border-base-r),
-    var(--glass-border-base-g),
-    var(--glass-border-base-b),
+    var(--border-base-r),
+    var(--border-base-g),
+    var(--border-base-b),
     0.45
   );
   border-radius: 6px;
   background: rgba(
-    var(--glass-bg-base-r),
-    var(--glass-bg-base-g),
-    var(--glass-bg-base-b),
+    var(--surface-base-r),
+    var(--surface-base-g),
+    var(--surface-base-b),
     0.35
   );
   color: var(--text-secondary);
@@ -266,7 +269,7 @@
 
 .progress-monitor__workers-edit:hover:not(:disabled) {
   color: var(--text-primary);
-  border-color: var(--accent-cyan-opacity-20, rgba(0, 200, 220, 0.3));
+  border-color: var(--accent-opacity-20, rgba(0, 200, 220, 0.3));
 }
 
 .progress-monitor__workers-edit:disabled {
@@ -277,7 +280,7 @@
 .progress-monitor__worker-caps-error {
   margin: 0;
   font-size: 0.8rem;
-  color: #ff8d8d;
+  color: var(--ui-status-danger);
 }
 
 .progress-monitor__metric-details > .progress-monitor__progress {
@@ -300,16 +303,16 @@
 }
 
 .progress-monitor__logs-filter select {
-  background: rgba(0, 0, 0, 0.2);
+  background: var(--ui-field-bg);
   color: var(--text-primary);
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  border: 1px solid var(--border);
   border-radius: 6px;
   padding: 0.2rem 0.4rem;
 }
 
 .progress-monitor__logs-pause {
   background: transparent;
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border: 1px solid var(--border);
   color: var(--text-secondary);
   border-radius: 6px;
   padding: 0.2rem 0.55rem;
@@ -331,8 +334,8 @@
   /* Browser scroll anchoring fights the pin-to-bottom when old lines are trimmed. */
   overflow-anchor: none;
   border-radius: 8px;
-  background: rgba(0, 0, 0, 0.35);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--ui-inset-bg-strong);
+  border: 1px solid var(--border);
   padding: 0.45rem 0.55rem;
 }
 
@@ -347,7 +350,7 @@
   grid-template-columns: 4.5rem 4.5rem 1fr;
   gap: 0.45rem;
   padding: 0.1rem 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  border-bottom: 1px solid var(--border);
 }
 
 .progress-monitor__log-level {
@@ -357,11 +360,11 @@
 
 .progress-monitor__log-line--error .progress-monitor__log-level,
 .progress-monitor__log-line--critical .progress-monitor__log-level {
-  color: #ff8a8a;
+  color: var(--ui-status-danger);
 }
 
 .progress-monitor__log-line--warning .progress-monitor__log-level {
-  color: #ffd27a;
+  color: var(--ui-status-warning);
 }
 
 .progress-monitor__log-line--debug .progress-monitor__log-level,
@@ -378,42 +381,40 @@
   white-space: pre-wrap;
 }
 
+.progress-monitor__header,
+.progress-monitor__error,
+.progress-monitor__finalize-status,
+.progress-monitor__metrics,
+.progress-monitor__advanced {
+  width: 100%;
+  max-width: 1180px;
+  margin-inline: auto;
+}
+
 .progress-monitor__metrics {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 1rem;
   flex-shrink: 0;
+  /* Auto top margin centers the boxes between the header and the pinned footer. */
+  margin-top: auto;
 }
 
 .progress-monitor__metric-card {
   padding: 1rem;
-  background: linear-gradient(
-    160deg,
-    rgba(
-      var(--glass-bg-base-r),
-      var(--glass-bg-base-g),
-      var(--glass-bg-base-b),
-      0.25
-    ) 0%,
-    rgba(
-      var(--glass-bg-base-r),
-      var(--glass-bg-base-g),
-      var(--glass-bg-base-b),
-      0.15
-    ) 100%
-  );
+  background: var(--surface-bg);
   border: 1px solid rgba(
     var(--color-base-slate-r),
     var(--color-base-slate-g),
     var(--color-base-slate-b),
-    var(--glass-border-opacity-default)
+    var(--border-opacity-default)
   );
-  border-radius: 16px;
-  box-shadow: 0 var(--glass-shadow-spread-md) var(--glass-shadow-blur-md) rgba(
-    var(--glass-bg-base-r),
-    var(--glass-bg-base-g),
-    var(--glass-bg-base-b),
-    var(--glass-shadow-opacity-md)
+  border-radius: 8px;
+  box-shadow: 0 var(--shadow-spread-md) var(--shadow-blur-md) rgba(
+    var(--surface-base-r),
+    var(--surface-base-g),
+    var(--surface-base-b),
+    var(--shadow-opacity-md)
   );
 }
 
@@ -424,21 +425,17 @@
     var(--color-base-slate-r),
     var(--color-base-slate-g),
     var(--color-base-slate-b),
-    var(--glass-border-opacity-subtle)
+    var(--border-opacity-subtle)
   );
 }
 
 .progress-monitor__progress--complete .progress-monitor__progress-fill--ok {
-  background: linear-gradient(
-    90deg,
-    color-mix(in srgb, var(--accent-cyan) 70%, var(--accent-magenta)) 0%,
-    var(--accent-cyan) 100%
-  );
+  background: var(--brand-cyan);
 }
 
 .progress-monitor__progress-complete-mark {
   font-size: 0.85rem;
-  color: var(--accent-cyan);
+  color: var(--brand-cyan);
   line-height: 1;
 }
 
@@ -479,9 +476,9 @@
   border-radius: 999px;
   overflow: hidden;
   background: rgba(
-    var(--glass-bg-base-r),
-    var(--glass-bg-base-g),
-    var(--glass-bg-base-b),
+    var(--surface-base-r),
+    var(--surface-base-g),
+    var(--surface-base-b),
     0.18
   );
   border: 1px solid rgba(
@@ -491,9 +488,9 @@
     0.18
   );
   box-shadow: inset 0 1px 2px rgba(
-    var(--glass-bg-base-r),
-    var(--glass-bg-base-g),
-    var(--glass-bg-base-b),
+    var(--surface-base-r),
+    var(--surface-base-g),
+    var(--surface-base-b),
     0.12
   );
 }
@@ -504,15 +501,14 @@
   height: 100%;
   width: 100%;
   border-radius: inherit;
-  background: linear-gradient(
-    90deg,
-    var(--accent-magenta) 0%,
-    var(--accent-magenta) 20%,
-    var(--accent-cyan) 100%
-  );
+  background: var(--brand-cyan);
   clip-path: inset(0 100% 0 0);
   transition: clip-path 0.7s ease-out;
   will-change: clip-path;
+}
+
+.progress-monitor__progress--source .progress-monitor__progress-complete-mark {
+  color: var(--brand-cyan);
 }
 
 .progress-monitor__progress-fill--ok {
@@ -569,11 +565,7 @@
 }
 
 .progress-monitor__progress-legend-swatch--ok {
-  background: linear-gradient(
-    90deg,
-    var(--accent-magenta) 0%,
-    var(--accent-cyan) 100%
-  );
+  background: var(--brand-cyan);
 }
 
 .progress-monitor__progress-legend-swatch--already-exists {
@@ -675,17 +667,17 @@
   margin-bottom: 1rem;
   padding: 0.75rem;
   background: rgba(
-    var(--glass-bg-base-r),
-    var(--glass-bg-base-g),
-    var(--glass-bg-base-b),
-    var(--glass-bg-opacity-secondary)
+    var(--surface-base-r),
+    var(--surface-base-g),
+    var(--surface-base-b),
+    var(--surface-opacity-secondary)
   );
   border-radius: 8px;
   border: 1px solid rgba(
     var(--color-base-slate-r),
     var(--color-base-slate-g),
     var(--color-base-slate-b),
-    var(--glass-border-opacity-subtle)
+    var(--border-opacity-subtle)
   );
   min-height: 0;
 }
@@ -722,12 +714,18 @@
   overflow-wrap: break-word;
 }
 
+.progress-monitor__metric-title--source,
+.progress-monitor__metric-title--destination {
+  display: inline-flex;
+  font-weight: 700;
+}
+
 .progress-monitor__metric-title--source {
-  color: var(--accent-magenta);
+  color: var(--brand-magenta);
 }
 
 .progress-monitor__metric-title--destination {
-  color: var(--accent-cyan);
+  color: var(--brand-cyan);
 }
 
 /* Split header for copy phase - inside the metric card */
@@ -751,7 +749,7 @@
     var(--color-base-slate-r),
     var(--color-base-slate-g),
     var(--color-base-slate-b),
-    var(--glass-border-opacity-subtle)
+    var(--border-opacity-subtle)
   );
   transform: translateX(-50%);
 }
@@ -800,10 +798,10 @@
   justify-content: center;
   color: var(--text-secondary);
   background: rgba(
-    var(--glass-bg-base-r),
-    var(--glass-bg-base-g),
-    var(--glass-bg-base-b),
-    var(--glass-bg-opacity-primary)
+    var(--surface-base-r),
+    var(--surface-base-g),
+    var(--surface-base-b),
+    var(--surface-opacity-primary)
   );
   padding: 0.5rem;
   border-radius: 50%;
@@ -812,7 +810,7 @@
     var(--color-base-slate-r),
     var(--color-base-slate-g),
     var(--color-base-slate-b),
-    var(--glass-border-opacity-subtle)
+    var(--border-opacity-subtle)
   );
 }
 
@@ -852,7 +850,7 @@
     padding: 1rem;
   }
 
-  .glass-surface--panel.progress-monitor__content {
+  .page-shell.progress-monitor__content {
     padding: 1rem;
   }
 
@@ -876,7 +874,7 @@
   justify-content: flex-end;
   gap: 0.75rem;
   padding: 0.5rem 0 0;
-  margin-top: 0rem;
+  margin-top: auto;
   border-top: 1px solid rgba(148, 163, 184, 0.1);
   flex-shrink: 0;
   overflow: visible;
@@ -943,7 +941,6 @@
   max-width: min(420px, calc(100vw - 2rem));
   padding: 0.85rem 1rem;
   border-radius: 14px;
-  backdrop-filter: blur(var(--glass-blur-primary));
   background: var(--ui-overlay-95);
   border: 1px solid var(--ui-border-strong);
   box-shadow: var(--elevation-contact-hover), 0 12px 40px rgba(0, 0, 0, 0.2);
@@ -995,12 +992,16 @@
 
 .progress-monitor__failure-tooltip-button--copy {
   background: var(--ui-button-primary-bg);
+  border-width: var(--brand-outline-width);
   border-color: var(--ui-button-primary-border);
   color: var(--ui-button-primary-fg);
+  font-weight: 700;
 }
 
 .progress-monitor__failure-tooltip-button--copy:hover {
   background: var(--ui-button-primary-bg-hover);
+  border-color: var(--ui-button-primary-border);
+  color: var(--ui-button-primary-fg);
 }
 
 .progress-monitor__failure-tooltip-button--report {
@@ -1054,7 +1055,6 @@
   max-width: min(380px, calc(100vw - 2rem));
   padding: 0.85rem 1rem;
   border-radius: 14px;
-  backdrop-filter: blur(var(--glass-blur-primary));
   background: var(--ui-overlay-95);
   border: 1px solid var(--ui-alert-warning-border);
   box-shadow: var(--elevation-contact-hover), 0 12px 40px rgba(0, 0, 0, 0.2);
@@ -1082,17 +1082,18 @@
 .progress-monitor__stall-tooltip-button {
   width: 100%;
   padding: 0.55rem 0.85rem;
-  border-radius: 10px;
-  border: 1px solid var(--ui-button-danger-border);
+  border-radius: 8px;
+  border: var(--brand-outline-width) solid var(--ui-button-danger-border);
   background: var(--ui-button-danger-bg);
   color: var(--ui-button-danger-fg);
   font-size: 0.88rem;
-  font-weight: 600;
+  font-weight: 700;
   cursor: pointer;
 }
 
 .progress-monitor__stall-tooltip-button:hover:not(:disabled) {
   background: var(--ui-button-danger-bg-hover);
+  border-color: var(--ui-button-danger-border-hover);
   color: var(--ui-button-danger-fg-hover);
 }
 
@@ -1106,12 +1107,12 @@
   align-items: center;
   justify-content: center;
   padding: 0.85rem 1.25rem;
-  border-radius: 14px;
+  border-radius: 8px;
   font-size: 1rem;
-  font-weight: 600;
+  font-weight: 700;
   cursor: pointer;
   transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
-  border: 1px solid transparent;
+  border: var(--brand-outline-width) solid transparent;
 }
 
 .progress-monitor__control:disabled {
@@ -1140,6 +1141,8 @@
 
 .progress-monitor__control--resume:hover:not(:disabled) {
   background: var(--ui-button-primary-bg-hover);
+  border-color: var(--ui-button-primary-border);
+  color: var(--ui-button-primary-fg);
 }
 
 .progress-monitor__see-results {

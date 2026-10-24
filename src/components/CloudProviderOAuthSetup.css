@@ -124,7 +124,7 @@
 }
 
 .cloud-oauth-setup__docs a {
-  color: var(--accent-cyan);
+  color: var(--accent);
 }
 
 .cloud-oauth-setup__field {
@@ -151,8 +151,8 @@
 
 .cloud-oauth-setup__field input:focus {
   outline: none;
-  border-color: var(--accent-cyan);
-  box-shadow: 0 0 0 2px var(--accent-cyan-opacity-20);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-opacity-20);
 }
 
 .cloud-oauth-setup__field--checkbox {

@@ -209,7 +209,7 @@ export default function FilterGroupEditor({
           {!disabled && onRemove && (
             <button
               type="button"
-              className="glass-button glass-button--secondary"
+              className="action-button action-button--secondary"
               onClick={onRemove}
               title="Remove group"
             >
@@ -326,7 +326,7 @@ export default function FilterGroupEditor({
         <div className="filter-rules-builder__toolbar">
           <button
             type="button"
-            className="glass-button glass-button--secondary"
+            className="action-button action-button--secondary"
             onClick={addCondition}
           >
             <Plus size={16} style={{ marginRight: "0.35rem" }} />
@@ -335,7 +335,7 @@ export default function FilterGroupEditor({
           {depth === 0 && (
             <button
               type="button"
-              className="glass-button glass-button--secondary"
+              className="action-button action-button--secondary"
               onClick={addGroup}
             >
               Add group

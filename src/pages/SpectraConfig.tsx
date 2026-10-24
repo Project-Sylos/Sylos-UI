@@ -756,7 +756,7 @@ export default function SpectraConfigPage() {
         <FormFooter>
           <button
             type="submit"
-            className="glass-button"
+            className="action-button"
             disabled={isSubmitting || !isValid}
           >
             {isSubmitting ? "Configuring..." : "Review Discovery Setup"}

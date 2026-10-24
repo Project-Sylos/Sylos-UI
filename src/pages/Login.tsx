@@ -120,7 +120,7 @@ export default function Login() {
             </label>
             {error && <p className="auth-form__error">{error}</p>}
             {recoverySuccess && <p className="auth-form__success">{recoverySuccess}</p>}
-            <button className="glass-button glass-button--pill" type="submit" disabled={submitting}>
+            <button className="action-button action-button--pill action-button--primary" type="submit" disabled={submitting}>
               {submitting ? "Updating…" : "Update password"}
             </button>
             <button
@@ -165,7 +165,7 @@ export default function Login() {
             </label>
             {error && <p className="auth-form__error">{error}</p>}
             {recoverySuccess && <p className="auth-form__success">{recoverySuccess}</p>}
-            <button className="glass-button glass-button--pill" type="submit" disabled={submitting}>
+            <button className="action-button action-button--pill action-button--primary" type="submit" disabled={submitting}>
               {submitting ? "Signing in…" : "Sign in"}
             </button>
             <button

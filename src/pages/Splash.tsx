@@ -17,7 +17,7 @@ export default function Splash() {
     <div className="App-root">
       <div className="App-card">
         <img src={logo} alt="Sylos Logo" className="App-logo" />
-        <button className="glass-button glass-button--pill" onClick={() => navigate("/choose")}>
+        <button className="action-button action-button--pill action-button--primary" onClick={() => navigate("/choose")}>
           Start
         </button>
       </div>

@@ -1,55 +1,18 @@
 .sylos-bg-container {
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  inset: 0;
   z-index: -1;
   overflow: hidden;
   width: 100vw;
   height: 100vh;
-  background: #0a0a1a;
+  background: var(--page-bg);
   pointer-events: none;
 }
 
-/* Obsidian: darker base + faint cool specular */
 .sylos-bg-container--obsidian {
-  background:
-    radial-gradient(
-      ellipse 52% 44% at 50% 32%,
-      rgba(130, 170, 220, 0.05) 0%,
-      transparent 58%
-    ),
-    radial-gradient(
-      ellipse 88% 72% at 50% 48%,
-      #0f141f 0%,
-      #080b12 44%,
-      #05070c 100%
-    );
+  background: var(--page-bg);
 }
 
-/* Quartz: soft pastel blobs behind glass */
 .sylos-bg-container--quartz {
-  background:
-    radial-gradient(
-      ellipse 55% 45% at 12% 18%,
-      rgba(196, 210, 255, 0.55) 0%,
-      transparent 52%
-    ),
-    radial-gradient(
-      ellipse 50% 42% at 88% 22%,
-      rgba(250, 200, 255, 0.38) 0%,
-      transparent 48%
-    ),
-    radial-gradient(
-      ellipse 60% 50% at 78% 85%,
-      rgba(180, 230, 252, 0.45) 0%,
-      transparent 50%
-    ),
-    radial-gradient(
-      ellipse 70% 55% at 22% 78%,
-      rgba(255, 228, 200, 0.28) 0%,
-      transparent 48%
-    ),
-    linear-gradient(165deg, #f1f5f9 0%, #e8eef5 40%, #dde5ee 100%);
+  background: var(--page-bg);
 }

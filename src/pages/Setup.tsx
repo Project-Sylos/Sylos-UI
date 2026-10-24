@@ -69,7 +69,7 @@ export default function Setup() {
             />
           </label>
           {error && <p className="auth-form__error">{error}</p>}
-          <button className="glass-button glass-button--pill" type="submit" disabled={submitting}>
+          <button className="action-button action-button--pill action-button--primary" type="submit" disabled={submitting}>
             {submitting ? "Creating account…" : "Create admin"}
           </button>
         </form>

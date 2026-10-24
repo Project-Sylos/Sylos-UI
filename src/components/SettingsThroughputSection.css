@@ -34,7 +34,7 @@
   padding: 0.65rem 0.75rem;
   border-radius: 8px;
   border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--ui-inset-bg);
 }
 
 .settings-throughput__name {
@@ -50,8 +50,8 @@
 
 .settings-throughput__btn {
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--ui-border);
+  background: var(--ui-inset-bg);
   color: inherit;
   padding: 0.35rem 0.7rem;
   font-size: 0.82rem;
@@ -79,5 +79,5 @@
 .settings-throughput__error {
   margin: 0.65rem 0 0;
   font-size: 0.85rem;
-  color: #ff8d8d;
+  color: var(--ui-status-danger);
 }

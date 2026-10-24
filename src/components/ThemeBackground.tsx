@@ -1,7 +1,7 @@
 import "./ThemeBackground.css";
 import { useTheme } from "../contexts/ThemeContext";
 
-/** Static CSS gradient backdrop for obsidian / quartz. */
+/** Flat page background for obsidian / quartz. */
 export default function ThemeBackground() {
   const { theme } = useTheme();
   return (

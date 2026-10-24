@@ -141,14 +141,7 @@ export default function ItemHoverCard({
                 </div>
                 <div className="item-hover-card__detail">
                   <span className="item-hover-card__detail-label">Size</span>
-                  <span
-                    className="item-hover-card__detail-value"
-                    title={
-                      item.src.type === "folder"
-                        ? "Total size of everything underneath this folder"
-                        : undefined
-                    }
-                  >
+                  <span className="item-hover-card__detail-value">
                     {formatSize(item.src.size)}
                   </span>
                 </div>
@@ -216,14 +209,7 @@ export default function ItemHoverCard({
                   </div>
                   <div className="item-hover-card__detail">
                     <span className="item-hover-card__detail-label">Size</span>
-                    <span
-                      className="item-hover-card__detail-value"
-                      title={
-                        item.dst.type === "folder"
-                          ? "Total size of everything underneath this folder"
-                          : undefined
-                      }
-                    >
+                    <span className="item-hover-card__detail-value">
                       {formatSize(item.dst.size)}
                     </span>
                   </div>

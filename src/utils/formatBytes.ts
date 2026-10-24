@@ -22,3 +22,16 @@ export function finiteNonNeg(value: unknown, fallback = 0): number {
   if (!Number.isFinite(n) || n < 0) return fallback;
   return n;
 }
+
+/** Format remaining duration for ETA display. */
+export function formatEtaSeconds(secs: number | null): string {
+  if (secs == null || !Number.isFinite(secs) || secs < 0) return "-";
+  if (secs < 1) return "<1s";
+  if (secs < 60) return `~${Math.ceil(secs)}s`;
+  const m = Math.floor(secs / 60);
+  const s = Math.ceil(secs % 60);
+  if (m < 60) return `~${m}m ${s.toString().padStart(2, "0")}s`;
+  const h = Math.floor(m / 60);
+  const rm = m % 60;
+  return `~${h}h ${rm}m`;
+}

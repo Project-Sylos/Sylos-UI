@@ -7,6 +7,8 @@ interface ConfirmDialogProps {
   cancelLabel?: string;
   /** Optional third action (shown between cancel and confirm). */
   secondaryLabel?: string;
+  /** Cartoon CTA tone for the confirm button (default cyan). */
+  confirmTone?: "cyan" | "magenta" | "danger";
   onConfirm: () => void;
   onCancel: () => void;
   onSecondary?: () => void;
@@ -18,6 +20,7 @@ export default function ConfirmDialog({
   confirmLabel = "Yes",
   cancelLabel = "No",
   secondaryLabel,
+  confirmTone = "cyan",
   onConfirm,
   onCancel,
   onSecondary,
@@ -53,7 +56,7 @@ export default function ConfirmDialog({
           ) : null}
           <button
             type="button"
-            className="confirm-dialog__button confirm-dialog__button--confirm"
+            className={`confirm-dialog__button confirm-dialog__button--confirm confirm-dialog__button--confirm-${confirmTone}`}
             onClick={onConfirm}
           >
             {confirmLabel}

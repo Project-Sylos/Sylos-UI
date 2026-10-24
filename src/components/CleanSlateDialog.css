@@ -69,7 +69,10 @@
 
 .clean-slate-dialog__confirm {
   background: var(--ui-button-danger-solid-bg);
+  border-width: var(--brand-outline-width);
+  border-color: var(--brand-ink);
   color: var(--ui-button-danger-solid-fg);
+  font-weight: 700;
 }
 
 .clean-slate-dialog__confirm:disabled,
@@ -94,9 +97,10 @@
   margin-top: 0.75rem;
   padding: 0.6rem 1rem;
   border-radius: 8px;
-  border: 1px solid var(--ui-button-danger-border);
+  border: var(--brand-outline-width) solid var(--ui-button-danger-border);
   background: var(--ui-button-danger-bg);
   color: var(--ui-button-danger-fg);
+  font-weight: 700;
   cursor: pointer;
 }
 
@@ -112,8 +116,9 @@
 }
 
 .settings__danger-button--severe {
-  background: var(--ui-button-danger-bg-hover);
-  border-color: var(--ui-button-danger-border-hover);
+  background: var(--brand-danger-hover);
+  border-color: var(--brand-ink);
+  color: var(--brand-ink);
 }
 
 .resume-migration__danger {
@@ -140,14 +145,16 @@
 .resume-migration__danger-button {
   padding: 0.5rem 0.9rem;
   border-radius: 8px;
-  border: 1px solid var(--ui-button-danger-border);
+  border: var(--brand-outline-width) solid var(--ui-button-danger-border);
   background: var(--ui-button-danger-bg);
   color: var(--ui-button-danger-fg);
+  font-weight: 700;
   cursor: pointer;
 }
 
 .resume-migration__danger-button:hover:not(:disabled) {
   background: var(--ui-button-danger-bg-hover);
+  border-color: var(--ui-button-danger-border-hover);
   color: var(--ui-button-danger-fg-hover);
 }
 

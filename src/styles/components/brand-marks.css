@@ -1,0 +1,65 @@
+/*
+ * Brand emphasis helpers.
+ *
+ * Neon fill (cyan/magenta + ink) is reserved for primary action buttons
+ * (--ui-button-primary-* / --ui-button-magenta-* in button.css). Do not use
+ * paint swatches on titles.
+ *
+ * Role words: neon text only (source = magenta, destination = cyan).
+ * Other title emphasis: weight-only.
+ * Selected chips: ink outline + surface tint (not solid neon).
+ */
+
+/* Generic title emphasis: bold, no color. */
+.migration-summary__highlight,
+.path-review__highlight,
+.path-review-list-filters__highlight,
+.progress-monitor__highlight,
+.spectra-config__highlight,
+.selection-page__highlight {
+  font-weight: 700;
+  color: inherit;
+  background: none;
+  box-shadow: none;
+  padding: 0;
+  border-radius: 0;
+}
+
+/* Destination / cyan role words: neon text. */
+.brand-mark--cyan,
+.browse-folder__highlight--cyan,
+.selection-page__highlight--cyan,
+.migration-summary__highlight--cyan,
+.progress-monitor__highlight--cyan,
+.path-review__highlight--cyan {
+  font-weight: 700;
+  color: var(--brand-cyan);
+  background: none;
+  box-shadow: none;
+  padding: 0;
+  border-radius: 0;
+}
+
+/* Source / magenta role words: neon text. */
+.brand-mark--magenta,
+.browse-folder__highlight--magenta,
+.selection-page__highlight--magenta,
+.migration-summary__highlight--magenta,
+.progress-monitor__highlight--magenta,
+.path-review__highlight--magenta {
+  font-weight: 700;
+  color: var(--brand-magenta);
+  background: none;
+  box-shadow: none;
+  padding: 0;
+  border-radius: 0;
+}
+
+/* Selected / active chip: ink outline + quiet surface (not solid neon). */
+.brand-chip--cyan,
+.brand-chip--magenta {
+  color: var(--text-primary);
+  background: var(--surface-bg-hover);
+  border: var(--brand-outline-width) solid var(--brand-ink);
+  font-weight: 700;
+}

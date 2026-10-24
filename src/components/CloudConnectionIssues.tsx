@@ -34,7 +34,7 @@ export default function CloudConnectionIssues({
             </span>
             <button
               type="button"
-              className="glass-button cloud-connection-issues__reconnect"
+              className="action-button cloud-connection-issues__reconnect"
               onClick={() =>
                 navigate(
                   buildCloudConnectPath({

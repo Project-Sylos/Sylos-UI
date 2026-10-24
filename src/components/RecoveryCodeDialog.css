@@ -7,13 +7,12 @@
   justify-content: center;
   padding: 1.5rem;
   background: rgba(0, 0, 0, 0.55);
-  backdrop-filter: blur(4px);
 }
 
 .recovery-code-dialog {
   width: min(480px, 100%);
   padding: 1.5rem;
-  border-radius: 16px;
+  border-radius: 8px;
   background: var(--ui-overlay-95);
   border: 1px solid var(--ui-border-strong);
   box-shadow: var(--elevation-contact-hover), 0 20px 50px rgba(0, 0, 0, 0.25);
@@ -74,7 +73,8 @@
 }
 
 .recovery-code-dialog__close {
-  border: 1px solid var(--ui-button-primary-border);
+  border: var(--brand-outline-width) solid var(--ui-button-primary-border);
   background: var(--ui-button-primary-bg);
   color: var(--ui-button-primary-fg);
+  font-weight: 700;
 }

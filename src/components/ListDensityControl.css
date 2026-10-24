@@ -15,19 +15,17 @@
     var(--color-base-slate-r),
     var(--color-base-slate-g),
     var(--color-base-slate-b),
-    var(--glass-border-opacity-default)
+    var(--border-opacity-default)
   );
   background: rgba(
-    var(--glass-bg-base-r),
-    var(--glass-bg-base-g),
-    var(--glass-bg-base-b),
-    var(--glass-bg-opacity-secondary)
+    var(--surface-base-r),
+    var(--surface-base-g),
+    var(--surface-base-b),
+    var(--surface-opacity-secondary)
   );
   color: var(--text-secondary);
   cursor: pointer;
   transition: all 0.2s ease;
-  backdrop-filter: blur(var(--glass-blur-tertiary))
-    saturate(var(--glass-backdrop-saturate));
 }
 
 .list-density-control__button:hover {
@@ -43,21 +41,20 @@
     var(--color-base-slate-r),
     var(--color-base-slate-g),
     var(--color-base-slate-b),
-    var(--glass-border-opacity-default)
+    var(--border-opacity-default)
   );
   background: rgba(
-    var(--glass-bg-base-r),
-    var(--glass-bg-base-g),
-    var(--glass-bg-base-b),
+    var(--surface-base-r),
+    var(--surface-base-g),
+    var(--surface-base-b),
     0.92
   );
-  box-shadow: 0 var(--glass-shadow-spread-md) var(--glass-shadow-blur-md) rgba(
-    var(--glass-bg-base-r),
-    var(--glass-bg-base-g),
-    var(--glass-bg-base-b),
-    var(--glass-shadow-opacity-md)
+  box-shadow: 0 var(--shadow-spread-md) var(--shadow-blur-md) rgba(
+    var(--surface-base-r),
+    var(--surface-base-g),
+    var(--surface-base-b),
+    var(--shadow-opacity-md)
   );
-  backdrop-filter: blur(var(--glass-blur-primary));
 }
 
 .list-density-control__header {
@@ -80,6 +77,6 @@
 
 .list-density-control__slider {
   width: 100%;
-  accent-color: var(--accent-cyan);
+  accent-color: var(--accent);
   cursor: pointer;
 }

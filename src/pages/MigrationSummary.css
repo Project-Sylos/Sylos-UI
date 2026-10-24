@@ -1,15 +1,16 @@
-@import "../styles/components/glass-container.css";
+@import "../styles/components/surface.css";
 @import "../styles/components/back-button.css";
 @import "../styles/components/text-styles.css";
 
 .page-container.migration-summary {
   position: relative;
-  min-height: 100vh;
+  height: 100%;
+  min-height: 0;
   width: 100%;
   display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: clamp(1rem, 2.5vw, 2rem);
+  align-items: stretch;
+  justify-content: stretch;
+  padding: 1.25rem 1.5rem;
   box-sizing: border-box;
   color: var(--text-primary);
   font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
@@ -25,12 +26,13 @@
 .migration-summary__content {
   position: relative;
   z-index: 1;
-  width: min(880px, 100%);
+  width: 100%;
+  max-width: 980px;
+  margin-inline: auto;
   display: flex;
   flex-direction: column;
   gap: 1.15rem;
-  padding: clamp(1.25rem, 2.5vw, 1.75rem) clamp(1.25rem, 2.5vw, 2.25rem);
-  margin: auto 0;
+  padding: 0 0 4.5rem;
 }
 
 .migration-summary__header {
@@ -58,9 +60,7 @@
   margin: 0;
 }
 
-.migration-summary__highlight {
-  color: var(--accent-cyan);
-}
+/* Title word marks: see styles/components/brand-marks.css */
 
 .migration-summary__name {
   display: flex;
@@ -98,7 +98,7 @@
 
 .migration-summary__name-input:focus {
   outline: none;
-  border-color: var(--accent-cyan);
+  border-color: var(--accent);
   background: var(--surface-elevated-strong, rgba(255, 255, 255, 0.08));
 }
 
@@ -108,13 +108,6 @@
   white-space: nowrap;
 }
 
-.migration-summary__highlight--magenta {
-  color: var(--accent-magenta);
-}
-
-.migration-summary__highlight--cyan {
-  color: var(--accent-cyan);
-}
 
 .migration-summary__details {
   display: flex;
@@ -151,34 +144,15 @@
   flex-direction: column;
   gap: 0.7rem;
   padding: 0.95rem 1.05rem;
-  border-radius: 16px;
-  border: 1px solid rgba(
-    var(--color-base-slate-r),
-    var(--color-base-slate-g),
-    var(--color-base-slate-b),
-    var(--glass-border-opacity-default)
-  );
-  background: linear-gradient(
-    160deg,
-    rgba(
-      var(--glass-bg-base-r),
-      var(--glass-bg-base-g),
-      var(--glass-bg-base-b),
-      0.22
-    ) 0%,
-    rgba(
-      var(--glass-bg-base-r),
-      var(--glass-bg-base-g),
-      var(--glass-bg-base-b),
-      0.12
-    ) 100%
-  );
-  box-shadow: var(--elevation-contact-rest);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface-bg);
+  box-shadow: none;
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .migration-summary__endpoint--configured {
-  border-color: var(--accent-cyan-opacity-20);
+  border-color: var(--border-strong);
 }
 
 .migration-summary__endpoint--locked {
@@ -193,10 +167,19 @@
 
 .migration-summary__endpoint-title {
   font-size: 1.125rem;
-  font-weight: 600;
+  font-weight: 700;
   margin: 0;
   flex: 1;
   min-width: 0;
+}
+
+/* Neon label text only; no outline / paint swatches / card tint. */
+.migration-summary__endpoint--source .migration-summary__endpoint-title {
+  color: var(--brand-magenta);
+}
+
+.migration-summary__endpoint--destination .migration-summary__endpoint-title {
+  color: var(--brand-cyan);
 }
 
 .migration-summary__endpoint-edit {
@@ -222,14 +205,6 @@
   transform: none;
 }
 
-.migration-summary__endpoint-status--done {
-  color: var(--accent-cyan);
-}
-
-.migration-summary__endpoint-status--pending {
-  color: var(--text-muted);
-}
-
 .migration-summary__endpoint-action {
   display: inline-flex;
   align-items: center;
@@ -247,9 +222,9 @@
     var(--button-border-opacity-default)
   );
   background: rgba(
-    var(--glass-bg-base-r),
-    var(--glass-bg-base-g),
-    var(--glass-bg-base-b),
+    var(--surface-base-r),
+    var(--surface-base-g),
+    var(--surface-base-b),
     var(--button-bg-opacity-secondary)
   );
   color: var(--text-primary);
@@ -261,13 +236,12 @@
 
 .migration-summary__endpoint-action:hover {
   background: rgba(
-    var(--glass-bg-base-r),
-    var(--glass-bg-base-g),
-    var(--glass-bg-base-b),
+    var(--surface-base-r),
+    var(--surface-base-g),
+    var(--surface-base-b),
     var(--button-bg-opacity-hover)
   );
-  border-color: var(--accent-cyan-opacity-10);
-  transform: translateY(-1px);
+  border-color: var(--accent-opacity-10);
 }
 
 .migration-summary__section {
@@ -297,33 +271,19 @@
   flex-direction: column;
   gap: 0.55rem;
   padding: 0.85rem 0.95rem;
-  background: linear-gradient(
-    160deg,
-    rgba(
-      var(--glass-bg-base-r),
-      var(--glass-bg-base-g),
-      var(--glass-bg-base-b),
-      0.25
-    ) 0%,
-    rgba(
-      var(--glass-bg-base-r),
-      var(--glass-bg-base-g),
-      var(--glass-bg-base-b),
-      0.15
-    ) 100%
-  );
+  background: var(--surface-bg);
   border: 1px solid rgba(
     var(--color-base-slate-r),
     var(--color-base-slate-g),
     var(--color-base-slate-b),
-    var(--glass-border-opacity-default)
+    var(--border-opacity-default)
   );
   border-radius: 12px;
-  box-shadow: 0 var(--glass-shadow-spread-md) var(--glass-shadow-blur-md) rgba(
-    var(--glass-bg-base-r),
-    var(--glass-bg-base-g),
-    var(--glass-bg-base-b),
-    var(--glass-shadow-opacity-md)
+  box-shadow: 0 var(--shadow-spread-md) var(--shadow-blur-md) rgba(
+    var(--surface-base-r),
+    var(--surface-base-g),
+    var(--surface-base-b),
+    var(--shadow-opacity-md)
   );
 }
 
@@ -430,7 +390,7 @@
     var(--color-base-slate-b),
     0.4
   );
-  background: rgba(0, 0, 0, 0.25);
+  background: var(--ui-inset-bg);
   color: var(--text-primary);
   font-size: 0.9rem;
 }
@@ -446,10 +406,13 @@
 }
 
 .migration-summary__footer {
+  position: fixed;
+  right: 1.5rem;
+  bottom: 1.25rem;
+  z-index: 5;
   display: flex;
   justify-content: flex-end;
-  margin-top: 0.15rem;
-  padding: 0.4rem 0 0;
+  padding: 0;
   background: transparent;
   border-top: none;
   border-radius: 0;
@@ -486,7 +449,7 @@
     align-items: center;
   }
 
-  .glass-button {
+  .action-button {
     width: 100%;
   }
 }
@@ -499,7 +462,7 @@
   margin: 0.75rem 0 0;
   padding: 0.85rem 1rem;
   border-radius: 12px;
-  background: color-mix(in srgb, var(--glass-bg, rgba(255,255,255,0.08)) 80%, transparent);
+  background: color-mix(in srgb, var(--surface-bg) 80%, transparent);
   color: var(--text-secondary, #c8d0dc);
   font-size: 0.92rem;
   line-height: 1.4;

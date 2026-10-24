@@ -7,7 +7,6 @@
   justify-content: center;
   padding: clamp(0.75rem, 2vw, 1.5rem);
   background: var(--ui-overlay-60);
-  backdrop-filter: blur(6px);
 }
 
 .rule-examples__panel {
@@ -16,9 +15,9 @@
   display: flex;
   flex-direction: column;
   border-radius: 1rem;
-  border: 1px solid var(--glass-border);
+  border: 1px solid var(--border-color);
   background: var(--ui-overlay-95);
-  box-shadow: var(--elevation-contact-hover), var(--glass-panel-outer-shadow);
+  box-shadow: var(--elevation-contact-hover), var(--surface-panel-shadow);
   color: var(--text-primary);
   overflow: hidden;
 }

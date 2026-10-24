@@ -1,7 +1,7 @@
 import { ReactNode } from "react";
 
 import PageBackButton from "./PageBackButton";
-import { GlassSurfacePanel } from "./GlassSurfacePanel";
+import { PageShell } from "./PageShell";
 import "./SelectionPage.css";
 
 export type SelectionIconAccent = "a" | "b";
@@ -24,6 +24,11 @@ export type SelectionPageProps = {
   error?: ReactNode;
   emptyMessage?: ReactNode;
   isBusy?: boolean;
+  /**
+   * brand: neon fill + ink outline cards (Start / Resume chooser).
+   * default: quieter cards for service/provider grids.
+   */
+  variant?: "default" | "brand";
 };
 
 export default function SelectionPage({
@@ -35,10 +40,15 @@ export default function SelectionPage({
   error,
   emptyMessage,
   isBusy = false,
+  variant = "default",
 }: SelectionPageProps) {
   return (
-    <section className="selection-page">
-      <GlassSurfacePanel className="selection-page__content">
+    <section
+      className={`selection-page${
+        variant === "brand" ? " selection-page--brand" : ""
+      }`}
+    >
+      <PageShell className="selection-page__content">
         {onBack ? (
           <PageBackButton
             onClick={onBack}
@@ -92,7 +102,7 @@ export default function SelectionPage({
             )}
           </div>
         </div>
-      </GlassSurfacePanel>
+      </PageShell>
     </section>
   );
 }

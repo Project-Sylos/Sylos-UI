@@ -1,24 +1,23 @@
-@import "../styles/components/glass-container.css";
+@import "../styles/components/surface.css";
 @import "../styles/components/back-button.css";
 @import "../styles/components/text-styles.css";
-@import "../styles/glass-button.css";
+@import "../styles/button.css";
 
 /* Fill the viewport; avoid centering a 90vh panel inside padded 100vh (that clips). */
 .spectra-config.page-container {
-  height: 100vh;
-  max-height: 100vh;
+  height: 100%;
+  max-height: none;
   overflow: hidden;
-  align-items: center;
-  justify-content: center;
-  padding: clamp(1rem, 3vw, 2rem);
+  align-items: stretch;
+  justify-content: stretch;
+  padding: 1.25rem 1.5rem;
 }
 
 .spectra-config__content {
-  max-width: min(800px, 100%);
+  max-width: none;
   width: 100%;
   gap: 1rem !important;
-  /* Match padded viewport so the panel never sits taller than the window. */
-  max-height: calc(100vh - 2 * clamp(1rem, 3vw, 2rem));
+  max-height: 100%;
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
@@ -27,7 +26,7 @@
   scrollbar-gutter: stable;
   contain: paint;
   transform: translateZ(0);
-  padding: clamp(1.5rem, 4vw, 2rem) clamp(1.5rem, 4vw, 2.5rem) !important;
+  padding: 0 !important;
 }
 
 .spectra-config__header {
@@ -40,9 +39,7 @@
   margin: 0;
 }
 
-.spectra-config__highlight {
-  color: var(--accent-magenta);
-}
+/* Title word marks: see styles/components/brand-marks.css */
 
 .spectra-config__error {
   padding: 0.75rem 1rem;
@@ -57,6 +54,9 @@
 .spectra-config__form {
   display: flex;
   flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
   gap: 0.75rem;
 }
 
@@ -113,13 +113,13 @@
   );
 }
 
-.spectra-config__form .glass-button {
+.spectra-config__form .action-button {
   padding: 0.75rem 2rem;
   font-size: 1rem;
 }
 
 @media (max-width: 768px) {
-  .glass-button {
+  .action-button {
     width: 100%;
   }
 }

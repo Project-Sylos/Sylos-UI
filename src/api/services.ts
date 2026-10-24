@@ -754,6 +754,9 @@ export interface PathNodeItem {
   traversalStatus: "pending" | "successful" | "failed" | "excluded" | "not_on_src";
   copyStatus?: string;        // "pending", "successful", "failed", …
   deleteStatus?: string;      // delete: pending_explicit, pending_inherited, skipped, deleted, failed
+  copyRetryMarked?: boolean;  // copy pending queued for retry from a previous copy failure
+  copyExcludedFromFailed?: boolean; // copy excluded from a retry-marked failure; unexcluding restores failed
+  copyForceReplaceMarked?: boolean; // pending prefer-source overwrite from already_existed
   failureLogId?: string;
   failureMessage?: string;
   ruleExclusion?: RuleExclusion;
@@ -1233,6 +1236,50 @@ export async function unmarkNodeForRetryCopy(
 
   const data = await response.json();
   return data;
+}
+
+/** Prefer source overwrite for exists-on-both (already_existed → pending). Folders cascade to descendants. */
+export async function forceReplaceCopyNode(
+  migrationId: string,
+  nodeId: string
+): Promise<ExclusionResponse> {
+  const response = await apiFetch(
+    `/api/migrations/${migrationId}/node/${encodeURIComponent(nodeId)}/force-replace-copy`,
+    { method: "POST" }
+  );
+  if (!response.ok) {
+    let errorMessage = "Failed to force-replace with source";
+    try {
+      const errorData = await response.json();
+      errorMessage = errorData.error || errorMessage;
+    } catch {
+      errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+    }
+    return { success: false, error: errorMessage };
+  }
+  return response.json();
+}
+
+/** Undo prefer-source force-replace (forced pending → already_existed). */
+export async function unforceReplaceCopyNode(
+  migrationId: string,
+  nodeId: string
+): Promise<ExclusionResponse> {
+  const response = await apiFetch(
+    `/api/migrations/${migrationId}/node/${encodeURIComponent(nodeId)}/unforce-replace-copy`,
+    { method: "POST" }
+  );
+  if (!response.ok) {
+    let errorMessage = "Failed to undo force-replace";
+    try {
+      const errorData = await response.json();
+      errorMessage = errorData.error || errorMessage;
+    } catch {
+      errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+    }
+    return { success: false, error: errorMessage };
+  }
+  return response.json();
 }
 
 // Phase change API types and functions

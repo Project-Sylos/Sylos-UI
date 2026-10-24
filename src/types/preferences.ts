@@ -1,4 +1,4 @@
-/** App visual theme: static glass themes only */
+/** App visual theme */
 export type AppTheme = "obsidian" | "quartz";
 
 /**

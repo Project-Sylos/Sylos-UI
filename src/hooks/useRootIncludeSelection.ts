@@ -104,10 +104,223 @@ type IncludeStore = {
   complete: Record<string, boolean>;
   /** childId -> filter rule skip reason, for the red-X preview. */
   reasons: Record<string, string>;
+  /**
+   * Folder ids included only as containers for selected descendants.
+   * Known siblings under these parents default to excluded (not cascade-include).
+   */
+  prunedContainers: Record<string, boolean>;
+  /**
+   * childId -> parentId for every known containment edge (directory listings and
+   * breadcrumb bubbles). Marks alone are not enough: a bubble can write
+   * marks[parent][child] before that child appears in items[parent].
+   */
+  parentOf: Record<string, string>;
 };
 
 function emptyStore(): IncludeStore {
-  return { marks: {}, items: {}, complete: {}, reasons: {} };
+  return {
+    marks: {},
+    items: {},
+    complete: {},
+    reasons: {},
+    prunedContainers: {},
+    parentOf: {},
+  };
+}
+
+/** Count of explicit true marks across all parent levels. */
+function countExplicitIncludes(store: IncludeStore): number {
+  let total = 0;
+  for (const level of Object.values(store.marks)) {
+    for (const value of Object.values(level)) {
+      if (value) total++;
+    }
+  }
+  return total;
+}
+
+/** True when parentId has at least one explicitly checked (true) child mark. */
+function hasExplicitIncludedChild(store: IncludeStore, parentId: string): boolean {
+  return Object.values(store.marks[parentId] ?? {}).some((v) => v === true);
+}
+
+/** Record child→parent for listings and breadcrumb bubbles. */
+function rememberParent(
+  store: IncludeStore,
+  childId: string,
+  parentId: string
+): IncludeStore {
+  if (!childId || store.parentOf[childId] === parentId) return store;
+  return {
+    ...store,
+    parentOf: { ...store.parentOf, [childId]: parentId },
+  };
+}
+
+function rememberParentsFromListing(
+  store: IncludeStore,
+  parentId: string,
+  children: Folder[]
+): IncludeStore {
+  let next = store;
+  for (const child of children) {
+    const id = folderId(child);
+    if (!id) continue;
+    next = rememberParent(next, id, parentId);
+  }
+  return next;
+}
+
+/** Parent of id from the containment map, else from a listing scan. */
+function parentIdOf(store: IncludeStore, id: string): string | undefined {
+  if (Object.prototype.hasOwnProperty.call(store.parentOf, id)) {
+    return store.parentOf[id];
+  }
+  return listedParentId(store, id);
+}
+
+/** Every parent level that currently has an explicit true mark for id. */
+function parentsWithIncludeMark(store: IncludeStore, id: string): string[] {
+  const out: string[] = [];
+  for (const [parentId, level] of Object.entries(store.marks)) {
+    if (level[id] === true) out.push(parentId);
+  }
+  return out;
+}
+
+/** Drop false-only marks under parentId (keep filter reasons and true marks). */
+function clearFalseOnlyMarks(store: IncludeStore, parentId: string): IncludeStore {
+  const level = store.marks[parentId];
+  if (!level) return store;
+  const nextLevel = { ...level };
+  let changed = false;
+  for (const id of Object.keys(nextLevel)) {
+    if (nextLevel[id] === false && !store.reasons[id]) {
+      delete nextLevel[id];
+      changed = true;
+    }
+  }
+  if (!changed) return store;
+  const marks = { ...store.marks };
+  if (Object.keys(nextLevel).length === 0) {
+    delete marks[parentId];
+  } else {
+    marks[parentId] = nextLevel;
+  }
+  return { ...store, marks };
+}
+
+/**
+ * Remove every explicit true mark for id under any parent. If a parent level
+ * then has no remaining trues, also drop its false-only sibling marks and its
+ * pruned-container flag.
+ */
+function clearIncludeMarksFor(
+  store: IncludeStore,
+  id: string
+): IncludeStore {
+  const markParents = parentsWithIncludeMark(store, id);
+  if (markParents.length === 0) return store;
+  const pruned = { ...store.prunedContainers };
+  const marks = { ...store.marks };
+  for (const parentId of markParents) {
+    const level = { ...(marks[parentId] ?? {}) };
+    delete level[id];
+    const stillHasTrue = Object.values(level).some((v) => v === true);
+    if (!stillHasTrue) {
+      for (const childId of Object.keys(level)) {
+        if (level[childId] === false && !store.reasons[childId]) {
+          delete level[childId];
+        }
+      }
+      delete pruned[parentId];
+    }
+    if (Object.keys(level).length === 0) {
+      delete marks[parentId];
+    } else {
+      marks[parentId] = level;
+    }
+  }
+  return { ...store, marks, prunedContainers: pruned };
+}
+
+/**
+ * After the last explicit include under a folder is cleared, unwind that folder
+ * (and empty pruned ancestors) so siblings stop inheriting include. Works for
+ * any path: containment comes from parentOf / mark parents, not a specific root.
+ */
+function clearOrphanedPrunedAncestors(
+  store: IncludeStore,
+  fromParentId: string
+): IncludeStore {
+  let next = store;
+  let cursor: string | undefined = fromParentId;
+  const seen = new Set<string>();
+  while (cursor && !seen.has(cursor)) {
+    seen.add(cursor);
+    if (hasExplicitIncludedChild(next, cursor)) {
+      break;
+    }
+
+    const climbTo = parentIdOf(next, cursor);
+    const hadIncludeMark = parentsWithIncludeMark(next, cursor).length > 0;
+    const wasPruned = !!next.prunedContainers[cursor];
+    if (!wasPruned && !hadIncludeMark) {
+      cursor = climbTo;
+      continue;
+    }
+
+    const pruned = { ...next.prunedContainers };
+    delete pruned[cursor];
+    next = clearFalseOnlyMarks(
+      clearIncludeMarksFor({ ...next, prunedContainers: pruned }, cursor),
+      cursor
+    );
+    cursor = climbTo;
+  }
+  return next;
+}
+
+/** Mark known siblings under parentId excluded except keepId. */
+function pruneSiblingsExcept(
+  store: IncludeStore,
+  parentId: string,
+  keepId: string
+): IncludeStore {
+  const kids = store.items[parentId] ?? [];
+  if (kids.length === 0) return store;
+  const level = { ...(store.marks[parentId] ?? {}) };
+  for (const child of kids) {
+    const id = folderId(child);
+    if (!id || id === keepId) continue;
+    if (level[id] === true) continue;
+    level[id] = false;
+  }
+  return {
+    ...store,
+    marks: { ...store.marks, [parentId]: level },
+  };
+}
+
+/** Under a pruned container, any child without an explicit include is excluded. */
+function applyPruneDefaults(store: IncludeStore, parentId: string): IncludeStore {
+  if (!store.prunedContainers[parentId]) return store;
+  const kids = store.items[parentId] ?? [];
+  if (kids.length === 0) return store;
+  const level = { ...(store.marks[parentId] ?? {}) };
+  let changed = false;
+  for (const child of kids) {
+    const id = folderId(child);
+    if (!id) continue;
+    if (Object.prototype.hasOwnProperty.call(level, id)) continue;
+    level[id] = false;
+    changed = true;
+  }
+  if (!changed) return store;
+  return {
+    ...store,
+    marks: { ...store.marks, [parentId]: level },
+  };
 }
 
 /** True when this folder id is explicitly marked included under some parent. */
@@ -153,7 +366,7 @@ function isEffectivelyIncluded(
   if (isExplicitlyExcluded(store, id)) return false;
   if (isExplicitlyIncluded(store, id)) return true;
 
-  const parentId = listedParentId(store, id);
+  const parentId = parentIdOf(store, id);
   if (parentId === undefined) return false;
   return isEffectivelyIncluded(store, parentId, seen);
 }
@@ -192,7 +405,12 @@ function readIncluded(
   if (Object.prototype.hasOwnProperty.call(level, childId)) {
     return level[childId] === true;
   }
-  // Under an included folder, missing marks inherit include.
+  // Pruned containers are opt-in: missing children are skipped, even when the
+  // container itself is marked included as a path bubble.
+  if (store.prunedContainers[parentId]) {
+    return false;
+  }
+  // Under a fully included folder, missing marks inherit include.
   if (isEffectivelyIncluded(store, parentId)) {
     return true;
   }
@@ -263,6 +481,7 @@ function clearParentCascadeUnder(store: IncludeStore, id: string): IncludeStore 
 export function useRootIncludeSelection() {
   const storeRef = useRef<IncludeStore>(emptyStore());
   const [store, setStore] = useState<IncludeStore>(storeRef.current);
+  const lastRowIndexRef = useRef<number | null>(null);
 
   const commit = useCallback((next: IncludeStore) => {
     storeRef.current = next;
@@ -271,19 +490,26 @@ export function useRootIncludeSelection() {
 
   const recordChildren = useCallback(
     (parentId: string, children: Folder[], options?: { complete?: boolean }) => {
+      lastRowIndexRef.current = null;
       const current = storeRef.current;
-      let next: IncludeStore = {
-        ...current,
-        items: {
-          ...current.items,
-          [parentId]: mergeListing(current.items[parentId], children),
+      let next: IncludeStore = rememberParentsFromListing(
+        {
+          ...current,
+          items: {
+            ...current.items,
+            [parentId]: mergeListing(current.items[parentId], children),
+          },
+          complete: options?.complete
+            ? { ...current.complete, [parentId]: true }
+            : current.complete,
         },
-        complete: options?.complete
-          ? { ...current.complete, [parentId]: true }
-          : current.complete,
-      };
+        parentId,
+        children
+      );
       if (isMarkedSkipped(next, parentId)) {
         next = cascadeParentExclusion(next, parentId);
+      } else {
+        next = applyPruneDefaults(next, parentId);
       }
       commit(next);
     },
@@ -302,16 +528,115 @@ export function useRootIncludeSelection() {
     [store]
   );
 
-  const toggle = useCallback(
+  const explicitIncludeCount = countExplicitIncludes(store);
+  const hasExplicitIncludes = explicitIncludeCount > 0;
+
+  /**
+   * Parent-exclusion cascade (banner + red Xs) only after the user has checked
+   * something. Empty explore mode must not lock every entered folder.
+   */
+  const shouldCascadeParentExclusion = useCallback(
+    (id: string) => hasExplicitIncludes && isMarkedSkipped(store, id),
+    [hasExplicitIncludes, store]
+  );
+
+  /**
+   * Include childId under parentId and bubble-include each ancestor as a pruned
+   * container so navigating up still shows the path checked. ancestorChain is
+   * breadcrumb paths from browse session root through parentId (inclusive).
+   * fullSubtree (folder clicked directly) clears nested prune under the child.
+   */
+  const includeWithAncestors = useCallback(
+    (
+      parentId: string,
+      childId: string,
+      ancestorChain: string[],
+      opts?: { fullSubtree?: boolean }
+    ) => {
+      const current = storeRef.current;
+      if (isParentPathExclusionReason(current.reasons[childId])) {
+        return;
+      }
+      const level = { ...(current.marks[parentId] ?? {}) };
+      level[childId] = true;
+      const reasons = { ...current.reasons };
+      delete reasons[childId];
+      let prunedContainers = { ...current.prunedContainers };
+      let next: IncludeStore = rememberParent(
+        {
+          ...current,
+          marks: { ...current.marks, [parentId]: level },
+          reasons,
+          prunedContainers,
+        },
+        childId,
+        parentId
+      );
+
+      if (opts?.fullSubtree) {
+        delete prunedContainers[childId];
+        next = {
+          ...next,
+          prunedContainers: { ...prunedContainers },
+        };
+        next = clearParentCascadeUnder(next, childId);
+      }
+
+      // Bubble: mark each folder in the chain included under its parent, pruned.
+      // Ancestors that are already effectively included (checked directly or
+      // inherited from a checked folder) are left alone: demoting them to
+      // pruned containers would exclude siblings that inherit the include.
+      const chain =
+        ancestorChain.length > 0 && ancestorChain[ancestorChain.length - 1] === parentId
+          ? ancestorChain
+          : [...ancestorChain, parentId];
+      for (let i = chain.length - 1; i >= 1; i--) {
+        const folderIdAt = chain[i];
+        const parentOf = chain[i - 1];
+        if (isEffectivelyIncluded(next, folderIdAt)) continue;
+        const parentLevel = { ...(next.marks[parentOf] ?? {}) };
+        parentLevel[folderIdAt] = true;
+        const nextReasons = { ...next.reasons };
+        delete nextReasons[folderIdAt];
+        prunedContainers = {
+          ...next.prunedContainers,
+          [folderIdAt]: true,
+        };
+        next = rememberParent(
+          {
+            ...next,
+            marks: { ...next.marks, [parentOf]: parentLevel },
+            reasons: nextReasons,
+            prunedContainers,
+          },
+          folderIdAt,
+          parentOf
+        );
+        next = pruneSiblingsExcept(next, parentOf, folderIdAt);
+        next = applyPruneDefaults(next, parentOf);
+      }
+
+      // At the selection level, prune siblings only under a pruned container.
+      // Under a fully included parent the siblings inherit the include, so a
+      // recheck must not write explicit exclusions for them.
+      if (next.prunedContainers[parentId]) {
+        next = pruneSiblingsExcept(next, parentId, childId);
+        next = applyPruneDefaults(next, parentId);
+      }
+
+      commit(next);
+    },
+    [commit]
+  );
+
+  const excludeItem = useCallback(
     (parentId: string, childId: string) => {
       const current = storeRef.current;
       if (isParentPathExclusionReason(current.reasons[childId])) {
-        // Parent still excluded; toggling a child alone cannot bring the subtree back.
         return;
       }
-      const nowIncluded = !readIncluded(current, parentId, childId);
       const level = { ...(current.marks[parentId] ?? {}) };
-      level[childId] = nowIncluded;
+      level[childId] = false;
       const reasons = { ...current.reasons };
       delete reasons[childId];
       let next: IncludeStore = {
@@ -319,14 +644,97 @@ export function useRootIncludeSelection() {
         marks: { ...current.marks, [parentId]: level },
         reasons,
       };
-      if (nowIncluded) {
-        next = clearParentCascadeUnder(next, childId);
-      } else if (next.items[childId]) {
+      if (next.items[childId]) {
         next = cascadeParentExclusion(next, childId);
+      }
+      // No explicit includes left under this parent: drop pruned path bubbles
+      // first, then clear leftover false marks so explore mode resumes.
+      if (!hasExplicitIncludedChild(next, parentId)) {
+        next = clearOrphanedPrunedAncestors(next, parentId);
+        if (!isEffectivelyIncluded(next, parentId)) {
+          const cleared = { ...(next.marks[parentId] ?? {}) };
+          for (const id of Object.keys(cleared)) {
+            if (cleared[id] === false && !next.reasons[id]) {
+              delete cleared[id];
+            }
+          }
+          const marks = { ...next.marks };
+          if (Object.keys(cleared).length === 0) {
+            delete marks[parentId];
+          } else {
+            marks[parentId] = cleared;
+          }
+          next = { ...next, marks };
+        } else if (next.prunedContainers[parentId]) {
+          next = applyPruneDefaults(next, parentId);
+        }
       }
       commit(next);
     },
     [commit]
+  );
+
+  const toggle = useCallback(
+    (
+      parentId: string,
+      childId: string,
+      ancestorChain: string[] = [],
+      opts?: { fullSubtree?: boolean }
+    ) => {
+      const current = storeRef.current;
+      if (isParentPathExclusionReason(current.reasons[childId])) {
+        return;
+      }
+      if (!readIncluded(current, parentId, childId)) {
+        includeWithAncestors(parentId, childId, ancestorChain, {
+          fullSubtree: opts?.fullSubtree ?? true,
+        });
+        return;
+      }
+      excludeItem(parentId, childId);
+    },
+    [excludeItem, includeWithAncestors]
+  );
+
+  /**
+   * Row click in include mode: the row is the checkbox, there is no separate
+   * highlight selection. Plain and Ctrl/Cmd clicks toggle one item;
+   * Shift+click applies the clicked item's new checked state to every row
+   * between the previous row click and this one.
+   */
+  const toggleRow = useCallback(
+    (
+      parentId: string,
+      item: { id: string; type: "file" | "folder" },
+      index: number,
+      shiftKey: boolean,
+      visibleItems: { id: string; type: "file" | "folder" }[],
+      ancestorChain: string[]
+    ) => {
+      const anchor = lastRowIndexRef.current;
+      lastRowIndexRef.current = index;
+      if (shiftKey && anchor != null) {
+        const check = !readIncluded(storeRef.current, parentId, item.id);
+        const start = Math.min(anchor, index);
+        const end = Math.max(anchor, index);
+        for (let i = start; i <= end; i++) {
+          const entry = visibleItems[i];
+          if (!entry) continue;
+          if (check) {
+            includeWithAncestors(parentId, entry.id, ancestorChain, {
+              fullSubtree: entry.type === "folder",
+            });
+          } else {
+            excludeItem(parentId, entry.id);
+          }
+        }
+        return;
+      }
+      toggle(parentId, item.id, ancestorChain, {
+        fullSubtree: item.type === "folder",
+      });
+    },
+    [excludeItem, includeWithAncestors, toggle]
   );
 
   /** Check/uncheck every child of a folder (caller passes the complete listing). */
@@ -344,6 +752,7 @@ export function useRootIncludeSelection() {
         }
       }
       let next: IncludeStore = {
+        ...current,
         marks: { ...current.marks, [parentId]: level },
         items: {
           ...current.items,
@@ -352,12 +761,34 @@ export function useRootIncludeSelection() {
         complete: { ...current.complete, [parentId]: true },
         reasons,
       };
+      if (included) {
+        const pruned = { ...next.prunedContainers };
+        delete pruned[parentId];
+        next = { ...next, prunedContainers: pruned };
+      } else {
+        next = {
+          ...next,
+          prunedContainers: { ...next.prunedContainers, [parentId]: true },
+        };
+      }
       for (const child of children) {
         const id = folderId(child);
         if (!id || child.type === "file" || !next.items[id]) continue;
         next = included
           ? clearParentCascadeUnder(next, id)
           : cascadeParentExclusion(next, id);
+      }
+      if (!included) {
+        // Select-none: keep explicit falses while clearing orphaned path bubbles,
+        // then drop marks only once this parent is no longer effectively included.
+        next = clearOrphanedPrunedAncestors(next, parentId);
+        if (!isEffectivelyIncluded(next, parentId)) {
+          const marks = { ...next.marks };
+          delete marks[parentId];
+          const pruned = { ...next.prunedContainers };
+          delete pruned[parentId];
+          next = { ...next, marks, prunedContainers: pruned };
+        }
       }
       commit(next);
     },
@@ -519,6 +950,7 @@ export function useRootIncludeSelection() {
       const walk = (kids: MigrationRootChild[], parentId: string) => {
         const folders: Folder[] = [];
         const level: Record<string, boolean> = {};
+        let hasExclusion = false;
         for (const c of kids) {
           if (!c.id) continue;
           folders.push({
@@ -530,13 +962,19 @@ export function useRootIncludeSelection() {
             lastUpdated: c.mtime,
           } as Folder);
           level[c.id] = !c.excluded;
+          next.parentOf[c.id] = parentId;
+          if (c.excluded) hasExclusion = true;
           if (c.children && c.children.length > 0) {
             walk(c.children, c.id);
+            next.prunedContainers[c.id] = true;
           }
         }
         next.items[parentId] = folders;
         next.marks[parentId] = level;
         next.complete[parentId] = true;
+        if (hasExclusion && parentId) {
+          next.prunedContainers[parentId] = true;
+        }
       };
 
       walk(tree, rootParentId);
@@ -553,12 +991,18 @@ export function useRootIncludeSelection() {
     recordChildren,
     isIncluded,
     isFolderSkipped,
+    shouldCascadeParentExclusion,
+    hasExplicitIncludes,
     toggle,
+    toggleRow,
+    includeWithAncestors,
+    excludeItem,
     setAllForFolder,
     applyFilterPreview,
     filterReason,
     parentsNeedingFullListing,
     includedCountUnder,
+    explicitIncludeCount,
     buildPayload,
     restore,
     reset,

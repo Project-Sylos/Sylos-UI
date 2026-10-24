@@ -35,9 +35,9 @@
 .ui-field select:focus,
 .ui-field textarea:focus {
   outline: none;
-  border-color: var(--accent-cyan);
+  border-color: var(--accent);
   background: var(--ui-field-bg-focus);
-  box-shadow: 0 0 0 2px var(--accent-cyan-opacity-20);
+  box-shadow: 0 0 0 2px var(--accent-opacity-20);
 }
 
 .ui-field__input:disabled,
@@ -156,36 +156,55 @@
 
 .ui-button:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px var(--accent-cyan-opacity-20);
-  border-color: var(--accent-cyan);
+  box-shadow: 0 0 0 2px var(--accent-opacity-20);
+  border-color: var(--accent);
 }
 
-.ui-button--danger {
+.ui-button--danger,
+.ui-button--danger-solid {
   background: var(--ui-button-danger-bg);
+  border-width: var(--brand-outline-width);
+  border-style: solid;
   border-color: var(--ui-button-danger-border);
   color: var(--ui-button-danger-fg);
+  font-weight: 700;
 }
 
-.ui-button--danger:hover:not(:disabled) {
+.ui-button--danger:hover:not(:disabled),
+.ui-button--danger-solid:hover:not(:disabled) {
   background: var(--ui-button-danger-bg-hover);
   border-color: var(--ui-button-danger-border-hover);
   color: var(--ui-button-danger-fg-hover);
 }
 
-.ui-button--danger-solid {
-  background: var(--ui-button-danger-solid-bg);
-  border-color: var(--ui-button-danger-solid-bg);
-  color: var(--ui-button-danger-solid-fg);
-}
-
 .ui-button--primary {
   background: var(--ui-button-primary-bg);
+  border-width: var(--brand-outline-width);
+  border-style: solid;
   border-color: var(--ui-button-primary-border);
   color: var(--ui-button-primary-fg);
+  font-weight: 700;
 }
 
 .ui-button--primary:hover:not(:disabled) {
   background: var(--ui-button-primary-bg-hover);
+  border-color: var(--ui-button-primary-border);
+  color: var(--ui-button-primary-fg);
+}
+
+.ui-button--magenta {
+  background: var(--ui-button-magenta-bg);
+  border-width: var(--brand-outline-width);
+  border-style: solid;
+  border-color: var(--ui-button-magenta-border);
+  color: var(--ui-button-magenta-fg);
+  font-weight: 700;
+}
+
+.ui-button--magenta:hover:not(:disabled) {
+  background: var(--ui-button-magenta-bg-hover);
+  border-color: var(--ui-button-magenta-border);
+  color: var(--ui-button-magenta-fg);
 }
 
 .ui-button--secondary {
@@ -240,7 +259,7 @@
 
 .ui-icon-button:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px var(--accent-cyan-opacity-20);
+  box-shadow: 0 0 0 2px var(--accent-opacity-20);
 }
 
 /* ——— Inset panels / tables ——— */
@@ -303,8 +322,8 @@
  * scrollIntoView explicitly.
  *
  * `contain: paint` + a promoted layer keep the scroller compositing on its own
- * layer even though it sits inside a backdrop-filtered glass panel. The usual
- * reason native scroll turns janky inside frosted UIs on WebKit/Chromium.
+ * layer. The usual reason native scroll turns janky in complex layouts on
+ * WebKit/Chromium.
  */
 .scroll-region {
   overflow-x: hidden;

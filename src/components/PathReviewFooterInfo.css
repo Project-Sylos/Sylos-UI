@@ -47,7 +47,7 @@
 }
 
 .path-review-footer-info__stat--compat {
-  color: #fcd34d;
+  color: var(--ui-status-warning);
   background: rgba(251, 191, 36, 0.12);
   border: 1px solid rgba(251, 191, 36, 0.35);
 }
@@ -58,7 +58,7 @@
 }
 
 .path-review-footer-info__stat--failed {
-  color: #fca5a5;
+  color: var(--ui-status-danger);
   background: rgba(239, 68, 68, 0.12);
   border: 1px solid rgba(239, 68, 68, 0.35);
 }
@@ -89,11 +89,11 @@
 }
 
 .path-review-footer-info__ratio-segment--folders {
-  background: var(--accent-cyan);
+  background: var(--accent);
 }
 
 .path-review-footer-info__ratio-segment--files {
-  background: var(--accent-magenta);
+  background: var(--accent-secondary);
 }
 
 .path-review-footer-info__ratio-labels {
@@ -113,9 +113,10 @@
   margin: 0;
   padding: 0.2rem 0.55rem;
   border-radius: 6px;
-  border: 1px solid var(--accent-cyan-opacity-20);
-  background: var(--accent-cyan-opacity-10);
-  color: var(--accent-cyan);
+  border: var(--brand-outline-width) solid var(--brand-ink);
+  background: var(--surface-bg-hover);
+  color: var(--text-primary);
+  font-weight: 700;
   cursor: pointer;
   font: inherit;
   line-height: 1.2;
@@ -141,8 +142,9 @@
 .path-review-footer-info__selected-trigger:hover,
 .path-review-footer-info__selected-trigger--open,
 .path-review-footer-info__selected-trigger:focus-visible {
-  background: var(--accent-cyan-opacity-20);
-  border-color: var(--accent-cyan);
+  background: var(--surface-bg);
+  border-color: var(--brand-ink);
+  color: var(--text-primary);
   outline: none;
 }
 
@@ -153,14 +155,13 @@
   max-width: 18rem;
   padding: 0.85rem 1rem;
   border-radius: 12px;
-  backdrop-filter: blur(var(--glass-blur-primary));
   background: rgba(
     var(--color-base-dark-r),
     var(--color-base-dark-g),
     var(--color-base-dark-b),
     0.96
   );
-  border: 1px solid var(--accent-cyan-opacity-20);
+  border: 1px solid var(--accent-opacity-20);
   box-shadow:
     0 10px 28px rgba(
       var(--color-base-dark-r),
@@ -168,7 +169,7 @@
       var(--color-base-dark-b),
       0.45
     ),
-    0 0 0 1px var(--accent-cyan-opacity-10);
+    0 0 0 1px var(--accent-opacity-10);
   color: var(--text-primary);
   animation: path-review-selected-card-in 0.15s ease-out;
 }

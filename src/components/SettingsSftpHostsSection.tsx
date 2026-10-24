@@ -93,7 +93,7 @@ export default function SettingsSftpHostsSection({ canManage }: SettingsSftpHost
               {canManage && (
                 <button
                   type="button"
-                  className="glass-button settings-sftp-hosts__delete"
+                  className="action-button settings-sftp-hosts__delete"
                   onClick={() => void handleDelete(host)}
                   disabled={busyId === host.id}
                   aria-label={`Delete ${host.displayName || formatEndpoint(host)}`}

@@ -113,19 +113,54 @@ export function canGoToNextPage(
   return Boolean(pagination.hasMore);
 }
 
+/**
+ * Infer an exact total when the page is short or the server said hasMore=false.
+ * Avoids an expensive count query for last/partial pages.
+ */
+export function inferExactTotalFromPage(input: {
+  offset: number;
+  limit: number;
+  returnedCount: number;
+  hasMore: boolean;
+  total?: number;
+}): number | undefined {
+  if (input.total !== undefined) return input.total;
+  const limit = input.limit > 0 ? input.limit : input.returnedCount;
+  if (!input.hasMore || (limit > 0 && input.returnedCount < limit)) {
+    return Math.max(0, input.offset + input.returnedCount);
+  }
+  return undefined;
+}
+
 /** Footer / range label for list search results. */
 export function formatListShowingRange(
   pagination: OptionalTotalPagination,
-  itemsPerPage: number
+  itemsPerPage: number,
+  returnedCount?: number
 ): string {
+  const inferred =
+    pagination.total !== undefined
+      ? pagination.total
+      : returnedCount !== undefined
+        ? inferExactTotalFromPage({
+            offset: pagination.offset,
+            limit: pagination.limit || itemsPerPage,
+            returnedCount,
+            hasMore: pagination.hasMore,
+          })
+        : undefined;
+
   const start = pagination.offset + 1;
-  if (pagination.total !== undefined) {
-    if (pagination.total <= 0) {
+  if (inferred !== undefined) {
+    if (inferred <= 0) {
       return "0 items";
     }
-    const end = Math.min(pagination.offset + itemsPerPage, pagination.total);
-    const noun = pagination.total === 1 ? "item" : "items";
-    return `${start} to ${end} of ${pagination.total.toLocaleString()} ${noun}`;
+    const end = Math.min(
+      pagination.offset + (returnedCount ?? itemsPerPage),
+      inferred
+    );
+    const noun = inferred === 1 ? "item" : "items";
+    return `${start} to ${end} of ${inferred.toLocaleString()} ${noun}`;
   }
   const end = pagination.offset + itemsPerPage;
   if (pagination.hasMore) {

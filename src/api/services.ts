@@ -141,6 +141,20 @@ export async function uploadMigrationDB(
   return uploadMigrationOps(file, filename, overwrite);
 }
 
+export async function deleteMigration(migrationId: string): Promise<{ id: string; message: string }> {
+  const response = await apiFetch(
+    `/api/migrations/${encodeURIComponent(migrationId)}`,
+    { method: "DELETE" }
+  );
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(
+      `Failed to delete migration (${response.status}): ${message || "Unknown error"}`
+    );
+  }
+  return (await response.json()) as { id: string; message: string };
+}
+
 export async function downloadMigrationOpsExport(migrationId: string): Promise<void> {
   const response = await apiFetch(
     `/api/migrations/${encodeURIComponent(migrationId)}/export`,
@@ -2121,17 +2135,28 @@ function normalizeSearchPagination(
     };
   }
 
-  const total = parseOptionalTotal(raw.Total ?? raw.total);
+  let total = parseOptionalTotal(raw.Total ?? raw.total);
   const totalFolders = parseOptionalTotal(raw.TotalFolders ?? raw.totalFolders);
   const totalFiles = parseOptionalTotal(raw.TotalFiles ?? raw.totalFiles);
+  const offset = Number(raw.Offset ?? raw.offset ?? fallback.offset) || 0;
+  const limit = Number(raw.Limit ?? raw.limit ?? fallback.limit) || fallback.limit;
+  let hasMore = Boolean(raw.HasMore ?? raw.hasMore ?? false);
+
+  // Short page or last page: exact total is free (offset + returned), no count query.
+  if (total === undefined) {
+    if (!hasMore || (limit > 0 && fallback.itemCount < limit)) {
+      total = offset + fallback.itemCount;
+      hasMore = false;
+    }
+  }
 
   return {
-    offset: Number(raw.Offset ?? raw.offset ?? fallback.offset) || 0,
-    limit: Number(raw.Limit ?? raw.limit ?? fallback.limit) || fallback.limit,
+    offset,
+    limit,
     ...(total !== undefined ? { total } : {}),
     ...(totalFolders !== undefined ? { totalFolders } : {}),
     ...(totalFiles !== undefined ? { totalFiles } : {}),
-    hasMore: Boolean(raw.HasMore ?? raw.hasMore ?? false),
+    hasMore,
   };
 }
 

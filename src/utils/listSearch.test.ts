@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   canGoToNextPage,
   formatListShowingRange,
+  inferExactTotalFromPage,
   hasListSearchPredicate,
   parseOptionalTotal,
 } from "./listSearch";
@@ -71,6 +72,35 @@ describe("canGoToNextPage", () => {
   });
 });
 
+describe("inferExactTotalFromPage", () => {
+  it("infers total on short pages and last pages", () => {
+    expect(
+      inferExactTotalFromPage({
+        offset: 0,
+        limit: 100,
+        returnedCount: 8,
+        hasMore: true,
+      })
+    ).toBe(8);
+    expect(
+      inferExactTotalFromPage({
+        offset: 100,
+        limit: 100,
+        returnedCount: 40,
+        hasMore: false,
+      })
+    ).toBe(140);
+    expect(
+      inferExactTotalFromPage({
+        offset: 0,
+        limit: 100,
+        returnedCount: 100,
+        hasMore: true,
+      })
+    ).toBeUndefined();
+  });
+});
+
 describe("formatListShowingRange", () => {
   it("formats known and unknown totals", () => {
     expect(
@@ -80,8 +110,11 @@ describe("formatListShowingRange", () => {
       formatListShowingRange({ offset: 0, limit: 100, hasMore: true }, 100)
     ).toBe("1 to 100+ of ?");
     expect(
-      formatListShowingRange({ offset: 0, limit: 100, hasMore: false }, 100)
-    ).toBe("1 to 100 of ?");
+      formatListShowingRange({ offset: 0, limit: 100, hasMore: false }, 100, 100)
+    ).toBe("1 to 100 of 100 items");
+    expect(
+      formatListShowingRange({ offset: 0, limit: 100, hasMore: true }, 100, 8)
+    ).toBe("1 to 8 of 8 items");
     expect(
       formatListShowingRange({ offset: 0, limit: 100, total: 0, hasMore: false }, 100)
     ).toBe("0 items");

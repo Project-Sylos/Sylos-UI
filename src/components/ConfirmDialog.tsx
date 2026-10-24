@@ -26,7 +26,12 @@ export default function ConfirmDialog({
   onSecondary,
 }: ConfirmDialogProps) {
   return (
-    <div className="confirm-dialog__overlay" onClick={onCancel}>
+    <div
+      className={`confirm-dialog__overlay${
+        confirmTone === "danger" ? " confirm-dialog__overlay--dense" : ""
+      }`}
+      onClick={onCancel}
+    >
       <div
         className="confirm-dialog__content"
         onClick={(e) => e.stopPropagation()}

@@ -60,6 +60,9 @@ export function formatFileSize(bytes: number): string {
 
 export function formatDate(dateString: string): string {
   const date = new Date(dateString);
+  if (!dateString || Number.isNaN(date.getTime()) || date.getUTCFullYear() < 1971) {
+    return "Unknown";
+  }
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
   const diffMins = Math.floor(diffMs / 60000);

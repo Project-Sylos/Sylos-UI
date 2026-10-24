@@ -8,6 +8,7 @@ import {
   RotateCcw,
   RefreshCw,
   ArrowUpRight,
+  Trash2,
 } from "lucide-react";
 
 import "../App.css";
@@ -18,14 +19,18 @@ import {
   getMigrationStatus,
   uploadMigrationOps,
   downloadMigrationOpsExport,
+  deleteMigration,
 } from "../api/services";
 import { clearAllMigrations } from "../api/admin";
 import DestructiveConfirmDialog from "../components/CleanSlateDialog";
+import ConfirmDialog from "../components/ConfirmDialog";
 import "../components/CleanSlateDialog.css";
 import {
   MigrationStatusResponse,
   MigrationWithStatus,
+  formatMigrationPhaseLabel,
   getMigrationPhase,
+  migrationPhaseTone,
 } from "../types/migrations";
 import { formatDate } from "../utils/fileUpload";
 import { pickOpsImport } from "../utils/opsImport";
@@ -41,6 +46,8 @@ export default function ResumeMigration() {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [exportingId, setExportingId] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<MigrationWithStatus | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
   const [showOverwriteDialog, setShowOverwriteDialog] = useState(false);
@@ -311,8 +318,35 @@ export default function ResumeMigration() {
     }
   };
 
+  const handleDeleteClick = (migration: MigrationWithStatus, e: MouseEvent) => {
+    e.stopPropagation();
+    if (busy) return;
+    setPendingDelete(migration);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!pendingDelete || deletingId) return;
+    const id = pendingDelete.id;
+    setDeletingId(id);
+    setError(null);
+    try {
+      await deleteMigration(id);
+      setPendingDelete(null);
+      await loadMigrations();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete migration.");
+      setPendingDelete(null);
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   const busy =
-    uploading || Boolean(openingMigrationId) || cleanSlateBusy || Boolean(exportingId);
+    uploading ||
+    Boolean(openingMigrationId) ||
+    cleanSlateBusy ||
+    Boolean(exportingId) ||
+    Boolean(deletingId);
 
   return (
     <>
@@ -418,6 +452,24 @@ export default function ResumeMigration() {
                   <div className="resume-migration__card-actions">
                     <button
                       type="button"
+                      className="resume-migration__icon-corner resume-migration__icon-corner--danger"
+                      title="Delete migration"
+                      aria-label={`Delete ${migration.name || migration.id}`}
+                      disabled={busy}
+                      onClick={(e) => handleDeleteClick(migration, e)}
+                    >
+                      <Trash2
+                        size={16}
+                        aria-hidden="true"
+                        className={
+                          deletingId === migration.id
+                            ? "resume-migration__refresh-icon--spinning"
+                            : undefined
+                        }
+                      />
+                    </button>
+                    <button
+                      type="button"
                       className="resume-migration__icon-corner"
                       title="Export ops zip"
                       aria-label={`Export ${migration.name || migration.id}`}
@@ -470,12 +522,11 @@ export default function ResumeMigration() {
                     <div className="resume-migration__file-meta">
                       {migration.status && (
                         <span
-                          className={`resume-migration__status resume-migration__status--${(migration.status || "")
-                            .toLowerCase()
-                            .replace(/\s+/g, "-")
-                            .replace(/[^a-z0-9-]/g, "")}`}
+                          className={`resume-migration__status resume-migration__status--${migrationPhaseTone(
+                            migration.status
+                          )}`}
                         >
-                          {migration.status}
+                          {formatMigrationPhaseLabel(migration.status)}
                         </span>
                       )}
                       {migration.status && <span> • </span>}
@@ -514,6 +565,24 @@ export default function ResumeMigration() {
           busy={cleanSlateBusy}
           onCancel={() => setShowCleanSlateDialog(false)}
           onConfirm={() => void handleClearMigrations()}
+        />
+      )}
+
+      {pendingDelete && (
+        <ConfirmDialog
+          title="Delete this migration?"
+          message={`This permanently deletes "${
+            pendingDelete.name && pendingDelete.name !== pendingDelete.id
+              ? pendingDelete.name
+              : pendingDelete.id
+          }" including its ops store and registry entry. Running work is stopped first. This cannot be undone.`}
+          confirmLabel={deletingId ? "Deleting…" : "Delete migration"}
+          cancelLabel="Cancel"
+          confirmTone="danger"
+          onConfirm={() => void handleConfirmDelete()}
+          onCancel={() => {
+            if (!deletingId) setPendingDelete(null);
+          }}
         />
       )}
 

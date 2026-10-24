@@ -115,6 +115,86 @@ export type MigrationPhase =
   | "aborted"
   | "failed";
 
+/** User-facing label for a lifecycle phase / status string. */
+export function formatMigrationPhaseLabel(
+  phaseOrStatus: string | undefined | null
+): string {
+  const phase = normalizeMigrationPhase(phaseOrStatus ?? "");
+  switch (phase) {
+    case "roots-set":
+      return "Roots selected";
+    case "roots-partial":
+      return "Roots incomplete";
+    case "filters-set":
+      return "Filters set";
+    case "traversal-in-progress":
+      return "Discovering";
+    case "traversal-suspended":
+      return "Discovery paused";
+    case "traversal-finalizing":
+      return "Finishing discovery";
+    case "traversal-finalize-failed":
+      return "Discovery finalize failed";
+    case "awaiting-traversal-review":
+      return "Ready to review discovery";
+    case "copy-in-progress":
+      return "Copying";
+    case "copy-suspended":
+      return "Copy paused";
+    case "copy-finalizing":
+      return "Finishing copy";
+    case "copy-finalize-failed":
+      return "Copy finalize failed";
+    case "awaiting-copy-review":
+      return "Ready to review copy plan";
+    case "delete-in-progress":
+      return "Removing from source";
+    case "delete-suspended":
+      return "Removal paused";
+    case "delete-finalizing":
+      return "Finishing removal";
+    case "delete-finalize-failed":
+      return "Removal finalize failed";
+    case "awaiting-delete-review":
+      return "Ready to review removal";
+    case "aborted":
+      return "Aborted";
+    case "failed":
+      return "Failed";
+    case "":
+      return "";
+    default:
+      return phase
+        .split("-")
+        .filter(Boolean)
+        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(" ");
+  }
+}
+
+/** CSS tone bucket for resume-list status chips. */
+export function migrationPhaseTone(
+  phaseOrStatus: string | undefined | null
+): "running" | "suspended" | "awaiting" | "failed" | "completed" {
+  const phase = normalizeMigrationPhase(phaseOrStatus ?? "");
+  if (phase === "failed" || phase.endsWith("-finalize-failed") || phase === "aborted") {
+    return "failed";
+  }
+  if (phase.endsWith("-in-progress") || phase.endsWith("-finalizing")) {
+    return "running";
+  }
+  if (phase.endsWith("-suspended")) {
+    return "suspended";
+  }
+  if (phase.startsWith("awaiting-")) {
+    return "awaiting";
+  }
+  if (phase === "roots-set" || phase === "filters-set") {
+    return "completed";
+  }
+  return "awaiting";
+}
+
 /** Normalize phase string for comparison: trim, lowercase, spaces to hyphens. */
 export function normalizeMigrationPhase(value: string | undefined): string {
   if (!value || typeof value !== "string") return "";

@@ -15,7 +15,7 @@ import {
 } from "../api/services";
 import { Drive, Folder, PaginationInfo } from "../types/services";
 import { MigrationRootChild } from "../types/migrations";
-import { GlassSurfacePanel } from "../components/GlassSurfacePanel";
+import { PageShell } from "../components/PageShell";
 import PageBackButton from "../components/PageBackButton";
 import BrowseDensityControl from "../components/BrowseDensityControl";
 import BrowseFolderItemRow from "../components/BrowseFolderItemRow";
@@ -23,6 +23,7 @@ import BrowseSortControl from "../components/BrowseSortControl";
 import BrowseIncludeControl, {
   BrowseParentExclusionBanner,
 } from "../components/browse/BrowseIncludeControl";
+import DestDualListRows from "../components/browse/DestDualListRows";
 import ConfirmDialog from "../components/ConfirmDialog";
 import NewFolderModal from "../components/NewFolderModal";
 import BrowseContextMenu from "../components/BrowseContextMenu";
@@ -30,6 +31,7 @@ import FileBrowserPane, { BROWSE_SELECTION_HELP } from "../components/FileBrowse
 import { BrowseDensityProvider, useBrowseDensity } from "../contexts/BrowseDensityContext";
 import { useSelection } from "../context/SelectionContext";
 import { useAltTextSelect } from "../hooks/useAltTextSelect";
+import { useDestDualList } from "../hooks/useDestDualList";
 import {
   ROOT_INCLUDE_PARENT,
   destinationRootChildrenPayload,
@@ -37,6 +39,7 @@ import {
   useRootIncludeSelection,
 } from "../hooks/useRootIncludeSelection";
 import { parentCascadeReasons } from "../utils/browseFilterPreview";
+import type { DestDualRow } from "../utils/destDualList";
 import { getBrowseTrailFromFolder, folderToApiRoot } from "../utils/migrationRoots";
 import {
   DEFAULT_BROWSE_SORT,
@@ -139,11 +142,12 @@ function BrowseFolderPage() {
   const rootInclude = useRootIncludeSelection();
   const [browseSort, setBrowseSort] = useState<BrowseSortState>(DEFAULT_BROWSE_SORT);
   const [includeSubmitting, setIncludeSubmitting] = useState(false);
+  /** Locked destination root after Select; dual-list review is relative to this. */
+  const [destAlignRootId, setDestAlignRootId] = useState<string | null>(null);
 
   const [drives, setDrives] = useState<Drive[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
   const [files, setFiles] = useState<Folder[]>([]);
-  const [hideFiles, setHideFiles] = useState(false);
   const [currentPath, setCurrentPath] = useState<string | null>(null);
   const [breadcrumbs, setBreadcrumbs] = useState<BreadcrumbItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -167,7 +171,14 @@ function BrowseFolderPage() {
   const altTextSelect = useAltTextSelect();
   const resumeHandledRef = useRef(false);
   const reconfirmHandledRef = useRef(false);
-  const hideFilesToggleInitializedRef = useRef(false);
+  const folderClickTimerRef = useRef<number | null>(null);
+  /** Plain folder click gesture: used so opening a checked folder does not leave it unchecked. */
+  const folderIncludeGestureRef = useRef<{
+    id: string;
+    parentId: string;
+    ancestorChain: string[];
+    wasIncluded: boolean;
+  } | null>(null);
 
   const resumeFolder = (location.state as { resumeFolder?: Folder } | null)
     ?.resumeFolder;
@@ -176,7 +187,6 @@ function BrowseFolderPage() {
       ?.reconfirmSourceInclude
   );
   const {
-    selectedCount,
     selectedItems,
     isSelected,
     select: selectItem,
@@ -203,29 +213,25 @@ function BrowseFolderPage() {
         type: "folder" as const,
         name: folder.name,
       })),
-      ...(hideFiles
-        ? []
-        : files.map((file) => ({
-            id: file.ServiceID,
-            type: "file" as const,
-            name: file.name,
-          }))),
+      ...files.map((file) => ({
+        id: file.ServiceID,
+        type: "file" as const,
+        name: file.name,
+      })),
     ],
-    [folders, files, hideFiles]
+    [folders, files]
   );
 
-  /** Source browse always shows include checkboxes once we are inside a folder. */
+  /** Source browse include marks once we are inside a folder. */
   const includeMode = role === "source" && !isDriveView;
   const parentKey = currentPath ?? ROOT_INCLUDE_PARENT;
-
+  const ancestorChain = useMemo(
+    () => breadcrumbs.map((crumb) => crumb.path),
+    [breadcrumbs]
+  );
   const sortedListing = useMemo(
-    () =>
-      sortBrowseFoldersAndFiles(
-        folders,
-        hideFiles ? [] : files,
-        browseSort
-      ),
-    [folders, files, hideFiles, browseSort]
+    () => sortBrowseFoldersAndFiles(folders, files, browseSort),
+    [folders, files, browseSort]
   );
 
   const allVisibleIncluded = useMemo(() => {
@@ -238,6 +244,17 @@ function BrowseFolderPage() {
     );
   }, [sortedListing, rootInclude, parentKey]);
 
+  /** What Delete acts on: the checked rows in include mode, the highlighted rows otherwise. */
+  const deleteTargetItems = useMemo(
+    () =>
+      includeMode
+        ? visibleItems.filter((item) =>
+            rootInclude.isIncluded(parentKey, item.id)
+          )
+        : selectedItems,
+    [includeMode, visibleItems, rootInclude, parentKey, selectedItems]
+  );
+
   const cascadePreviewKey = useMemo(() => {
     const ids = [...sortedListing.folders, ...sortedListing.files]
       .map((item) => item.ServiceID || item.Id || "")
@@ -249,6 +266,44 @@ function BrowseFolderPage() {
 
   const prepareDestinationRoot =
     role === "destination" && Boolean(migration.sourceRootPrepared);
+  /** After picking a dest root: relative dual-list review before final confirm. */
+  const destRootReviewMode =
+    prepareDestinationRoot && Boolean(destAlignRootId) && !isDriveView;
+
+  const destRelativeSegments = useMemo(() => {
+    if (!destAlignRootId || breadcrumbs.length === 0) return [] as string[];
+    const idx = breadcrumbs.findIndex((b) => b.path === destAlignRootId);
+    if (idx < 0) return [];
+    return breadcrumbs.slice(idx + 1).map((b) => b.name);
+  }, [breadcrumbs, destAlignRootId]);
+
+  const sourceRootId = source?.root?.ServiceID || source?.root?.Id;
+  const sourceServiceId = source?.service?.id;
+
+  const listSourceChildren = useMemo(() => {
+    if (!sourceServiceId) return null;
+    return async (folderId: string, opts?: { foldersOnly?: boolean }) => {
+      const response = await listChildren(sourceServiceId, folderId, "source", {
+        offset: 0,
+        limit: 500,
+        foldersOnly: opts?.foldersOnly,
+      });
+      return {
+        folders: response.folders || [],
+        files: response.files || [],
+      };
+    };
+  }, [sourceServiceId]);
+
+  const destDual = useDestDualList({
+    enabled: destRootReviewMode && Boolean(currentPath),
+    listSourceChildren,
+    sourceRootId,
+    destFolderId: currentPath,
+    destFolders: folders,
+    destFiles: files,
+    relativeSegments: destRelativeSegments,
+  });
 
   const loadAllChildrenAt = async (folderId: string): Promise<Folder[]> => {
     const pageSize = 200;
@@ -363,28 +418,13 @@ function BrowseFolderPage() {
     if (items.length === 0) return;
     if (cascadePreviewKeyRef.current === cascadePreviewKey) return;
     cascadePreviewKeyRef.current = cascadePreviewKey;
-    if (rootInclude.isFolderSkipped(parentKey)) {
+    if (rootInclude.shouldCascadeParentExclusion(parentKey)) {
       rootInclude.applyFilterPreview(parentKey, parentCascadeReasons(items));
     } else {
       rootInclude.applyFilterPreview(parentKey, {});
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [includeMode, reconfirmSourceInclude, cascadePreviewKey]);
-
-  useEffect(() => {
-    if (!hideFilesToggleInitializedRef.current) {
-      hideFilesToggleInitializedRef.current = true;
-      return;
-    }
-    if (!currentPath || breadcrumbs.length === 0 || isDriveView) {
-      return;
-    }
-    const currentBreadcrumb = breadcrumbs[breadcrumbs.length - 1];
-    void loadChildren(currentBreadcrumb.path, currentBreadcrumb.name, {
-      page: currentPage,
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hideFiles]);
 
   const openAtHomeOrDrives = async () => {
     try {
@@ -419,11 +459,10 @@ function BrowseFolderPage() {
       const response = await listChildren(serviceIdentifier, folder.ServiceID, role, {
         offset: 0,
         limit: itemsPerPage,
-        ...(hideFiles ? { foldersOnly: true } : {}),
       });
 
       setFolders(response.folders || []);
-      setFiles(hideFiles ? [] : response.files || []);
+      setFiles(response.files || []);
       setCurrentPath(folder.ServiceID);
       setIsDriveView(false);
       setBreadcrumbs(breadcrumbsTrail);
@@ -462,6 +501,7 @@ function BrowseFolderPage() {
       setFolders([]);
       setFiles([]);
       setPagination(null);
+      setDestAlignRootId(null);
     } catch (err) {
       setError(
         err instanceof Error
@@ -491,11 +531,10 @@ function BrowseFolderPage() {
       const response = await listChildren(serviceIdentifier, path, role, {
         offset,
         limit,
-        ...(hideFiles ? { foldersOnly: true } : {}),
       });
 
       setFolders(response.folders || []);
-      setFiles(hideFiles ? [] : response.files || []);
+      setFiles(response.files || []);
       setCurrentPath(path);
       setIsDriveView(false);
       clearSelection();
@@ -580,6 +619,29 @@ function BrowseFolderPage() {
       return;
     }
 
+    if (folderClickTimerRef.current != null) {
+      window.clearTimeout(folderClickTimerRef.current);
+      folderClickTimerRef.current = null;
+    }
+    // Double-click open cancels a pending row toggle. If that toggle already
+    // unchecked a folder that was included when the gesture started, put it back.
+    const gesture = folderIncludeGestureRef.current;
+    folderIncludeGestureRef.current = null;
+    if (
+      includeMode &&
+      gesture &&
+      gesture.id === folder.ServiceID &&
+      gesture.wasIncluded &&
+      !rootInclude.isIncluded(gesture.parentId, gesture.id)
+    ) {
+      rootInclude.includeWithAncestors(
+        gesture.parentId,
+        gesture.id,
+        gesture.ancestorChain,
+        { fullSubtree: true }
+      );
+    }
+    clearSelection();
     setCurrentPage(0);
     loadChildren(folder.ServiceID, folder.name, { page: 0 });
   };
@@ -594,16 +656,94 @@ function BrowseFolderPage() {
     }
     event.preventDefault();
     event.stopPropagation();
-    selectItem(
-      item,
-      index,
-      {
-        shiftKey: event.shiftKey,
-        ctrlKey: event.ctrlKey,
-        metaKey: event.metaKey,
-      },
-      visibleItems
-    );
+
+    // In include mode the row is the checkbox. Delay plain folder toggles so a
+    // double-click can open without ever marking (explore mode stays at zero
+    // checks; onDoubleClick navigates).
+    if (includeMode) {
+      const isPlainFolderClick =
+        item.type === "folder" &&
+        !event.shiftKey &&
+        !isMultiSelectModifier(event);
+
+      if (isPlainFolderClick && event.detail > 1) {
+        if (folderClickTimerRef.current != null) {
+          window.clearTimeout(folderClickTimerRef.current);
+          folderClickTimerRef.current = null;
+        }
+        return;
+      }
+
+      if (isPlainFolderClick) {
+        if (folderClickTimerRef.current != null) {
+          window.clearTimeout(folderClickTimerRef.current);
+        }
+        folderIncludeGestureRef.current = {
+          id: item.id,
+          parentId: parentKey,
+          ancestorChain: [...ancestorChain],
+          wasIncluded: rootInclude.isIncluded(parentKey, item.id),
+        };
+        folderClickTimerRef.current = window.setTimeout(() => {
+          folderClickTimerRef.current = null;
+          rootInclude.toggleRow(
+            parentKey,
+            item,
+            index,
+            false,
+            visibleItems,
+            ancestorChain
+          );
+        }, 150);
+        return;
+      }
+
+      rootInclude.toggleRow(
+        parentKey,
+        item,
+        index,
+        event.shiftKey,
+        visibleItems,
+        ancestorChain
+      );
+      return;
+    }
+
+    const runSelect = () => {
+      selectItem(
+        item,
+        index,
+        {
+          shiftKey: event.shiftKey,
+          ctrlKey: event.ctrlKey,
+          metaKey: event.metaKey,
+        },
+        visibleItems
+      );
+    };
+
+    // Destination browse: delay plain folder select so double-click can open
+    // without toggling the highlight off first.
+    const isPlainFolderClick =
+      item.type === "folder" &&
+      !event.shiftKey &&
+      !isMultiSelectModifier(event);
+    if (isPlainFolderClick) {
+      if (folderClickTimerRef.current != null) {
+        window.clearTimeout(folderClickTimerRef.current);
+      }
+      folderClickTimerRef.current = window.setTimeout(() => {
+        folderClickTimerRef.current = null;
+        runSelect();
+      }, 150);
+      return;
+    }
+
+    if (folderClickTimerRef.current != null) {
+      window.clearTimeout(folderClickTimerRef.current);
+      folderClickTimerRef.current = null;
+    }
+    runSelect();
   };
 
   const handleItemContextMenu = (
@@ -623,16 +763,30 @@ function BrowseFolderPage() {
   };
 
   const handleContextDelete = () => {
-    const targets = selectedCount > 0 ? selectedItems : contextMenu ? [contextMenu.item] : [];
+    const targets =
+      deleteTargetItems.length > 0
+        ? deleteTargetItems
+        : contextMenu
+          ? [contextMenu.item]
+          : [];
     requestDelete(targets);
   };
 
   const handleBack = () => {
+    clearSelection();
     if (breadcrumbs.length > 1) {
       const previous = breadcrumbs[breadcrumbs.length - 2];
+      const alignIdx = destAlignRootId
+        ? breadcrumbs.findIndex((b) => b.path === destAlignRootId)
+        : -1;
+      // Navigating above the locked dest root exits relative match review.
+      if (alignIdx >= 0 && breadcrumbs.length - 2 < alignIdx) {
+        setDestAlignRootId(null);
+      }
       setCurrentPage(0);
       loadChildren(previous.path, previous.name, { page: 0 });
     } else if (breadcrumbs.length === 1) {
+      setDestAlignRootId(null);
       loadDrives();
     }
   };
@@ -792,11 +946,41 @@ function BrowseFolderPage() {
       try {
         setLoading(true);
         setError(null);
-        const children = await loadAllChildrenAt(selectedFolder.ServiceID);
-        // Match intentional source includes by basename; non-matches are dstOnly.
+
+        // Phase 1: pick destination root (dest listing only). Empty → commit now.
+        // Phase 2: after lock, confirm with relative source match preview.
+        if (!destAlignRootId) {
+          const children = await loadAllChildrenAt(selectedFolder.ServiceID);
+          if (children.length === 0) {
+            await commitPreparedRoot(selectedFolder, []);
+            return;
+          }
+          setDestAlignRootId(selectedFolder.ServiceID);
+          return;
+        }
+
+        const rootId = destAlignRootId;
+        const rootFolder =
+          rootId === selectedFolder.ServiceID
+            ? selectedFolder
+            : {
+                ...selectedFolder,
+                ServiceID: rootId,
+                Id: rootId,
+                name:
+                  breadcrumbs.find((b) => b.path === rootId)?.name ||
+                  selectedFolder.name,
+                browseTrail: breadcrumbs.slice(
+                  0,
+                  breadcrumbs.findIndex((b) => b.path === rootId) + 1
+                ),
+              };
+
+        const names = migration.sourceRootChildNames;
+        const children = await loadAllChildrenAt(rootId);
         await commitPreparedRoot(
-          selectedFolder,
-          destinationRootChildrenPayload(children, migration.sourceRootChildNames)
+          rootFolder,
+          destinationRootChildrenPayload(children, names)
         );
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to list root children.");
@@ -834,9 +1018,9 @@ function BrowseFolderPage() {
         rootInclude.recordChildren(parentId, all, { complete: true });
       }
 
+      // No explicit picks: include everything under the current folder/drive.
       if (rootInclude.includedCountUnder(rootId) < 1) {
-        setError("Select at least one item to migrate.");
-        return;
+        rootInclude.setAllForFolder(rootId, rootChildren, true);
       }
 
       const children = rootInclude.buildPayload(rootId, { role: "source" });
@@ -922,7 +1106,7 @@ function BrowseFolderPage() {
 
   return (
     <section className="browse-folder">
-      <GlassSurfacePanel className="browse-folder__content">
+      <PageShell className="browse-folder__content">
         <PageBackButton
           onClick={handlePageBack}
           title={
@@ -949,13 +1133,23 @@ function BrowseFolderPage() {
               </>
             )}
           </h1>
-          {includeMode && (
+          {includeMode ? (
             <p className="browse-folder__include-hint">
-              Check what you want to migrate. Selecting a folder includes everything
-              under it until you open it and uncheck items. Confirm uses the folder
-              you are in as the source root.
+              Browse freely to the folder you want; Confirm uses this folder (or
+              drive) as the source root. You can check folders and files. Leave
+              items unchecked to include everything under it, or narrow the
+              selection (double-click opens a folder). After you start checking,
+              unselected branches show as skipped.
             </p>
-          )}
+          ) : !isDriveView && role === "destination" ? (
+            <p className="browse-folder__include-hint">
+              {destRootReviewMode
+                ? "Review how this destination lines up with your source root. Checks show names that already exist on source at the same relative path (read-only). Double-click opens a destination folder. Confirm when ready."
+                : prepareDestinationRoot
+                  ? "Browse to the destination folder that should receive your source root, then Select. If it already has contents, you will review relative matches next. An empty folder is confirmed immediately."
+                  : "Select uses the folder you are in as the destination root. Open a drive, then Select without picking children to use that root as-is (double-click opens a folder)."}
+            </p>
+          ) : null}
         </header>
 
         {error && (
@@ -984,6 +1178,13 @@ function BrowseFolderPage() {
                     className="browse-folder__breadcrumb-link"
                     onClick={() => {
                       if (index < breadcrumbs.length - 1) {
+                        const alignIdx = destAlignRootId
+                          ? breadcrumbs.findIndex((b) => b.path === destAlignRootId)
+                          : -1;
+                        if (alignIdx >= 0 && index < alignIdx) {
+                          setDestAlignRootId(null);
+                        }
+                        clearSelection();
                         setCurrentPage(0);
                         loadChildren(crumb.path, crumb.name, { page: 0 });
                       }
@@ -1015,7 +1216,7 @@ function BrowseFolderPage() {
         {/* Content area */}
         {includeMode && (
           <BrowseParentExclusionBanner
-            visible={rootInclude.isFolderSkipped(parentKey)}
+            visible={rootInclude.shouldCascadeParentExclusion(parentKey)}
           />
         )}
         <div className="browse-folder__list-container" style={densityStyle}>
@@ -1170,35 +1371,41 @@ function BrowseFolderPage() {
                     className="browse-folder__drive-toggle"
                     onClick={() => setShowNewFolderModal(true)}
                     disabled={!currentPath || mutationLoading}
+                    title="New folder"
+                    aria-label="New folder"
                   >
                     <FolderPlus size={16} />
-                    New folder
                   </button>
-                  <button
-                    type="button"
-                    className={`browse-folder__drive-toggle${
-                      hideFiles ? " browse-folder__drive-toggle--active" : ""
-                    }`}
-                    onClick={() => setHideFiles((current) => !current)}
-                  >
-                    {hideFiles ? "Show files" : "Hide files"}
-                  </button>
-                  {selectedCount > 0 && (
+                  {deleteTargetItems.length > 0 && (
                     <button
                       type="button"
                       className="browse-folder__drive-toggle browse-folder__drive-toggle--danger"
-                      onClick={() => requestDelete(selectedItems)}
+                      onClick={() => requestDelete(deleteTargetItems)}
                       disabled={mutationLoading}
+                      title={`Delete ${deleteTargetItems.length} selected`}
+                      aria-label={`Delete ${deleteTargetItems.length} selected`}
                     >
                       <Trash2 size={16} />
-                      Delete ({selectedCount})
                     </button>
                   )}
                 </>
               }
             >
-              {sortedListing.folders.length === 0 &&
-              sortedListing.files.length === 0 ? (
+              {destRootReviewMode ? (
+                destDual.loading && destDual.rows.length === 0 ? (
+                  <div className="browse-folder__empty">Comparing with source…</div>
+                ) : (
+                  <DestDualListRows
+                    rows={destDual.rows}
+                    readOnlyChecks
+                    onOpenFolder={(row: DestDualRow) => {
+                      if (!row.dst) return;
+                      handleFolderClick(row.dst);
+                    }}
+                  />
+                )
+              ) : sortedListing.folders.length === 0 &&
+                sortedListing.files.length === 0 ? (
                 <div className="path-review-list__empty">This folder is empty.</div>
               ) : (
                 <>
@@ -1217,7 +1424,9 @@ function BrowseFolderPage() {
                       <div
                         key={folder.ServiceID}
                         className={`browse-folder__item browse-folder__item--selectable${
-                          isSelected(folder.ServiceID) ? " browse-folder__item--selected" : ""
+                          (includeMode ? included : isSelected(folder.ServiceID))
+                            ? " browse-folder__item--selected"
+                            : ""
                         }${
                           includeMode && !included
                             ? " browse-folder__item--unchecked"
@@ -1235,8 +1444,14 @@ function BrowseFolderPage() {
                           ) {
                             return;
                           }
-                          if (isMultiSelectModifier(event) || event.shiftKey) {
-                            handleItemSelect(item, index, event);
+                          handleItemSelect(item, index, event);
+                        }}
+                        onDoubleClick={(event) => {
+                          if (
+                            (event.target as HTMLElement).closest(
+                              'input[type="checkbox"], .browse-folder__filter-x'
+                            )
+                          ) {
                             return;
                           }
                           handleFolderClick(folder, event);
@@ -1250,7 +1465,12 @@ function BrowseFolderPage() {
                             included={included}
                             filterReason={filterReason}
                             onToggle={() =>
-                              rootInclude.toggle(parentKey, folder.ServiceID)
+                              rootInclude.toggle(
+                                parentKey,
+                                folder.ServiceID,
+                                ancestorChain,
+                                { fullSubtree: true }
+                              )
                             }
                           />
                         )}
@@ -1280,7 +1500,9 @@ function BrowseFolderPage() {
                       <div
                         key={file.ServiceID}
                         className={`browse-folder__item browse-folder__item--file browse-folder__item--selectable${
-                          isSelected(file.ServiceID) ? " browse-folder__item--selected" : ""
+                          (includeMode ? included : isSelected(file.ServiceID))
+                            ? " browse-folder__item--selected"
+                            : ""
                         }${
                           includeMode && !included
                             ? " browse-folder__item--unchecked"
@@ -1291,18 +1513,14 @@ function BrowseFolderPage() {
                             : ""
                         }`}
                         onClick={(event) => {
-                          if (isMultiSelectModifier(event) || event.shiftKey) {
-                            handleItemSelect(item, index, event);
-                            return;
-                          }
                           if (
-                            includeMode &&
-                            !(event.target as HTMLElement).closest(
+                            (event.target as HTMLElement).closest(
                               'input[type="checkbox"], .browse-folder__filter-x'
                             )
                           ) {
-                            rootInclude.toggle(parentKey, file.ServiceID);
+                            return;
                           }
+                          handleItemSelect(item, index, event);
                         }}
                         onContextMenu={(event) => {
                           handleItemContextMenu(event, item);
@@ -1313,7 +1531,12 @@ function BrowseFolderPage() {
                             included={included}
                             filterReason={filterReason}
                             onToggle={() =>
-                              rootInclude.toggle(parentKey, file.ServiceID)
+                              rootInclude.toggle(
+                                parentKey,
+                                file.ServiceID,
+                                ancestorChain,
+                                { fullSubtree: false }
+                              )
                             }
                           />
                         )}
@@ -1339,7 +1562,7 @@ function BrowseFolderPage() {
             {!isDriveView && currentPath && (
               <button
                 type="button"
-                className="glass-button glass-button--progress-cta"
+                className="action-button action-button--primary"
                 onClick={() => void handleSelectRoot()}
                 disabled={includeSubmitting}
               >
@@ -1347,20 +1570,22 @@ function BrowseFolderPage() {
                   ? "Saving…"
                   : role === "source"
                     ? "Confirm"
-                    : "Select"}
+                    : destRootReviewMode
+                      ? "Confirm destination"
+                      : "Select"}
               </button>
             )}
           </div>
         </div>
-      </GlassSurfacePanel>
+      </PageShell>
 
       {contextMenu && (
         <BrowseContextMenu
           x={contextMenu.x}
           y={contextMenu.y}
           label={
-            selectedCount > 0
-              ? `Delete ${selectedCount} selected`
+            deleteTargetItems.length > 0
+              ? `Delete ${deleteTargetItems.length} selected`
               : `Delete "${contextMenu.item.name}"`
           }
           onDelete={handleContextDelete}

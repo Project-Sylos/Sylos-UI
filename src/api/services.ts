@@ -93,13 +93,18 @@ export async function startMigration(
   return (await response.json()) as MigrationResponse;
 }
 
-export async function uploadMigrationDB(
-  file: File,
+export async function uploadMigrationOps(
+  zip: Blob,
   filename: string,
   overwrite = false
 ): Promise<MigrationUploadResponse> {
-
   const formData = new FormData();
+  const file =
+    zip instanceof File
+      ? zip
+      : new File([zip], filename.endsWith(".zip") ? filename : `${filename}.ops.zip`, {
+          type: "application/zip",
+        });
   formData.append("file", file);
   formData.append("filename", filename);
   if (overwrite) {
@@ -118,13 +123,47 @@ export async function uploadMigrationDB(
     }
     const message = await response.text();
     throw new Error(
-      `Failed to upload migration DB (${response.status}): ${
+      `Failed to upload migration ops (${response.status}): ${
         message || "Unknown error"
       }`
     );
   }
 
   return (await response.json()) as MigrationUploadResponse;
+}
+
+/** @deprecated Use uploadMigrationOps */
+export async function uploadMigrationDB(
+  file: File,
+  filename: string,
+  overwrite = false
+): Promise<MigrationUploadResponse> {
+  return uploadMigrationOps(file, filename, overwrite);
+}
+
+export async function downloadMigrationOpsExport(migrationId: string): Promise<void> {
+  const response = await apiFetch(
+    `/api/migrations/${encodeURIComponent(migrationId)}/export`,
+    { method: "GET" }
+  );
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(
+      `Failed to export migration (${response.status}): ${message || "Unknown error"}`
+    );
+  }
+  const blob = await response.blob();
+  const disposition = response.headers.get("Content-Disposition") || "";
+  const match = /filename="?([^"]+)"?/i.exec(disposition);
+  const name = match?.[1] || `${migrationId}.ops.zip`;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 export async function listMigrationDBs(): Promise<MigrationDBFile[]> {
@@ -754,6 +793,9 @@ export interface PathNodeItem {
   traversalStatus: "pending" | "successful" | "failed" | "excluded" | "not_on_src";
   copyStatus?: string;        // "pending", "successful", "failed", …
   deleteStatus?: string;      // delete: pending_explicit, pending_inherited, skipped, deleted, failed
+  copyRetryMarked?: boolean;  // copy pending queued for retry from a previous copy failure
+  copyExcludedFromFailed?: boolean; // copy excluded from a retry-marked failure; unexcluding restores failed
+  copyForceReplaceMarked?: boolean; // pending prefer-source overwrite from already_existed
   failureLogId?: string;
   failureMessage?: string;
   ruleExclusion?: RuleExclusion;
@@ -1233,6 +1275,50 @@ export async function unmarkNodeForRetryCopy(
 
   const data = await response.json();
   return data;
+}
+
+/** Prefer source overwrite for exists-on-both (already_existed → pending). Folders cascade to descendants. */
+export async function forceReplaceCopyNode(
+  migrationId: string,
+  nodeId: string
+): Promise<ExclusionResponse> {
+  const response = await apiFetch(
+    `/api/migrations/${migrationId}/node/${encodeURIComponent(nodeId)}/force-replace-copy`,
+    { method: "POST" }
+  );
+  if (!response.ok) {
+    let errorMessage = "Failed to force-replace with source";
+    try {
+      const errorData = await response.json();
+      errorMessage = errorData.error || errorMessage;
+    } catch {
+      errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+    }
+    return { success: false, error: errorMessage };
+  }
+  return response.json();
+}
+
+/** Undo prefer-source force-replace (forced pending → already_existed). */
+export async function unforceReplaceCopyNode(
+  migrationId: string,
+  nodeId: string
+): Promise<ExclusionResponse> {
+  const response = await apiFetch(
+    `/api/migrations/${migrationId}/node/${encodeURIComponent(nodeId)}/unforce-replace-copy`,
+    { method: "POST" }
+  );
+  if (!response.ok) {
+    let errorMessage = "Failed to undo force-replace";
+    try {
+      const errorData = await response.json();
+      errorMessage = errorData.error || errorMessage;
+    } catch {
+      errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+    }
+    return { success: false, error: errorMessage };
+  }
+  return response.json();
 }
 
 // Phase change API types and functions

@@ -1,16 +1,16 @@
-@import "../styles/components/glass-container.css";
-@import "../styles/components/glass-card.css";
+@import "../styles/components/surface.css";
 @import "../styles/components/back-button.css";
 @import "../styles/components/text-styles.css";
 
 .selection-page {
   position: relative;
-  height: 100vh;
+  height: 100%;
+  min-height: 0;
   width: 100%;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: clamp(2rem, 5vw, 5rem);
+  align-items: stretch;
+  justify-content: stretch;
+  padding: 1.25rem 1.5rem;
   box-sizing: border-box;
   color: var(--text-primary);
   font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
@@ -22,16 +22,17 @@
 }
 
 .selection-page__back {
-  position: absolute;
-  top: clamp(1.5rem, 4vw, 2.5rem);
-  left: clamp(1.5rem, 4vw, 3rem);
+  position: relative;
+  align-self: flex-start;
+  flex-shrink: 0;
+  margin-bottom: 0.75rem;
   z-index: 2;
 }
 
 .selection-page__content {
   position: relative;
   z-index: 1;
-  width: min(960px, 100%);
+  width: 100%;
   max-height: 100%;
   display: flex;
   flex-direction: column;
@@ -41,9 +42,11 @@
 .selection-page__scroll {
   display: flex;
   flex-direction: column;
-  gap: 2.5rem;
+  justify-content: safe center;
+  flex: 1;
+  gap: 1.5rem;
   text-align: center;
-  padding: clamp(2rem, 5vw, 3rem) clamp(2rem, 5vw, 4rem);
+  padding: 0;
   box-sizing: border-box;
   min-height: 0;
   overflow-y: auto;
@@ -51,7 +54,6 @@
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
   scrollbar-gutter: stable;
-  /* Composite the scroller independently of the frosted panel behind it. */
   contain: paint;
   transform: translateZ(0);
 }
@@ -59,6 +61,18 @@
 .selection-page__header h1 {
   font-size: clamp(2rem, 4vw, 2.75rem);
   margin: 0;
+}
+
+.selection-page__subtitle {
+  margin: 0.55rem 0 0;
+  color: var(--text-muted);
+  font-size: clamp(1rem, 2vw, 1.15rem);
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+:root[data-theme="quartz"] .selection-page__subtitle {
+  color: var(--text-secondary);
 }
 
 .selection-page__error {
@@ -83,18 +97,15 @@
   font-size: 0.95rem;
 }
 
-.selection-page__highlight--magenta {
-  color: var(--accent-magenta);
-}
-
-.selection-page__highlight--cyan {
-  color: var(--accent-cyan);
-}
+/* Title word marks: see styles/components/brand-marks.css */
 
 .selection-page__grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: clamp(1.5rem, 4vw, 2.5rem);
+  width: 100%;
+  max-width: 1150px;
+  margin-inline: auto;
 }
 
 .selection-page__card {
@@ -105,17 +116,20 @@
   padding: 2.25rem 1.75rem;
   background: var(--selection-card-background);
   border: 1px solid var(--selection-card-border-color);
-  border-radius: 26px;
+  border-radius: var(--surface-radius, 14px);
   box-shadow: var(--selection-card-shadow);
+  backdrop-filter: blur(var(--surface-blur, 16px));
+  -webkit-backdrop-filter: blur(var(--surface-blur, 16px));
   color: inherit;
   cursor: pointer;
+  text-align: center;
   transition: transform 0.2s ease, border-color 0.2s ease,
     box-shadow 0.2s ease, background 0.2s ease;
 }
 
 @media (hover: hover) and (pointer: fine) {
   .selection-page__card:hover {
-    transform: translateY(-6px);
+    transform: none;
     border-color: var(--selection-card-border-color-hover);
     background: var(--selection-card-hover-background);
     box-shadow: var(--selection-card-hover-shadow);
@@ -148,18 +162,66 @@
     var(--color-base-slate-r),
     var(--color-base-slate-g),
     var(--color-base-slate-b),
-    var(--glass-border-opacity-default)
+    var(--border-opacity-default)
   );
 }
 
 .selection-page__icon--accent-a {
-  color: var(--accent-cyan);
-  background: var(--accent-cyan-opacity-20);
+  color: var(--brand-cyan);
 }
 
 .selection-page__icon--accent-b {
-  color: var(--accent-magenta);
-  background: var(--accent-magenta-opacity-20);
+  color: var(--brand-magenta);
+}
+
+/*
+ * Start / Resume: quiet glass cards; muted role color on Lucide glyphs only.
+ */
+.selection-page--brand .selection-page__card {
+  border: 1px solid var(--selection-card-border-color, var(--surface-rim));
+  border-radius: var(--surface-radius, 14px);
+  background: var(--selection-card-background, var(--surface-glass-bg));
+  box-shadow: var(--selection-card-shadow, var(--surface-panel-shadow));
+  backdrop-filter: blur(var(--surface-blur, 16px));
+  -webkit-backdrop-filter: blur(var(--surface-blur, 16px));
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .selection-page--brand .selection-page__card:hover:not(:disabled) {
+    border-color: var(--selection-card-border-color-hover);
+    background: var(--selection-card-hover-background);
+    box-shadow: var(--selection-card-hover-shadow);
+  }
+}
+
+.selection-page--brand .selection-page__name {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.selection-page--brand .selection-page__icon--accent-a,
+.selection-page--brand .selection-page__icon--accent-b {
+  background: rgba(
+    var(--color-base-slate-r),
+    var(--color-base-slate-g),
+    var(--color-base-slate-b),
+    0.1
+  );
+  border: none;
+  box-shadow: inset 0 0 0 1px rgba(
+    var(--color-base-slate-r),
+    var(--color-base-slate-g),
+    var(--color-base-slate-b),
+    var(--border-opacity-subtle)
+  );
+}
+
+.selection-page--brand .selection-page__icon--accent-a {
+  color: var(--brand-cyan);
+}
+
+.selection-page--brand .selection-page__icon--accent-b {
+  color: var(--brand-magenta);
 }
 
 .selection-page__icon .service-external-logo {
@@ -189,7 +251,7 @@
     var(--color-base-dark-r),
     var(--color-base-dark-g),
     var(--color-base-dark-b),
-    var(--glass-bg-opacity-tertiary)
+    var(--surface-opacity-tertiary)
   );
   border-radius: 4px;
 }

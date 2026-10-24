@@ -11,7 +11,8 @@ export const BROWSE_SELECTION_HELP = {
   category: "browse-folder-selection",
   content: (
     <>
-      <p>Ctrl/Cmd+click or Shift+click to multi-select items for delete.</p>
+      <p>Click to select; click again to deselect. Double-click a folder to open it.</p>
+      <p>Ctrl/Cmd+click or Shift+click to multi-select.</p>
       <p>Hold Alt to select text in a row.</p>
       <p>
         Right-click to delete selected items, or the clicked item if none are selected.

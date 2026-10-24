@@ -38,9 +38,9 @@
 
 .form-field__input:focus {
   outline: none;
-  border-color: var(--accent-magenta);
+  border-color: var(--accent);
   background: var(--ui-field-bg-focus);
-  box-shadow: 0 0 0 3px var(--accent-magenta-opacity-10);
+  box-shadow: 0 0 0 3px var(--accent-opacity-10);
 }
 
 .form-field__input:disabled {

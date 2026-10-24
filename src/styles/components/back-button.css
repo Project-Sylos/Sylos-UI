@@ -48,22 +48,22 @@
     var(--chrome-icon-fill-b),
     var(--chrome-icon-fill-alpha-hover)
   );
-  border-color: var(--accent-cyan-opacity-10);
+  border-color: var(--accent-opacity-10);
   color: var(--chrome-icon-color-hover);
   box-shadow: var(--chrome-icon-shadow-hover);
 }
 
 .back-button--icon:active {
-  border-color: var(--accent-cyan-opacity-20);
+  border-color: var(--accent-opacity-20);
   box-shadow: var(--elevation-contact-rest),
-    0 0 0 1px var(--accent-cyan-opacity-20);
+    0 0 0 1px var(--accent-opacity-20);
 }
 
 .back-button--icon:focus-visible {
   outline: none;
-  border-color: var(--accent-cyan-opacity-20);
+  border-color: var(--accent-opacity-20);
   box-shadow: var(--elevation-contact-rest),
-    0 0 0 2px var(--accent-cyan-opacity-20);
+    0 0 0 2px var(--accent-opacity-20);
 }
 
 /* Icon-only page back control - destination shown via title tooltip on hover */
@@ -85,7 +85,7 @@
 }
 
 .page-back-button:focus-visible {
-  outline: 2px solid var(--accent-cyan-opacity-20);
+  outline: 2px solid var(--accent-opacity-20);
   outline-offset: 2px;
   border-radius: 4px;
 }

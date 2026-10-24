@@ -1,7 +1,7 @@
 import { FormEvent, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 
-import logo from "../assets/logos/main-app-logo-transparent.png";
+import SylosLogo from "../components/SylosLogo";
 import { recoverPassword } from "../api/auth";
 import { useAuth } from "../contexts/AuthContext";
 import "../App.css";
@@ -72,7 +72,7 @@ export default function Login() {
   return (
     <div className="App-root">
       <div className="App-card">
-        <img src={logo} alt="Sylos Logo" className="App-logo" />
+        <SylosLogo className="App-logo" />
         {recoveryMode ? (
           <form onSubmit={handleRecoverySubmit} className="auth-form">
             <h1 className="auth-form__heading">Reset password</h1>
@@ -120,7 +120,7 @@ export default function Login() {
             </label>
             {error && <p className="auth-form__error">{error}</p>}
             {recoverySuccess && <p className="auth-form__success">{recoverySuccess}</p>}
-            <button className="glass-button glass-button--pill" type="submit" disabled={submitting}>
+            <button className="action-button action-button--pill action-button--primary" type="submit" disabled={submitting}>
               {submitting ? "Updating…" : "Update password"}
             </button>
             <button
@@ -165,7 +165,7 @@ export default function Login() {
             </label>
             {error && <p className="auth-form__error">{error}</p>}
             {recoverySuccess && <p className="auth-form__success">{recoverySuccess}</p>}
-            <button className="glass-button glass-button--pill" type="submit" disabled={submitting}>
+            <button className="action-button action-button--pill action-button--primary" type="submit" disabled={submitting}>
               {submitting ? "Signing in…" : "Sign in"}
             </button>
             <button

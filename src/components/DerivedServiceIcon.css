@@ -1,0 +1,31 @@
+.derived-service-icon-wrap {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  vertical-align: middle;
+}
+
+svg.derived-service-icon {
+  display: block;
+}
+
+svg.derived-service-icon.derived-service-icon--local {
+  color: var(--brand-cyan);
+}
+
+svg.derived-service-icon.derived-service-icon--spectra {
+  color: var(--brand-magenta);
+}
+
+svg.derived-service-icon.derived-service-icon--sftp {
+  color: #d4a574;
+}
+
+svg.derived-service-icon.derived-service-icon--cloud {
+  color: #8aa3c7;
+}
+
+svg.derived-service-icon.derived-service-icon--default {
+  color: var(--text-secondary);
+}

@@ -1,8 +1,9 @@
 // Copyright 2025 Sylos contributors
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
-import { AlertTriangle, Eye, EyeOff, File, Folder, Info, FilterX } from "lucide-react";
+import { AlertTriangle, Eye, EyeOff, Info, FilterX } from "lucide-react";
 import { DiffItem } from "../api/services";
+import FileTypeIcon from "./FileTypeIcon";
 import {
   PATH_REVIEW_COPY,
   destinationDisplayName,
@@ -29,6 +30,10 @@ type PathReviewInspectorProps = {
   busy?: boolean;
   canExclude?: boolean;
   canRetry?: boolean;
+  canForceReplace?: boolean;
+  canUnforceReplace?: boolean;
+  /** Overrides the retry button label (copy status cycle steps). */
+  retryLabel?: string;
   isExcluded?: boolean;
   isMarkedForRetry?: boolean;
   canRename?: boolean;
@@ -37,6 +42,8 @@ type PathReviewInspectorProps = {
   onToggleIgnoreWarning?: () => void;
   onExclude?: () => void;
   onRetry?: () => void;
+  onForceReplace?: () => void;
+  onUnforceReplace?: () => void;
 };
 
 function formatDate(dateString?: string): string {
@@ -84,6 +91,9 @@ export default function PathReviewInspector({
   busy = false,
   canExclude = false,
   canRetry = false,
+  canForceReplace = false,
+  canUnforceReplace = false,
+  retryLabel,
   isExcluded = false,
   isMarkedForRetry = false,
   canRename = false,
@@ -92,6 +102,8 @@ export default function PathReviewInspector({
   onToggleIgnoreWarning,
   onExclude,
   onRetry,
+  onForceReplace,
+  onUnforceReplace,
 }: PathReviewInspectorProps) {
   const inSrc = !!item.src;
   const inDst = !!item.dst;
@@ -122,7 +134,11 @@ export default function PathReviewInspector({
     <aside className="path-review-inspector" aria-label="Item details">
       <div className="path-review-inspector__header">
         <div className="path-review-inspector__header-icon" aria-hidden>
-          {isFolder ? <Folder size={18} /> : <File size={18} />}
+          <FileTypeIcon
+            name={item.name}
+            type={isFolder ? "folder" : "file"}
+            size={18}
+          />
         </div>
         <div className="path-review-inspector__header-text">
           <h2 className="path-review-inspector__title" title={item.name}>
@@ -145,15 +161,7 @@ export default function PathReviewInspector({
                 value={item.src.displayPath || item.src.locationPath}
                 title={item.src.displayPath || item.src.locationPath}
               />
-              <Detail
-                label="Size"
-                value={formatSize(item.src.size)}
-                title={
-                  item.src.type === "folder"
-                    ? "Total size of everything underneath this folder"
-                    : undefined
-                }
-              />
+              <Detail label="Size" value={formatSize(item.src.size)} />
               <Detail
                 label="Last modified"
                 value={formatDate(item.src.lastUpdated)}
@@ -185,15 +193,7 @@ export default function PathReviewInspector({
                       : PATH_REVIEW_COPY.renamedOnDestination}
                   </p>
                 ) : null}
-                <Detail
-                  label="Size"
-                  value={formatSize(item.dst.size)}
-                  title={
-                    item.dst.type === "folder"
-                      ? "Total size of everything underneath this folder"
-                      : undefined
-                  }
-                />
+                <Detail label="Size" value={formatSize(item.dst.size)} />
                 <Detail
                   label="Last modified"
                   value={formatDate(item.dst.lastUpdated)}
@@ -327,7 +327,7 @@ export default function PathReviewInspector({
             {canRename && (
               <button
                 type="button"
-                className="glass-button glass-button--small"
+                className="action-button action-button--small"
                 disabled={busy}
                 onClick={onRename}
               >
@@ -337,7 +337,7 @@ export default function PathReviewInspector({
             {canToggleIgnoreWarning && (
               <button
                 type="button"
-                className="glass-button glass-button--small path-review-inspector__icon-toggle"
+                className="action-button action-button--small path-review-inspector__icon-toggle"
                 disabled={busy}
                 onClick={onToggleIgnoreWarning}
                 title={
@@ -368,7 +368,7 @@ export default function PathReviewInspector({
         {canExclude && (
           <button
             type="button"
-            className="glass-button glass-button--small"
+            className="action-button action-button--small"
             disabled={busy}
             onClick={onExclude}
           >
@@ -378,11 +378,31 @@ export default function PathReviewInspector({
         {canRetry && (
           <button
             type="button"
-            className="glass-button glass-button--small"
+            className="action-button action-button--small"
             disabled={busy}
             onClick={onRetry}
           >
-            {isMarkedForRetry ? "Unmark retry" : "Mark for retry"}
+            {retryLabel ?? (isMarkedForRetry ? "Unmark retry" : "Mark for retry")}
+          </button>
+        )}
+        {canForceReplace && (
+          <button
+            type="button"
+            className="action-button action-button--small"
+            disabled={busy}
+            onClick={onForceReplace}
+          >
+            Replace with source
+          </button>
+        )}
+        {canUnforceReplace && (
+          <button
+            type="button"
+            className="action-button action-button--small"
+            disabled={busy}
+            onClick={onUnforceReplace}
+          >
+            Keep destination (undo replace)
           </button>
         )}
       </div>

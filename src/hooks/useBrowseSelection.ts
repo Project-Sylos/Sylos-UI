@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 
 export type BrowseSelectableItem = {
   id: string;
@@ -16,9 +16,62 @@ export function isMultiSelectModifier(modifiers: BrowseSelectModifiers): boolean
   return modifiers.ctrlKey || modifiers.metaKey;
 }
 
+function nextSelection(
+  prev: Map<string, BrowseSelectableItem>,
+  lastIndex: number | null,
+  item: BrowseSelectableItem,
+  index: number,
+  modifiers: BrowseSelectModifiers,
+  visibleItems: BrowseSelectableItem[]
+): Map<string, BrowseSelectableItem> {
+  const multi = isMultiSelectModifier(modifiers);
+  const range = modifiers.shiftKey;
+
+  if (range && lastIndex != null) {
+    const next = multi ? new Map(prev) : new Map<string, BrowseSelectableItem>();
+    const start = Math.min(lastIndex, index);
+    const end = Math.max(lastIndex, index);
+    for (let i = start; i <= end; i++) {
+      const entry = visibleItems[i];
+      if (entry) {
+        next.set(entry.id, entry);
+      }
+    }
+    return next;
+  }
+
+  if (multi) {
+    const next = new Map(prev);
+    if (next.has(item.id)) {
+      next.delete(item.id);
+    } else {
+      next.set(item.id, item);
+    }
+    return next;
+  }
+
+  // Plain click: exclusive select, or deselect when this is already the only
+  // selection. Ctrl/Cmd still toggles; Shift still ranges. Path Review delays
+  // plain folder clicks so a double-click can navigate before this runs.
+  if (prev.has(item.id)) {
+    if (prev.size === 1) {
+      return new Map();
+    }
+    const next = new Map(prev);
+    next.delete(item.id);
+    return next;
+  }
+
+  return new Map([[item.id, item]]);
+}
+
 export function useBrowseSelection() {
   const [selected, setSelected] = useState<Map<string, BrowseSelectableItem>>(new Map());
   const [lastIndex, setLastIndex] = useState<number | null>(null);
+  const selectedRef = useRef(selected);
+  const lastIndexRef = useRef(lastIndex);
+  selectedRef.current = selected;
+  lastIndexRef.current = lastIndex;
 
   const isSelected = useCallback((id: string) => selected.has(id), [selected]);
 
@@ -28,42 +81,36 @@ export function useBrowseSelection() {
       index: number,
       modifiers: BrowseSelectModifiers,
       visibleItems: BrowseSelectableItem[]
-    ) => {
-      const multi = isMultiSelectModifier(modifiers);
-      const range = modifiers.shiftKey;
-
-      setSelected((prev) => {
-        if (range && lastIndex != null) {
-          const next = multi ? new Map(prev) : new Map<string, BrowseSelectableItem>();
-          const start = Math.min(lastIndex, index);
-          const end = Math.max(lastIndex, index);
-          for (let i = start; i <= end; i++) {
-            const entry = visibleItems[i];
-            if (entry) {
-              next.set(entry.id, entry);
-            }
-          }
-          return next;
-        }
-
-        if (multi) {
-          const next = new Map(prev);
-          if (next.has(item.id)) {
-            next.delete(item.id);
-          } else {
-            next.set(item.id, item);
-          }
-          return next;
-        }
-
-        return new Map([[item.id, item]]);
-      });
+    ): {
+      prev: Map<string, BrowseSelectableItem>;
+      next: Map<string, BrowseSelectableItem>;
+      multi: boolean;
+    } => {
+      const prev = selectedRef.current;
+      const next = nextSelection(
+        prev,
+        lastIndexRef.current,
+        item,
+        index,
+        modifiers,
+        visibleItems
+      );
+      selectedRef.current = next;
+      lastIndexRef.current = index;
+      setSelected(next);
       setLastIndex(index);
+      return {
+        prev,
+        next,
+        multi: isMultiSelectModifier(modifiers),
+      };
     },
-    [lastIndex]
+    []
   );
 
   const clear = useCallback(() => {
+    selectedRef.current = new Map();
+    lastIndexRef.current = null;
     setSelected(new Map());
     setLastIndex(null);
   }, []);

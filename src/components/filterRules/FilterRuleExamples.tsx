@@ -100,7 +100,7 @@ function ExampleCard({ card, open, onToggle, onUse }: ExampleCardProps) {
           <div className="rule-examples__item-actions">
             <button
               type="button"
-              className="glass-button glass-button--progress-cta"
+              className="action-button action-button--primary"
               onClick={() => onUse(card.ruleset)}
             >
               {card.useLabel}
@@ -173,7 +173,7 @@ export default function FilterRuleExamples({
           </div>
           <button
             type="button"
-            className="glass-button glass-button--secondary"
+            className="action-button action-button--secondary"
             onClick={onClose}
             aria-label="Close examples"
           >

@@ -1,7 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type MouseEvent } from "react";
 import { Link, useNavigate } from "react-router";
 import {
-  Upload,
+  FolderUp,
+  FileArchive,
+  Download,
   CheckCircle2,
   RotateCcw,
   RefreshCw,
@@ -14,7 +16,8 @@ import PageContainer from "../components/PageContainer";
 import {
   listMigrations,
   getMigrationStatus,
-  uploadMigrationDB,
+  uploadMigrationOps,
+  downloadMigrationOpsExport,
 } from "../api/services";
 import { clearAllMigrations } from "../api/admin";
 import DestructiveConfirmDialog from "../components/CleanSlateDialog";
@@ -24,7 +27,9 @@ import {
   MigrationWithStatus,
   getMigrationPhase,
 } from "../types/migrations";
-import { pickDBFile, formatDate } from "../utils/fileUpload";
+import { formatDate } from "../utils/fileUpload";
+import { pickOpsImport } from "../utils/opsImport";
+import { SYLOS_WIKI_URL } from "../contexts/HelpModalContext";
 import { useSelection } from "../context/SelectionContext";
 import "./ResumeMigration.css";
 
@@ -35,12 +40,14 @@ export default function ResumeMigration() {
   const [openingMigrationId, setOpeningMigrationId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [exportingId, setExportingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
   const [showOverwriteDialog, setShowOverwriteDialog] = useState(false);
   const [pendingUpload, setPendingUpload] = useState<{
-    file: File;
+    zip: Blob;
     filename: string;
+    label: string;
   } | null>(null);
   const [canCleanSlate, setCanCleanSlate] = useState(false);
   const [showCleanSlateDialog, setShowCleanSlateDialog] = useState(false);
@@ -95,29 +102,29 @@ export default function ResumeMigration() {
     }
   };
 
-  const handleUpload = async () => {
-    const file = await pickDBFile("Select migration database file");
-    if (!file) {
-      return;
-    }
-
-    const filename = file.name.endsWith(".db")
-      ? file.name.slice(0, -3)
-      : file.name;
-
+  const runOpsUpload = async (
+    zip: Blob,
+    filename: string,
+    label: string,
+    overwrite: boolean
+  ) => {
     setUploading(true);
     setError(null);
     setUploadSuccess(null);
-
     try {
-      await uploadMigrationDB(file, filename, false);
-      setUploadSuccess(`Successfully uploaded "${file.name}"`);
+      await uploadMigrationOps(zip, filename, overwrite);
+      setUploadSuccess(
+        overwrite
+          ? `Successfully imported "${label}" (overwritten)`
+          : `Successfully imported "${label}"`
+      );
+      setPendingUpload(null);
       await loadMigrations();
     } catch (err) {
       const errorMessage =
-        err instanceof Error ? err.message : "Failed to upload file.";
-      if (errorMessage.includes("file already present on API")) {
-        setPendingUpload({ file, filename });
+        err instanceof Error ? err.message : "Failed to import migration data.";
+      if (!overwrite && errorMessage.includes("file already present on API")) {
+        setPendingUpload({ zip, filename, label });
         setShowOverwriteDialog(true);
       } else {
         setError(errorMessage);
@@ -127,39 +134,44 @@ export default function ResumeMigration() {
     }
   };
 
+  const handleImport = async (mode: "zip" | "folder") => {
+    const picked = await pickOpsImport(mode);
+    if (!picked || !picked.migrationId) {
+      return;
+    }
+    await runOpsUpload(picked.zip, picked.migrationId, picked.label, false);
+  };
+
   const handleOverwrite = async () => {
     if (!pendingUpload) {
       return;
     }
-
     setShowOverwriteDialog(false);
-    setUploading(true);
-    setError(null);
-    setUploadSuccess(null);
-
-    try {
-      await uploadMigrationDB(
-        pendingUpload.file,
-        pendingUpload.filename,
-        true
-      );
-      setUploadSuccess(
-        `Successfully uploaded "${pendingUpload.file.name}" (overwritten)`
-      );
-      setPendingUpload(null);
-      await loadMigrations();
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to overwrite file."
-      );
-    } finally {
-      setUploading(false);
-    }
+    await runOpsUpload(
+      pendingUpload.zip,
+      pendingUpload.filename,
+      pendingUpload.label,
+      true
+    );
   };
 
   const handleCancelOverwrite = () => {
     setShowOverwriteDialog(false);
     setPendingUpload(null);
+  };
+
+  const handleExport = async (migrationId: string, e: MouseEvent) => {
+    e.stopPropagation();
+    if (busy) return;
+    setExportingId(migrationId);
+    setError(null);
+    try {
+      await downloadMigrationOpsExport(migrationId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to export migration.");
+    } finally {
+      setExportingId(null);
+    }
   };
 
   /** Progress-monitor mode query for a lifecycle phase. */
@@ -299,20 +311,31 @@ export default function ResumeMigration() {
     }
   };
 
-  const busy = uploading || Boolean(openingMigrationId) || cleanSlateBusy;
+  const busy =
+    uploading || Boolean(openingMigrationId) || cleanSlateBusy || Boolean(exportingId);
 
   return (
     <>
       <PageContainer
         className="resume-migration"
         contentClassName="resume-migration__content"
-        onBack={() => navigate("/choose")}
-        backTitle="Back to migration type"
+        onBack={() => navigate("/")}
+        backTitle="Back to home"
       >
         <header className="resume-migration__header">
           <h1>Select Migration to Resume</h1>
           <p className="resume-migration__summary">
-            Open a migration to continue from its last page. Upload a database file to add one.
+            Open a migration to continue from its last page. Import from a folder or
+            upload a zip to add one (contents are copied into Sylos, not used in
+            place).{" "}
+            <a
+              className="resume-migration__link"
+              href={SYLOS_WIKI_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              How ops folders work (wiki)
+            </a>
           </p>
         </header>
 
@@ -328,11 +351,22 @@ export default function ResumeMigration() {
           <button
             type="button"
             className="resume-migration__upload-button"
-            onClick={handleUpload}
+            onClick={() => void handleImport("folder")}
             disabled={busy}
+            title="Select an unpacked .ops folder; contents are zipped and copied into Sylos"
           >
-            <Upload size={20} />
-            {uploading ? "Uploading..." : "Upload New DB File"}
+            <FolderUp size={20} />
+            {uploading ? "Importing..." : "Import from folder"}
+          </button>
+          <button
+            type="button"
+            className="resume-migration__upload-button resume-migration__upload-button--secondary"
+            onClick={() => void handleImport("zip")}
+            disabled={busy}
+            title="Select a Sylos .ops.zip export"
+          >
+            <FileArchive size={20} />
+            Upload zip
           </button>
           <button
             type="button"
@@ -351,14 +385,16 @@ export default function ResumeMigration() {
             <div className="resume-migration__empty">Loading migrations...</div>
           ) : !Array.isArray(migrations) || migrations.length === 0 ? (
             <div className="resume-migration__empty">
-              No migrations found. Upload a database file to get started, or click{" "}
-              <Link to="/choose" className="resume-migration__link">here</Link> to
+              No migrations found. Import from a folder or upload a zip to get started, or
+              click{" "}
+              <Link to="/" className="resume-migration__link">here</Link> to
               start a new migration from scratch instead.
             </div>
           ) : (
             migrations.map((migration) => {
               const isOpening = openingMigrationId === migration.id;
               const openLabel = openLabelForMigration(migration);
+              const isExporting = exportingId === migration.id;
               return (
                 <div
                   key={migration.id}
@@ -379,19 +415,35 @@ export default function ResumeMigration() {
                     }
                   }}
                 >
-                  <button
-                    type="button"
-                    className="resume-migration__open-corner"
-                    title={openLabel}
-                    aria-label={openLabel}
-                    disabled={busy}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (!busy) void handleOpenMigration(migration.id);
-                    }}
-                  >
-                    <ArrowUpRight size={18} aria-hidden="true" />
-                  </button>
+                  <div className="resume-migration__card-actions">
+                    <button
+                      type="button"
+                      className="resume-migration__icon-corner"
+                      title="Export ops zip"
+                      aria-label={`Export ${migration.name || migration.id}`}
+                      disabled={busy}
+                      onClick={(e) => void handleExport(migration.id, e)}
+                    >
+                      <Download
+                        size={16}
+                        aria-hidden="true"
+                        className={isExporting ? "resume-migration__refresh-icon--spinning" : undefined}
+                      />
+                    </button>
+                    <button
+                      type="button"
+                      className="resume-migration__open-corner"
+                      title={openLabel}
+                      aria-label={openLabel}
+                      disabled={busy}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (!busy) void handleOpenMigration(migration.id);
+                      }}
+                    >
+                      <ArrowUpRight size={18} aria-hidden="true" />
+                    </button>
+                  </div>
                   <div className="resume-migration__file-icon">
                     <RotateCcw size={24} color="#ffffff" />
                   </div>
@@ -457,7 +509,7 @@ export default function ResumeMigration() {
       {showCleanSlateDialog && (
         <DestructiveConfirmDialog
           title="Clear all migration data?"
-          body="This permanently deletes every migration folder, migration database file, and migration registry entry on this Sylos install. User accounts and cloud provider app settings are not removed. Running migrations are stopped first. For a full install reset including users, use Settings → Danger zone. This cannot be undone."
+          body="This permanently deletes every migration folder, ops store, and migration registry entry on this Sylos install. User accounts and cloud provider app settings are not removed. Running migrations are stopped first. For a full install reset including users, use Settings → Danger zone. This cannot be undone."
           confirmLabel="Clear all migration data"
           busy={cleanSlateBusy}
           onCancel={() => setShowCleanSlateDialog(false)}
@@ -467,7 +519,7 @@ export default function ResumeMigration() {
 
       {showOverwriteDialog && pendingUpload && (
         <OverwriteDialog
-          filename={pendingUpload.file.name}
+          filename={pendingUpload.label}
           onConfirm={handleOverwrite}
           onCancel={handleCancelOverwrite}
         />

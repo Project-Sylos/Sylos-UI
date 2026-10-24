@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  getPathReviewPageBackPath,
   getPathReviewStepperState,
   showsPathReviewPendingColumn,
 } from "./pathReviewPhase";
@@ -74,5 +75,46 @@ describe("showsPathReviewPendingColumn", () => {
     expect(
       showsPathReviewPendingColumn("delete", status("awaiting-delete-review"))
     ).toBe(false);
+  });
+});
+
+describe("getPathReviewPageBackPath", () => {
+  const id = "mig-1";
+
+  it("sends copy-plan back to discovery results", () => {
+    expect(
+      getPathReviewPageBackPath(id, status("awaiting-traversal-review"), "copy-plan")
+    ).toBe(`/path-review/${id}`);
+  });
+
+  it("sends source-cleanup prep back to copy results", () => {
+    expect(
+      getPathReviewPageBackPath(id, status("awaiting-copy-review"), "source-cleanup")
+    ).toBe(`/path-review/${id}`);
+  });
+
+  it("sends discovery results to discovery progress", () => {
+    expect(
+      getPathReviewPageBackPath(id, status("awaiting-traversal-review"), "default")
+    ).toBe(`/progress-monitor/${id}?mode=discovery`);
+  });
+
+  it("sends copy results to copy progress", () => {
+    expect(
+      getPathReviewPageBackPath(id, status("awaiting-copy-review"), "default")
+    ).toBe(`/progress-monitor/${id}?mode=copy`);
+  });
+
+  it("sends delete results / cleanup results to delete progress", () => {
+    expect(
+      getPathReviewPageBackPath(id, status("awaiting-delete-review"), "default")
+    ).toBe(`/progress-monitor/${id}?mode=delete`);
+    expect(
+      getPathReviewPageBackPath(
+        id,
+        status("awaiting-delete-review"),
+        "source-cleanup"
+      )
+    ).toBe(`/progress-monitor/${id}?mode=delete`);
   });
 });

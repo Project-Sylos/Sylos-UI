@@ -69,7 +69,11 @@
 
 .clean-slate-dialog__confirm {
   background: var(--ui-button-danger-solid-bg);
+  border-width: 1px;
+  border-color: transparent;
   color: var(--ui-button-danger-solid-fg);
+  font-weight: 600;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.16);
 }
 
 .clean-slate-dialog__confirm:disabled,
@@ -93,11 +97,13 @@
 .settings__danger-button {
   margin-top: 0.75rem;
   padding: 0.6rem 1rem;
-  border-radius: 8px;
-  border: 1px solid var(--ui-button-danger-border);
+  border-radius: 10px;
+  border: 1px solid transparent;
   background: var(--ui-button-danger-bg);
   color: var(--ui-button-danger-fg);
+  font-weight: 600;
   cursor: pointer;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.16);
 }
 
 .settings__danger-button:hover:not(:disabled) {
@@ -112,8 +118,9 @@
 }
 
 .settings__danger-button--severe {
-  background: var(--ui-button-danger-bg-hover);
-  border-color: var(--ui-button-danger-border-hover);
+  background: var(--brand-danger-hover);
+  border-color: transparent;
+  color: #ffffff;
 }
 
 .resume-migration__danger {
@@ -139,15 +146,18 @@
 
 .resume-migration__danger-button {
   padding: 0.5rem 0.9rem;
-  border-radius: 8px;
-  border: 1px solid var(--ui-button-danger-border);
+  border-radius: 10px;
+  border: 1px solid transparent;
   background: var(--ui-button-danger-bg);
   color: var(--ui-button-danger-fg);
+  font-weight: 600;
   cursor: pointer;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.16);
 }
 
 .resume-migration__danger-button:hover:not(:disabled) {
   background: var(--ui-button-danger-bg-hover);
+  border-color: var(--ui-button-danger-border-hover);
   color: var(--ui-button-danger-fg-hover);
 }
 

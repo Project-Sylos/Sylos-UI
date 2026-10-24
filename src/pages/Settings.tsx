@@ -1,15 +1,13 @@
 import { useCallback, useEffect, useRef, useState, startTransition, type ReactNode } from "react";
-import { useNavigate, useLocation } from "react-router";
-import { Palette, X, Code, Cloud, Users, AlertTriangle, ChevronDown, Filter, Gauge } from "lucide-react";
+import { Palette, X, Code, Cloud, Users, AlertTriangle, ChevronDown, Filter } from "lucide-react";
 import "./Settings.css";
-import { GlassSurfacePanel } from "../components/GlassSurfacePanel";
+import { PageShell } from "../components/PageShell";
 import { useTheme } from "../contexts/ThemeContext";
 import { usePreferences } from "../contexts/PreferencesContext";
 import { useAuth } from "../contexts/AuthContext";
 import CloudProviderOAuthSetup from "../components/CloudProviderOAuthSetup";
 import SettingsSftpHostsSection from "../components/SettingsSftpHostsSection";
 import SettingsThroughputSection from "../components/SettingsThroughputSection";
-import SettingsPerformanceSection from "../components/SettingsPerformanceSection";
 import "../components/CloudProviderOAuthSetup.css";
 import "../components/SettingsThroughputSection.css";
 import { clearAllMigrations, wipeInstall } from "../api/admin";
@@ -29,13 +27,12 @@ import { ALL_TIP_CATEGORY_IDS, TIP_GROUPS, type TipGroup } from "./settingsTips"
 import { listPrepackagedRulesets, listRulesets } from "../api/services";
 import type { RulesetSummary } from "../types/rulesets";
 
-type SettingsSection =
+export type SettingsSection =
   | "appearance"
   | "filters"
   | "developer"
   | "users"
   | "cloud"
-  | "advanced"
   | "danger";
 
 const SECTION_IDS: Record<SettingsSection, string> = {
@@ -43,14 +40,20 @@ const SECTION_IDS: Record<SettingsSection, string> = {
   filters: "settings-filters",
   users: "settings-users",
   cloud: "settings-cloud",
-  advanced: "settings-advanced",
   danger: "settings-danger",
   developer: "settings-developer",
 };
 
-export default function Settings() {
-  const navigate = useNavigate();
-  const location = useLocation();
+export function isSettingsSection(value: string): value is SettingsSection {
+  return Object.prototype.hasOwnProperty.call(SECTION_IDS, value);
+}
+
+type SettingsProps = {
+  onClose: () => void;
+  initialSection?: SettingsSection | null;
+};
+
+export default function Settings({ onClose, initialSection = null }: SettingsProps) {
   const contentRef = useRef<HTMLDivElement>(null);
   const { user, refresh } = useAuth();
   const { theme, setTheme } = useTheme();
@@ -75,10 +78,6 @@ export default function Settings() {
     { providerId: "sharepoint", displayName: "SharePoint" },
     { providerId: "box", displayName: "Box" },
   ] as const;
-
-  const handleClose = () => {
-    navigate(-1);
-  };
 
   const scrollToSection = useCallback((section: SettingsSection) => {
     setActiveSection(section);
@@ -123,19 +122,12 @@ export default function Settings() {
 
   const canCleanSlate = user?.capabilities?.cleanSlate === true;
   const isAdmin = user?.role === "admin";
+  const developerEnabled = preferences.developer?.enabled === true;
 
   useEffect(() => {
-    if (location.pathname.endsWith("/users")) {
-      navigate("/settings", { replace: true });
-      requestAnimationFrame(() => scrollToSection("users"));
-      return;
-    }
-
-    const hashSection = location.hash.replace("#", "") as SettingsSection;
-    if (hashSection && SECTION_IDS[hashSection]) {
-      requestAnimationFrame(() => scrollToSection(hashSection));
-    }
-  }, [location.pathname, location.hash, navigate, scrollToSection]);
+    if (!initialSection) return;
+    requestAnimationFrame(() => scrollToSection(initialSection));
+  }, [initialSection, scrollToSection]);
 
   useEffect(() => {
     if (!user) return;
@@ -199,34 +191,44 @@ export default function Settings() {
     if (!root) return;
 
     const visibleSections: SettingsSection[] = ["appearance", "filters"];
-    if (user) visibleSections.push("users", "cloud", "advanced");
+    if (user) visibleSections.push("users", "cloud");
     if (canCleanSlate) visibleSections.push("danger");
     visibleSections.push("developer");
 
-    const elements = visibleSections
-      .map((section) => document.getElementById(SECTION_IDS[section]))
-      .filter((el): el is HTMLElement => el !== null);
+    const sections = visibleSections
+      .map((section) => {
+        const el = document.getElementById(SECTION_IDS[section]);
+        return el ? { section, el } : null;
+      })
+      .filter((s): s is { section: SettingsSection; el: HTMLElement } => s !== null);
 
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const intersecting = entries
-          .filter((entry) => entry.isIntersecting)
-          .sort((a, b) => b.intersectionRatio - a.intersectionRatio);
-        const top = intersecting[0]?.target.id;
-        if (!top) return;
-        const section = top.replace("settings-", "") as SettingsSection;
-        if (!SECTION_IDS[section]) return;
-        // Defer so crossing a section boundary never competes with the
-        // compositor-driven scroll frame.
+    const syncActive = () => {
+      // At/near the top (including overscroll bounce), always pin Appearance.
+      if (root.scrollTop <= 8) {
         startTransition(() => {
-          setActiveSection((current) => (current === section ? current : section));
+          setActiveSection((current) =>
+            current === visibleSections[0] ? current : visibleSections[0]
+          );
         });
-      },
-      { root, rootMargin: "-15% 0px -55% 0px", threshold: [0, 0.15, 0.4] }
-    );
+        return;
+      }
 
-    elements.forEach((el) => observer.observe(el));
-    return () => observer.disconnect();
+      // Reading line ~20% down the pane: last section whose top is above it.
+      const marker = root.getBoundingClientRect().top + root.clientHeight * 0.2;
+      let next = sections[0]?.section ?? "appearance";
+      for (const { section, el } of sections) {
+        if (el.getBoundingClientRect().top <= marker) {
+          next = section;
+        }
+      }
+      startTransition(() => {
+        setActiveSection((current) => (current === next ? current : next));
+      });
+    };
+
+    root.addEventListener("scroll", syncActive, { passive: true });
+    syncActive();
+    return () => root.removeEventListener("scroll", syncActive);
   }, [user, canCleanSlate]);
 
   const handleOAuthScanChange = async (minutes: number) => {
@@ -328,10 +330,10 @@ export default function Settings() {
 
   return (
     <section className="settings">
-      <GlassSurfacePanel className="settings__container">
+      <PageShell className="settings__container">
         <button
           className="settings__close"
-          onClick={handleClose}
+          onClick={onClose}
           aria-label="Close settings"
         >
           <X size={20} />
@@ -370,7 +372,6 @@ export default function Settings() {
                     />
                   ) : undefined
                 )}
-              {user && navButton("advanced", <Gauge size={20} />, "Advanced")}
               {canCleanSlate &&
                 navButton("danger", <AlertTriangle size={20} />, "Danger zone")}
             </div>
@@ -616,18 +617,6 @@ export default function Settings() {
             </div>
           )}
 
-          {user && (
-            <div className="settings__section settings__page-section" id={SECTION_IDS.advanced}>
-              <h1 className="settings__section-title">Advanced</h1>
-              <p className="settings__subsection-description">
-                Install-wide tuning for database and migration engine resource use.
-              </p>
-
-              <h2 className="settings__group-title">Performance</h2>
-              <SettingsPerformanceSection canManage={isAdmin} />
-            </div>
-          )}
-
           {canCleanSlate && (
             <div className="settings__section settings__page-section" id={SECTION_IDS.danger}>
               <h1 className="settings__section-title">Danger zone</h1>
@@ -685,7 +674,7 @@ export default function Settings() {
                 <label className="settings__toggle">
                   <input
                     type="checkbox"
-                    checked={preferences.developer?.enabled === true}
+                    checked={developerEnabled}
                     onChange={(e) => {
                       const currentDeveloper = preferences.developer || { enabled: false, showSpectraService: false, disableDbQueryTimeout: false };
                       updatePreferences({
@@ -704,7 +693,9 @@ export default function Settings() {
               </div>
             </div>
 
-            <div className="settings__subsection">
+            <div
+              className={`settings__subsection${developerEnabled ? "" : " settings__subsection--disabled"}`}
+            >
               <div className="settings__subsection-header">
                 <div>
                   <h2 className="settings__subsection-title">Show Spectra Test Service</h2>
@@ -715,8 +706,8 @@ export default function Settings() {
                 <label className="settings__toggle">
                   <input
                     type="checkbox"
-                    checked={preferences.developer?.showSpectraService === true}
-                    disabled={preferences.developer?.enabled !== true}
+                    checked={developerEnabled && preferences.developer?.showSpectraService === true}
+                    disabled={!developerEnabled}
                     onChange={(e) => {
                       const currentDeveloper = preferences.developer || { enabled: false, showSpectraService: false, disableDbQueryTimeout: false };
                       updatePreferences({
@@ -733,7 +724,9 @@ export default function Settings() {
               </div>
             </div>
 
-            <div className="settings__subsection">
+            <div
+              className={`settings__subsection${developerEnabled ? "" : " settings__subsection--disabled"}`}
+            >
               <div className="settings__subsection-header">
                 <div>
                   <h2 className="settings__subsection-title">Disable DB query timeout</h2>
@@ -744,8 +737,8 @@ export default function Settings() {
                 <label className="settings__toggle">
                   <input
                     type="checkbox"
-                    checked={preferences.developer?.disableDbQueryTimeout === true}
-                    disabled={preferences.developer?.enabled !== true}
+                    checked={developerEnabled && preferences.developer?.disableDbQueryTimeout === true}
+                    disabled={!developerEnabled}
                     onChange={(e) => {
                       const currentDeveloper = preferences.developer || { enabled: false, showSpectraService: false, disableDbQueryTimeout: false };
                       updatePreferences({
@@ -763,7 +756,7 @@ export default function Settings() {
             </div>
           </div>
         </div>
-      </GlassSurfacePanel>
+      </PageShell>
 
       {dangerDialog === "clear-migrations" && (
         <DestructiveConfirmDialog

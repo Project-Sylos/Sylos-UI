@@ -1,0 +1,109 @@
+.bulk-action-dialog__overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 110000;
+}
+
+.bulk-action-dialog__content {
+  border-radius: 8px;
+  padding: 1.5rem;
+  max-width: 520px;
+  width: 90%;
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  background: var(--surface-bg);
+  border: 1px solid var(--border);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+  color: var(--text-primary);
+}
+
+.bulk-action-dialog__title {
+  font-size: 1.25rem;
+  margin: 0 0 0.75rem;
+  color: var(--text-primary);
+}
+
+.bulk-action-dialog__message {
+  margin: 0.5rem 0;
+  color: var(--text-tertiary);
+  line-height: 1.55;
+}
+
+.bulk-action-dialog__list {
+  list-style: none;
+  margin: 0.75rem 0;
+  padding: 0.25rem;
+  max-height: 240px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-bg-subtle);
+}
+
+.bulk-action-dialog__item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.5rem;
+  color: var(--text-secondary);
+}
+
+.bulk-action-dialog__item-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+
+.bulk-action-dialog__item-reason {
+  flex-shrink: 0;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.bulk-action-dialog__actions {
+  display: flex;
+  gap: 1rem;
+  margin-top: 1.25rem;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.bulk-action-dialog__button {
+  padding: 0.75rem 1.5rem;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background: transparent;
+  color: var(--text-primary);
+  border: 1px solid var(--border-strong);
+}
+
+.bulk-action-dialog__button--cancel:hover {
+  background: var(--surface-bg-hover);
+}
+
+.bulk-action-dialog__button--confirm {
+  background: var(--ui-button-primary-bg);
+  border-width: 1px;
+  border-color: transparent;
+  color: #ffffff;
+  font-weight: 600;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.16);
+}
+
+.bulk-action-dialog__button--confirm:hover {
+  background: var(--ui-button-primary-bg-hover);
+  border-color: transparent;
+  color: #ffffff;
+}

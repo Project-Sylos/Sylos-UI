@@ -9,23 +9,9 @@
     var(--color-base-slate-r),
     var(--color-base-slate-g),
     var(--color-base-slate-b),
-    var(--glass-border-opacity-default)
+    var(--border-opacity-default)
   );
-  background: linear-gradient(
-    160deg,
-    rgba(
-      var(--glass-bg-base-r),
-      var(--glass-bg-base-g),
-      var(--glass-bg-base-b),
-      0.25
-    ) 0%,
-    rgba(
-      var(--glass-bg-base-r),
-      var(--glass-bg-base-g),
-      var(--glass-bg-base-b),
-      0.15
-    ) 100%
-  );
+  background: var(--surface-bg);
   color: var(--text-secondary);
   font-size: 0.78rem;
   font-weight: 550;
@@ -36,23 +22,23 @@
 
 .path-review-issues-button:hover {
   color: var(--text-primary);
-  border-color: var(--accent-cyan-opacity-10);
+  border-color: var(--accent-opacity-10);
 }
 
 .path-review-issues-button--active {
   color: var(--text-primary);
-  border-color: var(--accent-cyan-opacity-20);
-  box-shadow: 0 0 0 1px var(--accent-cyan-opacity-10);
+  border-color: var(--accent-opacity-20);
+  box-shadow: 0 0 0 1px var(--accent-opacity-10);
 }
 
 .path-review-issues-button--attention {
-  color: #fda4af;
+  color: var(--ui-status-danger);
   border-color: rgba(244, 63, 94, 0.35);
   background: rgba(244, 63, 94, 0.1);
 }
 
 .path-review-issues-button--warnings {
-  color: #fbbf24;
+  color: var(--ui-status-warning);
   border-color: rgba(245, 158, 11, 0.35);
   background: rgba(245, 158, 11, 0.1);
 }

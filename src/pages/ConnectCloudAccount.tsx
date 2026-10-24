@@ -9,7 +9,7 @@ import oneDriveLogo from "../assets/external/onedrive.webp";
 import sharePointLogo from "../assets/external/sharepoint.svg";
 import boxLogo from "../assets/external/BOX.svg";
 import { createConnection, fetchProviders } from "../api/providers";
-import { GlassSurfacePanel } from "../components/GlassSurfacePanel";
+import { PageShell } from "../components/PageShell";
 import PageBackButton from "../components/PageBackButton";
 import { useSelection } from "../context/SelectionContext";
 import { useCloudConnectionGuard } from "../hooks/useCloudConnectionGuard";
@@ -411,7 +411,7 @@ export default function ConnectCloudAccount() {
 
   return (
     <section className="browse-folder">
-      <GlassSurfacePanel className="browse-folder__content">
+      <PageShell className="browse-folder__content">
         <PageBackButton
           onClick={() => navigate(returnPath)}
           title={
@@ -487,14 +487,14 @@ export default function ConnectCloudAccount() {
               <div className="cloud-connection-status__actions">
                 <button
                   type="button"
-                  className="glass-button glass-button--progress-cta"
+                  className="action-button action-button--primary"
                   onClick={handleContinueToBrowse}
                 >
                   Use this account
                 </button>
                 <button
                   type="button"
-                  className="glass-button"
+                  className="action-button"
                   onClick={() => void handleDisconnect()}
                 >
                   <Unplug size={16} aria-hidden="true" />
@@ -560,7 +560,7 @@ export default function ConnectCloudAccount() {
             {oauthConfigured && (
               <button
                 type="button"
-                className="glass-button glass-button--progress-cta browse-cloud-connect__button"
+                className="action-button action-button--primary browse-cloud-connect__button"
                 onClick={() => void handleSignIn()}
                 disabled={connecting || !provider}
               >
@@ -581,7 +581,7 @@ export default function ConnectCloudAccount() {
             )}
           </div>
         )}
-      </GlassSurfacePanel>
+      </PageShell>
     </section>
   );
 }

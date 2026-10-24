@@ -1,7 +1,7 @@
 import "./App.css";
 import "./oauthBootstrap";
 import { useEffect } from "react";
-import { HashRouter, Navigate, Route, Routes } from "react-router";
+import { HashRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router";
 
 import { enhanceMomentumScrolling } from "./utils/momentumScroll";
 
@@ -9,6 +9,11 @@ import { LoginRoute, SetupRoute } from "./components/AuthRoutes";
 import ProtectedRoute from "./components/ProtectedRoute";
 import { PreferencesProvider } from "./contexts/PreferencesContext";
 import { HelpModalProvider } from "./contexts/HelpModalContext";
+import {
+  SettingsModalProvider,
+  useSettingsModal,
+  parseSettingsSection,
+} from "./contexts/SettingsModalContext";
 import { SelectionProvider } from "./context/SelectionContext";
 import { ZoomProvider } from "./contexts/ZoomContext";
 import { ThemeProvider } from "./contexts/ThemeContext";
@@ -18,7 +23,6 @@ import ThemeBackground from "./components/ThemeBackground";
 import Sidebar from "./components/Sidebar";
 import ConnectSource from "./pages/ConnectSource";
 import Destination from "./pages/Destination";
-import Splash from "./pages/Splash";
 import ChooseMigrationType from "./pages/ChooseMigrationType";
 import ResumeMigration from "./pages/ResumeMigration";
 import BrowseFolder from "./pages/BrowseFolder";
@@ -28,7 +32,6 @@ import OAuthCallback from "./pages/OAuthCallback";
 import MigrationSummary from "./pages/MigrationSummary";
 import ProgressMonitor from "./pages/ProgressMonitor";
 import PathReview from "./pages/PathReview";
-import Settings from "./pages/Settings";
 import SpectraConfigPage from "./pages/SpectraConfig";
 import Setup from "./pages/Setup";
 import Login from "./pages/Login";
@@ -51,27 +54,41 @@ function MomentumScrollEnhancer() {
   return null;
 }
 
+function SettingsRouteOpen() {
+  const { openSettings } = useSettingsModal();
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  useEffect(() => {
+    openSettings(parseSettingsSection(location.hash));
+    // Legacy /settings URLs: return to the previous screen when possible so the
+    // overlay sits on top of it. Cold loads (no history) land on home.
+    const idx = (window.history.state as { idx?: number } | null)?.idx;
+    if (typeof idx === "number" && idx > 0) {
+      navigate(-1);
+    } else {
+      navigate("/", { replace: true });
+    }
+  }, [openSettings, navigate, location.hash]);
+
+  return null;
+}
+
 function AppShell() {
   return (
-    <>
+    <div className="app-layout">
       <Sidebar />
+      <div className="app-main">
       <Routes>
         <Route
           path="/"
-          element={
-            <ProtectedRoute>
-              <Splash />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/choose"
           element={
             <ProtectedRoute>
               <ChooseMigrationType />
             </ProtectedRoute>
           }
         />
+        <Route path="/choose" element={<Navigate to="/" replace />} />
         <Route
           path="/connect"
           element={
@@ -188,12 +205,13 @@ function AppShell() {
           path="/settings"
           element={
             <ProtectedRoute>
-              <Settings />
+              <SettingsRouteOpen />
             </ProtectedRoute>
           }
         />
       </Routes>
-    </>
+      </div>
+    </div>
   );
 }
 
@@ -209,6 +227,7 @@ export default function App() {
             <SelectionProvider>
               <ZoomProvider>
                 <HelpModalProvider>
+                  <SettingsModalProvider>
                   <Routes>
                     <Route
                       path="/setup"
@@ -228,6 +247,7 @@ export default function App() {
                     />
                     <Route path="/*" element={<AppShell />} />
                   </Routes>
+                  </SettingsModalProvider>
                 </HelpModalProvider>
               </ZoomProvider>
             </SelectionProvider>

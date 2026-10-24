@@ -1,4 +1,4 @@
-@import "../styles/components/glass-container.css";
+@import "../styles/components/surface.css";
 @import "../styles/components/text-styles.css";
 
 .item-hover-card {
@@ -6,13 +6,12 @@
   z-index: 1000;
   min-width: 500px;
   max-width: 600px;
-  border-radius: 16px;
+  border-radius: 8px;
   padding: 1.5rem;
   font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
   pointer-events: auto;
   animation: fadeIn 0.2s ease-out;
-  /* Apply glass-container base styles */
-  backdrop-filter: blur(var(--glass-blur-primary));
+  /* Apply surface base styles */
   background: rgba(
     var(--color-base-dark-r),
     var(--color-base-dark-g),
@@ -23,9 +22,9 @@
     var(--color-base-slate-r),
     var(--color-base-slate-g),
     var(--color-base-slate-b),
-    var(--glass-border-opacity-strong)
+    var(--border-opacity-strong)
   );
-  box-shadow: 0 var(--glass-shadow-spread-md) var(--glass-shadow-blur-md) rgba(
+  box-shadow: 0 var(--shadow-spread-md) var(--shadow-blur-md) rgba(
     var(--color-base-dark-r),
     var(--color-base-dark-g),
     var(--color-base-dark-b),
@@ -90,22 +89,22 @@
     var(--color-base-dark-r),
     var(--color-base-dark-g),
     var(--color-base-dark-b),
-    var(--glass-bg-opacity-secondary)
+    var(--surface-opacity-secondary)
   );
   border: 1px solid rgba(
     var(--color-base-slate-r),
     var(--color-base-slate-g),
     var(--color-base-slate-b),
-    var(--glass-border-opacity-subtle)
+    var(--border-opacity-subtle)
   );
 }
 
 .item-hover-card__side--source {
-  border-left: 3px solid var(--accent-magenta);
+  border-left: 3px solid var(--accent-secondary);
 }
 
 .item-hover-card__side--destination {
-  border-left: 3px solid var(--accent-cyan);
+  border-left: 3px solid var(--accent);
 }
 
 .item-hover-card__side-header {
@@ -172,7 +171,7 @@
 }
 
 .item-hover-card__detail--emphasis .item-hover-card__detail-value {
-  color: var(--accent-cyan, #67e8f9);
+  color: var(--accent, #67e8f9);
   font-weight: 600;
 }
 

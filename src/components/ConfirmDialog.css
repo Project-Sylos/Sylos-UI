@@ -1,4 +1,4 @@
-@import "../styles/components/glass-container.css";
+@import "../styles/components/surface.css";
 @import "../styles/components/text-styles.css";
 
 .confirm-dialog__overlay {
@@ -12,37 +12,19 @@
   align-items: center;
   justify-content: center;
   z-index: 110000;
-  backdrop-filter: blur(var(--glass-blur-tertiary));
 }
 
 .confirm-dialog__content {
-  border-radius: 24px;
-  padding: 2rem;
+  border-radius: var(--surface-radius, 14px);
+  padding: 1.5rem;
   max-width: 450px;
   width: 90%;
   font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
-  /* Apply glass-container base styles with higher opacity */
-  backdrop-filter: blur(var(--glass-blur-primary));
-  background: rgba(
-    var(--color-base-dark-r),
-    var(--color-base-dark-g),
-    var(--color-base-dark-b),
-    0.95
-  );
-  border: 1px solid rgba(
-    var(--color-base-slate-r),
-    var(--color-base-slate-g),
-    var(--color-base-slate-b),
-    var(--glass-border-opacity-strong)
-  );
-  box-shadow:
-    inset 0 1px 0 var(--glass-inset-sheen),
-    0 var(--glass-shadow-spread-lg) var(--glass-shadow-blur-lg) rgba(
-      var(--color-base-dark-r),
-      var(--color-base-dark-g),
-      var(--color-base-dark-b),
-      0.5
-    );
+  background: var(--surface-glass-bg, var(--surface-bg));
+  border: 1px solid var(--surface-rim, var(--border));
+  box-shadow: var(--surface-panel-shadow, 0 12px 40px rgba(0, 0, 0, 0.28));
+  backdrop-filter: blur(var(--surface-blur, 18px));
+  -webkit-backdrop-filter: blur(var(--surface-blur, 18px));
   color: var(--text-primary);
 }
 
@@ -78,7 +60,7 @@
 
 .confirm-dialog__button {
   padding: 0.75rem 1.5rem;
-  border-radius: 12px;
+  border-radius: 6px;
   font-size: 0.95rem;
   font-weight: 500;
   cursor: pointer;
@@ -118,34 +100,50 @@
 }
 
 .confirm-dialog__button--secondary {
-  border-color: rgba(251, 191, 36, 0.45);
-  color: #fcd34d;
+  border-color: var(--ui-alert-warning-border);
+  color: var(--ui-status-warning);
 }
 
 .confirm-dialog__button--secondary:hover {
-  background: rgba(251, 191, 36, 0.12);
-  border-color: rgba(251, 191, 36, 0.65);
+  background: var(--ui-alert-warning-bg);
+  border-color: var(--ui-alert-warning-border);
 }
 
 .confirm-dialog__button--confirm {
-  background: linear-gradient(
-    135deg,
-    var(--accent-magenta-opacity-20) 0%,
-    var(--accent-cyan-opacity-20) 100%
-  );
-  border-color: var(--accent-magenta);
-  color: var(--text-primary);
-  box-shadow: 0 var(--glass-shadow-spread-sm) var(--glass-shadow-blur-sm) var(--accent-magenta-opacity-20);
+  border-width: 1px;
+  border-color: transparent;
+  color: #ffffff;
+  font-weight: 600;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.16);
 }
 
-.confirm-dialog__button--confirm:hover {
-  background: linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--accent-magenta) 58%, transparent) 0%,
-    color-mix(in srgb, var(--accent-cyan) 58%, transparent) 100%
-  );
-  border-color: var(--accent-magenta);
-  transform: translateY(-2px);
-  box-shadow: 0 var(--glass-shadow-spread-md) var(--glass-shadow-blur-md) var(--accent-magenta-opacity-20), 0 var(--glass-shadow-spread-sm) var(--glass-shadow-blur-sm) var(--accent-cyan-opacity-20);
+.confirm-dialog__button--confirm-cyan {
+  background: var(--ui-button-primary-bg);
+}
+
+.confirm-dialog__button--confirm-cyan:hover {
+  background: var(--ui-button-primary-bg-hover);
+  border-color: transparent;
+  color: #ffffff;
+}
+
+.confirm-dialog__button--confirm-magenta {
+  background: var(--ui-button-magenta-bg);
+}
+
+.confirm-dialog__button--confirm-magenta:hover {
+  background: var(--ui-button-magenta-bg-hover);
+  border-color: transparent;
+  color: #ffffff;
+}
+
+.confirm-dialog__button--confirm-danger {
+  background: var(--ui-button-danger-bg);
+}
+
+.confirm-dialog__button--confirm-danger:hover {
+  background: var(--ui-button-danger-bg-hover);
+  border-color: transparent;
+  color: #ffffff;
 }
 

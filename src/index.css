@@ -3,6 +3,7 @@
 @import "./styles/themes/obsidian-theme.css";
 @import "./styles/themes/quartz-theme.css";
 @import "./styles/components/ui-primitives.css";
+@import "./styles/components/brand-marks.css";
 
 :root {
   color-scheme: light dark;

@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import {
   ArrowLeft,
@@ -6,8 +7,6 @@ import {
   ChevronLeft,
   ChevronDown,
   EyeOff,
-  Folder,
-  File,
   Copy,
   RotateCw,
   Search,
@@ -18,10 +17,13 @@ import {
   unexcludeNode,
   markNodeForRetryDiscovery,
   unmarkNodeForRetryDiscovery,
-  markNodeForRetryCopy,
-  unmarkNodeForRetryCopy,
   markNodeForRetryDelete,
   unmarkNodeForRetryDelete,
+  bulkExcludeNodes,
+  bulkUnexcludeNodes,
+  bulkMarkNodesForRetry,
+  bulkUnmarkNodesForRetry,
+  getReviewOpsStatus,
   DiffItem,
   getPendingWork,
   changePhase,
@@ -45,6 +47,10 @@ import {
   unignorePathIssueSubtree,
   getStorageInfo,
   StorageInfo,
+  ExclusionResponse,
+  BulkRetryKind,
+  forceReplaceCopyNode,
+  unforceReplaceCopyNode,
 } from "../api/services";
 import CompatibilityCaution from "../components/CompatibilityCaution";
 import CompatReviewBanner from "../components/CompatReviewBanner";
@@ -60,7 +66,7 @@ import {
   isDeleteReviewPhase,
   getMigrationPhase,
 } from "../types/migrations";
-import { GlassSurfacePanel } from "../components/GlassSurfacePanel";
+import { PageShell } from "../components/PageShell";
 import PageBackButton from "../components/PageBackButton";
 import Toast from "../components/Toast";
 import ConfirmDialog from "../components/ConfirmDialog";
@@ -75,7 +81,9 @@ import {
   canIncludeRuleExcludedSubtree,
   excludedByRuleText,
   includeRuleExcludedSubtree,
+  isRuleExcluded,
 } from "../utils/pathReviewRuleExclusion";
+import FileTypeIcon from "../components/FileTypeIcon";
 import PathReviewStatusIcon from "../components/PathReviewStatusIcon";
 import PathReviewLegend from "../components/PathReviewLegend";
 import PathReviewIssuesButton from "../components/PathReviewIssuesButton";
@@ -100,12 +108,18 @@ import {
 } from "../utils/pathReviewDeletePlan";
 import {
   getPathReviewDisplayPhase,
-  getPathReviewStepperState,
+  getPathReviewPageBackPath,
+  getPathReviewPageBackTitle,
   getPathReviewUIPhase,
   isSourceCleanupPlanPhase,
   showsPathReviewPendingColumn,
   type PathReviewRouteView,
 } from "../utils/pathReviewPhase";
+import {
+  COPY_CYCLE_LABELS,
+  copyCycleStep,
+  runCopyCycleClick,
+} from "../utils/copyStatusCycle";
 import {
   getPathReviewItemStatus,
   itemStatusPhase,
@@ -123,7 +137,32 @@ import {
   withInFlightOp,
 } from "../utils/pathReviewMutationGuard";
 import { storageFetchOptions } from "../utils/storageFetchOptions";
-import PathReviewPhaseStepper from "../components/PathReviewPhaseStepper";
+import {
+  formatBulkActionToast,
+  isNoItemsChangedError,
+} from "../utils/bulkActionToast";
+import {
+  BULK_ACTION_LABELS,
+  bulkNodeIDs,
+  bulkSrcNodeIDs,
+  partitionBulkAction,
+  type BulkActionKind,
+  type BulkActionPartition,
+} from "../utils/bulkActionEligibility";
+import {
+  FORCE_REPLACE_BULK_FOLDER_CONFIRM,
+  FORCE_REPLACE_FOLDER_CONFIRM,
+  canForceReplaceCopy,
+  canUnforceReplaceCopy,
+  isForceReplaceReviewView,
+} from "../utils/forceReplaceCopy";
+import BulkActionConfirmDialog from "../components/BulkActionConfirmDialog";
+import {
+  BrowseSelectableItem,
+  isMultiSelectModifier,
+  useBrowseSelection,
+} from "../hooks/useBrowseSelection";
+import { useAltTextSelect } from "../hooks/useAltTextSelect";
 import "../App.css";
 import "./PathReview.css";
 
@@ -240,6 +279,7 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
   const isSourceCleanupView = reviewView === "source-cleanup";
   const isCopyPlanView = reviewView === "copy-plan";
   const { densityStyle, setListViewportElement } = useListDensity();
+  const altTextSelect = useAltTextSelect();
   const treeListRef = useRef<HTMLDivElement | null>(null);
   const [activeTab, setActiveTab] = useState<"tree" | "list">("tree");
   const [listFiltersPageOpen, setListFiltersPageOpen] = useState(false);
@@ -263,11 +303,32 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
   const [retryItems, setRetryItems] = useState<Set<string>>(new Set()); // Items marked for retry
   const [hasRunningTasks, setHasRunningTasks] = useState(false); // Track if background tasks are running
   const [inspectorItem, setInspectorItem] = useState<DiffItem | null>(null);
+  const {
+    selected: treeSelected,
+    selectedCount: treeSelectedCount,
+    isSelected: isTreeSelected,
+    select: selectTreeItem,
+    clear: clearTreeSelection,
+  } = useBrowseSelection();
+  const treeSelectedDataRef = useRef<Map<string, DiffItem>>(new Map());
+  const [treeBulkLoading, setTreeBulkLoading] = useState(false);
+  const [pendingTreeBulk, setPendingTreeBulk] = useState<{
+    action: BulkActionKind;
+    partition: BulkActionPartition;
+  } | null>(null);
+  const [treeApplyMenuOpen, setTreeApplyMenuOpen] = useState(false);
+  const treeApplyMenuRef = useRef<HTMLDivElement | null>(null);
+  // Delay plain folder select so a double-click can navigate before the bulk banner mounts.
+  const treeFolderClickTimerRef = useRef<number | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [confirmDialogType, setConfirmDialogType] = useState<
     "copy" | "retry" | "delete" | "delete-retry" | "ignore-remaining"
   >("copy");
+  const [forceReplaceConfirm, setForceReplaceConfirm] = useState<{
+    item?: DiffItem;
+    items?: DiffItem[];
+  } | null>(null);
   const [pathIssues, setPathIssues] = useState<PathIssue[]>([]);
   const [pathIssuesRemainingCount, setPathIssuesRemainingCount] = useState(0);
   const activePathIssues = useMemo(
@@ -340,7 +401,9 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
   const [treeCurrentPage, setTreeCurrentPage] = useState(0);
   const [treeItemsPerPage, setTreeItemsPerPage] = useState(100);
   const [showTreeItemsPerPageDropdown, setShowTreeItemsPerPageDropdown] = useState(false);
+  const [treeItemsPerPageDropdownStyle, setTreeItemsPerPageDropdownStyle] = useState<React.CSSProperties>({});
   const treeItemsPerPageDropdownRef = useRef<HTMLDivElement>(null);
+  const treeItemsPerPageButtonRef = useRef<HTMLButtonElement>(null);
   // Map of locationPath -> page number to remember pagination per folder
   const [folderPageMap, setFolderPageMap] = useState<Map<string, number>>(new Map());
   const currentTreePathRef = useRef<string>("/");
@@ -564,7 +627,9 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
     (async () => {
       try {
         const result = await prepareSourceCleanup(migrationId, {});
-        if (!result.success) {
+        // Idempotent re-entry (plan already aligned) returns success:false with
+        // "no items changed" — continue into the view without a toast.
+        if (!result.success && !isNoItemsChangedError(result.error)) {
           sourceCleanupPreparedRef.current = false;
           setToast({
             message: result.error || "Failed to prepare source removal plan",
@@ -678,12 +743,26 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [treeCurrentPage, treeItemsPerPage, includeDestinationOnly]);
 
+  useLayoutEffect(() => {
+    if (!showTreeItemsPerPageDropdown || !treeItemsPerPageButtonRef.current) return;
+    const rect = treeItemsPerPageButtonRef.current.getBoundingClientRect();
+    setTreeItemsPerPageDropdownStyle({
+      position: "fixed",
+      top: rect.bottom + 4,
+      left: rect.left,
+      zIndex: 100050,
+    });
+  }, [showTreeItemsPerPageDropdown]);
+
   // Handle click outside items per page dropdown
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
       if (
         treeItemsPerPageDropdownRef.current &&
-        !treeItemsPerPageDropdownRef.current.contains(event.target as Node)
+        !treeItemsPerPageDropdownRef.current.contains(target) &&
+        treeItemsPerPageButtonRef.current &&
+        !treeItemsPerPageButtonRef.current.contains(target)
       ) {
         setShowTreeItemsPerPageDropdown(false);
       }
@@ -768,6 +847,11 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
 
   const isAwaitingCopyReview =
     getMigrationPhase(migrationStatus) === "awaiting-copy-review";
+  const forceReplaceAllowed = isForceReplaceReviewView(
+    isCopyPlanView,
+    isSourceCleanupView,
+    isAwaitingCopyReview
+  );
 
   const manualReviewCount = activePathIssues.filter(
     (i) => i.status === "manual_review"
@@ -942,6 +1026,18 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
     void loadItems(pathForLoad, undefined, { silent });
   };
 
+  const clearTreeMultiSelect = () => {
+    if (treeFolderClickTimerRef.current != null) {
+      window.clearTimeout(treeFolderClickTimerRef.current);
+      treeFolderClickTimerRef.current = null;
+    }
+    clearTreeSelection();
+    treeSelectedDataRef.current = new Map();
+    setTreeApplyMenuOpen(false);
+    setInspectorItem(null);
+    setHighlightedItemId(null);
+  };
+
   const handleFolderClick = (item: DiffItem) => {
     const opTitle = inFlightOpTitle(mutationOps, itemMutationIds(item));
     if (opTitle) {
@@ -975,6 +1071,7 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
       return;
     }
 
+    clearTreeMultiSelect();
     setInspectorItem(null);
     
     // Save current page for the current folder before navigating
@@ -997,6 +1094,7 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
   };
 
   const handleBack = () => {
+    clearTreeMultiSelect();
     setInspectorItem(null);
     // Save current page for the current folder before going back
     const currentLocationPath = breadcrumbs.length > 0 
@@ -1024,6 +1122,7 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
   };
 
   const handleBreadcrumbClick = (index: number) => {
+    clearTreeMultiSelect();
     setInspectorItem(null);
     // Save current page for the current folder before navigating
     const currentLocationPath = breadcrumbs.length > 0 
@@ -1103,11 +1202,27 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
 
   const handleRetryClick = async (item: DiffItem) => {
     if (!migrationId) return;
-    
+
     const currentPhase = getCurrentPhase();
     const isCopy = currentPhase === "copy";
     const isDelete = currentPhase === "delete";
     const srcNodeId = item.src?.id;
+
+    if (isCopy) {
+      await runCopyCycleClick(migrationId, item, {
+        setItems,
+        mutationOps,
+        setMutationOps,
+        notify: (message, type) => setToast({ message, type }),
+        applyDeltas: handleApplyStatsDeltas,
+        afterSuccess: () => {
+          if (activeTabRef.current === "tree") {
+            setTreeListRefreshToken((n) => n + 1);
+          }
+        },
+      });
+      return;
+    }
 
     // Determine which node has failed or pending status (failed takes priority)
     let nodeIdToUpdate: string | null = null;
@@ -1118,17 +1233,6 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
       if ((deleteStatus === "failed" || isDeletePendingExplicit(deleteStatus)) && srcNodeId) {
         nodeIdToUpdate = srcNodeId;
         isMarkedForRetry = isDeletePendingExplicit(deleteStatus) || retryItems.has(item.id);
-      }
-    } else if (isCopy) {
-      // Copy phase: check copyStatus (only on src nodes)
-      const copyStatus = item.src?.copyStatus || item.copyStatus || "";
-      
-      if (copyStatus === "failed" && srcNodeId) {
-        nodeIdToUpdate = srcNodeId;
-        isMarkedForRetry = retryItems.has(item.id) || false;
-      } else if (copyStatus === "pending" && srcNodeId) {
-        nodeIdToUpdate = srcNodeId;
-        isMarkedForRetry = retryItems.has(item.id) || true;
       }
     } else {
       const nodeId = getTraversalRetryNodeId(item);
@@ -1208,14 +1312,6 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
             },
           };
         }
-        if (isCopy && i.src) {
-          const nextCopy = isMarkedForRetry ? "failed" : "pending";
-          return {
-            ...i,
-            src: { ...i.src, copyStatus: nextCopy },
-            copyStatus: nextCopy,
-          };
-        }
         return applyDiscoveryRetryOptimistic(i, newRetryState, unmarkRestore);
       })
     );
@@ -1228,13 +1324,9 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
       const result = isMarkedForRetry
         ? (isDelete
             ? await unmarkNodeForRetryDelete(migrationId, nodeIdToUpdate)
-            : isCopy
-            ? await unmarkNodeForRetryCopy(migrationId, nodeIdToUpdate)
             : await unmarkNodeForRetryDiscovery(migrationId, nodeIdToUpdate))
         : (isDelete
             ? await markNodeForRetryDelete(migrationId, nodeIdToUpdate)
-            : isCopy
-            ? await markNodeForRetryCopy(migrationId, nodeIdToUpdate)
             : await markNodeForRetryDiscovery(migrationId, nodeIdToUpdate));
       
       // If the call fails, revert optimistic update
@@ -1258,10 +1350,12 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
           })
         );
         pendingRetryUpdatesRef.current.delete(item.id);
-        setToast({
-          message: result.error || "Failed to update node. Please try again.",
-          type: "error",
-        });
+        if (!isNoItemsChangedError(result.error)) {
+          setToast({
+            message: result.error || "Failed to update node. Please try again.",
+            type: "error",
+          });
+        }
         return;
       }
       
@@ -1438,18 +1532,19 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
             })
           );
           pendingUpdatesRef.current.delete(item.id);
-          // Check if error is due to phase locking
-          let errorMessage = srcResult.error || "Failed to update source node. Please try again.";
-          if (srcResult.error && (
-            srcResult.error.includes("copy phase") || 
-            srcResult.error.includes("exclusion operations are not available")
-          )) {
-            errorMessage = "Exclusion is only available during traversal review";
+          if (!isNoItemsChangedError(srcResult.error)) {
+            let errorMessage = srcResult.error || "Failed to update source node. Please try again.";
+            if (srcResult.error && (
+              srcResult.error.includes("copy phase") ||
+              srcResult.error.includes("exclusion operations are not available")
+            )) {
+              errorMessage = "Exclusion is only available during traversal review";
+            }
+            setToast({
+              message: errorMessage,
+              type: "error",
+            });
           }
-          setToast({
-            message: errorMessage,
-            type: "error",
-          });
           return;
         }
       }
@@ -1488,10 +1583,12 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
             })
           );
           pendingUpdatesRef.current.delete(item.id);
-          setToast({
-            message: dstResult.error || "Failed to update destination node. Changes have been rolled back.",
-            type: "error",
-          });
+          if (!isNoItemsChangedError(dstResult.error)) {
+            setToast({
+              message: dstResult.error || "Failed to update destination node. Changes have been rolled back.",
+              type: "error",
+            });
+          }
           return;
         }
       }
@@ -1548,16 +1645,270 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
 
   const selectInspectorItem = (item: DiffItem) => {
     setIssuesPanelOpen(false);
-    setInspectorItem((prev) => {
-      if (prev?.id === item.id) return null;
-      return applyPathIssuesToDiffItems([item], pathIssues)[0];
-    });
+    setInspectorItem(applyPathIssuesToDiffItems([item], pathIssues)[0]);
   };
 
   const ensureInspectorItem = (item: DiffItem) => {
     setIssuesPanelOpen(false);
     setInspectorItem(applyPathIssuesToDiffItems([item], pathIssues)[0]);
   };
+
+  const treeVisibleItems: BrowseSelectableItem[] = useMemo(
+    () =>
+      items.map((item) => ({
+        id: item.id,
+        type: item.type === "folder" ? "folder" : "file",
+        name: item.name,
+      })),
+    [items]
+  );
+
+  const handleTreeItemSelect = (
+    item: DiffItem,
+    index: number,
+    event: React.MouseEvent
+  ) => {
+    event.preventDefault();
+    const runSelect = () => {
+      const { next } = selectTreeItem(
+        {
+          id: item.id,
+          type: item.type === "folder" ? "folder" : "file",
+          name: item.name,
+        },
+        index,
+        {
+          shiftKey: event.shiftKey,
+          ctrlKey: event.ctrlKey,
+          metaKey: event.metaKey,
+        },
+        treeVisibleItems
+      );
+      const data = new Map(treeSelectedDataRef.current);
+      for (const id of data.keys()) {
+        if (!next.has(id)) data.delete(id);
+      }
+      for (const [id] of next) {
+        const row = items.find((entry) => entry.id === id);
+        if (row) data.set(id, row);
+      }
+      treeSelectedDataRef.current = data;
+      if (next.has(item.id)) {
+        selectInspectorItem(item);
+        return;
+      }
+      if (inspectorItem?.id === item.id) {
+        const remaining = Array.from(next.keys());
+        const fallbackId = remaining[remaining.length - 1];
+        const fallback = fallbackId
+          ? data.get(fallbackId) ?? items.find((entry) => entry.id === fallbackId)
+          : null;
+        if (fallback) {
+          selectInspectorItem(fallback);
+        } else {
+          setInspectorItem(null);
+        }
+      }
+    };
+
+    // Plain folder clicks wait so a double-click can open the folder without
+    // mounting the bulk-actions banner (which shifts the tree layout).
+    const isPlainFolderClick =
+      item.type === "folder" &&
+      !event.shiftKey &&
+      !isMultiSelectModifier(event);
+    if (isPlainFolderClick) {
+      if (treeFolderClickTimerRef.current != null) {
+        window.clearTimeout(treeFolderClickTimerRef.current);
+      }
+      treeFolderClickTimerRef.current = window.setTimeout(() => {
+        treeFolderClickTimerRef.current = null;
+        runSelect();
+      }, 250);
+      return;
+    }
+
+    if (treeFolderClickTimerRef.current != null) {
+      window.clearTimeout(treeFolderClickTimerRef.current);
+      treeFolderClickTimerRef.current = null;
+    }
+    runSelect();
+  };
+
+  const treeSelectedItems = (): DiffItem[] => {
+    const selected: DiffItem[] = [];
+    for (const id of treeSelected.keys()) {
+      const item = treeSelectedDataRef.current.get(id);
+      if (item) selected.push(item);
+    }
+    return selected;
+  };
+
+  // Eligibility is recomputed as the selection is added to / dropped from,
+  // so the menu and confirm dialog only ever read the current partitions.
+  const treeBulkPartitions = useMemo<Record<BulkActionKind, BulkActionPartition>>(
+    () => {
+      const selected = treeSelectedItems();
+      const phase = itemStatusPhase(getDisplayPhase());
+      return {
+        exclude: partitionBulkAction(selected, "exclude", getItemStatus, phase),
+        unexclude: partitionBulkAction(selected, "unexclude", getItemStatus, phase),
+        mark_retry: partitionBulkAction(selected, "mark_retry", getItemStatus, phase),
+        mark_failed: partitionBulkAction(selected, "mark_failed", getItemStatus, phase),
+        force_replace: partitionBulkAction(
+          selected,
+          "force_replace",
+          getItemStatus,
+          phase,
+          forceReplaceAllowed
+        ),
+        unforce_replace: partitionBulkAction(
+          selected,
+          "unforce_replace",
+          getItemStatus,
+          phase,
+          forceReplaceAllowed
+        ),
+      };
+    },
+    // treeSelectedItems reads the data ref kept in sync with treeSelected.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [treeSelected, items, migrationStatus, forceReplaceAllowed]
+  );
+
+  /** Gate a bulk action on selection eligibility: mixed selections confirm first. */
+  const requestTreeBulkAction = (action: BulkActionKind) => {
+    if (!migrationId || treeBulkLoading || treeSelectedCount === 0) return;
+    setTreeApplyMenuOpen(false);
+    const partition = treeBulkPartitions[action];
+    if (partition.valid.length === 0) return;
+    if (partition.invalid.length > 0) {
+      setPendingTreeBulk({ action, partition });
+      return;
+    }
+    if (
+      action === "force_replace" &&
+      partition.valid.some((item) => item.type === "folder")
+    ) {
+      setForceReplaceConfirm({ items: partition.valid });
+      return;
+    }
+    void runTreeBulkAction(action, partition.valid);
+  };
+
+  const canTreeBulkExclude =
+    (isCopyPlanView ||
+      (!isCopyPhase(migrationStatus) && !isDeletePhase(migrationStatus))) &&
+    !isSourceCleanupView;
+
+  const runTreeBulkAction = async (
+    action: BulkActionKind,
+    validItems: DiffItem[]
+  ) => {
+    if (!migrationId || treeBulkLoading || validItems.length === 0) return;
+    setTreeBulkLoading(true);
+    try {
+      const nodeIDs = bulkNodeIDs(validItems);
+      if (nodeIDs.length === 0) {
+        setToast({
+          message: "No selectable nodes in the current selection.",
+          type: "error",
+        });
+        return;
+      }
+
+      let result: ExclusionResponse;
+      const phase = getCurrentPhase();
+      const kind: BulkRetryKind =
+        phase === "delete" ? "delete" : phase === "copy" ? "copy" : "discovery";
+      switch (action) {
+        case "exclude":
+          result = await bulkExcludeNodes(migrationId, { nodeIDs });
+          break;
+        case "unexclude":
+          result = await bulkUnexcludeNodes(migrationId, { nodeIDs });
+          break;
+        case "mark_retry":
+          result = await bulkMarkNodesForRetry(migrationId, { nodeIDs, kind });
+          break;
+        case "mark_failed":
+          result = await bulkUnmarkNodesForRetry(migrationId, { nodeIDs, kind });
+          break;
+        case "force_replace":
+        case "unforce_replace": {
+          const srcIDs = bulkSrcNodeIDs(validItems);
+          let affected = 0;
+          const deltas: Record<string, number> = {};
+          let lastError = "";
+          for (const id of srcIDs) {
+            const one =
+              action === "force_replace"
+                ? await forceReplaceCopyNode(migrationId, id)
+                : await unforceReplaceCopyNode(migrationId, id);
+            if (one.success) {
+              affected += one.affectedCount ?? 0;
+              if (one.deltas) {
+                for (const [k, v] of Object.entries(one.deltas)) {
+                  deltas[k] = (deltas[k] ?? 0) + (v as number);
+                }
+              }
+            } else if (one.error) {
+              lastError = one.error;
+            }
+          }
+          result = {
+            success: affected > 0,
+            affectedCount: affected,
+            deltas,
+            error: affected > 0 ? undefined : lastError || "no items changed",
+          };
+          break;
+        }
+      }
+      const toastInfo = formatBulkActionToast(BULK_ACTION_LABELS[action], result);
+      if (toastInfo) {
+        setToast({ message: toastInfo.message, type: toastInfo.type });
+      }
+      if (!result.taskID) {
+        if (result.deltas && Object.keys(result.deltas).length > 0) {
+          handleApplyStatsDeltas(result.deltas);
+        }
+        const pathForLoad =
+          breadcrumbs.length > 0
+            ? breadcrumbs[breadcrumbs.length - 1].path
+            : undefined;
+        await loadItems(pathForLoad, undefined, { silent: true });
+        setTreeListRefreshToken((token) => token + 1);
+      }
+      clearTreeMultiSelect();
+    } catch (err) {
+      setToast({
+        message: err instanceof Error ? err.message : "Bulk action failed",
+        type: "error",
+      });
+    } finally {
+      setTreeBulkLoading(false);
+      try {
+        await getReviewOpsStatus(migrationId);
+      } catch {
+        // ignore
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (!treeApplyMenuOpen) return;
+    const onDoc = (event: MouseEvent) => {
+      if (
+        treeApplyMenuRef.current &&
+        !treeApplyMenuRef.current.contains(event.target as Node)
+      ) {
+        setTreeApplyMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [treeApplyMenuOpen]);
 
   const toggleIgnoreWarningForItem = async (item: DiffItem) => {
     if (!migrationId) return;
@@ -1641,6 +1992,66 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
     }
   };
 
+  const handleForceReplaceClick = async (item: DiffItem, mark: boolean) => {
+    if (!migrationId || !item.src?.id) return;
+    if (mark && item.type === "folder") {
+      setForceReplaceConfirm({ item });
+      return;
+    }
+    const nodeId = item.src.id;
+    if (!canStartMutation(mutationOps, nodeId)) {
+      setToast({
+        message:
+          "An operation is already running on this path; try again once it finishes.",
+        type: "error",
+      });
+      return;
+    }
+    setMutationOps((prev) =>
+      withInFlightOp(prev, [nodeId, item.id], mark ? "Replace with source" : "Undo replace")
+    );
+    try {
+      const result = mark
+        ? await forceReplaceCopyNode(migrationId, nodeId)
+        : await unforceReplaceCopyNode(migrationId, nodeId);
+      const toastInfo = formatBulkActionToast(
+        mark ? "Replace with source" : "Keep destination (undo replace)",
+        result
+      );
+      if (toastInfo) {
+        setToast({ message: toastInfo.message, type: toastInfo.type });
+      }
+      if (result.deltas && Object.keys(result.deltas).length > 0) {
+        handleApplyStatsDeltas(result.deltas);
+      }
+      if (result.success) {
+        const pathForLoad =
+          breadcrumbs.length > 0
+            ? breadcrumbs[breadcrumbs.length - 1].path
+            : undefined;
+        await loadItems(pathForLoad, undefined, { silent: true });
+        setTreeListRefreshToken((token) => token + 1);
+      }
+    } catch (err) {
+      setToast({
+        message:
+          err instanceof Error
+            ? err.message
+            : mark
+              ? "Failed to replace with source"
+              : "Failed to undo replace",
+        type: "error",
+      });
+    } finally {
+      setMutationOps((prev) => {
+        const next = new Map(prev);
+        next.delete(nodeId);
+        next.delete(item.id);
+        return next;
+      });
+    }
+  };
+
   const buildTreeContextActions = (item: DiffItem) => {
     const status = getItemStatus(item);
     const phase = getCurrentPhase();
@@ -1670,8 +2081,12 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
         isFolder &&
         (status.existsOnBoth || status.existsOnlyOnDst)
       );
+    const canForceReplace = canForceReplaceCopy(item, forceReplaceAllowed);
+    const canUnforceReplace = canUnforceReplaceCopy(item, forceReplaceAllowed);
+    const copyStep =
+      phase === "copy" && !isRuleExcluded(item) ? copyCycleStep(item) : null;
     const canRetry =
-      status.isFailed || status.isTraversalSkipped || isMarkedForRetry;
+      status.isFailed || status.isTraversalSkipped || isMarkedForRetry || copyStep !== null;
     const canRename =
       showCompatUI &&
       !isSourceCleanupView &&
@@ -1722,9 +2137,31 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
     if (canRetry) {
       actions.push({
         key: "retry",
-        label: isMarkedForRetry ? "Unmark retry" : "Mark for retry",
+        label: copyStep
+          ? COPY_CYCLE_LABELS[copyStep]
+          : isMarkedForRetry
+            ? "Unmark retry"
+            : "Mark for retry",
         onClick: () => {
           void handleRetryClick(item);
+        },
+      });
+    }
+    if (canForceReplace) {
+      actions.push({
+        key: "force-replace",
+        label: "Replace with source",
+        onClick: () => {
+          void handleForceReplaceClick(item, true);
+        },
+      });
+    }
+    if (canUnforceReplace) {
+      actions.push({
+        key: "unforce-replace",
+        label: "Keep destination (undo replace)",
+        onClick: () => {
+          void handleForceReplaceClick(item, false);
         },
       });
     }
@@ -2106,11 +2543,16 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
       : isTraversalRetryPending(inspectorItem) ||
         (retryItems.has(inspectorItem.id) && !hasTraversalFailure(inspectorItem))
     : false;
+  const inspectorCopyStep =
+    inspectorItem && getCurrentPhase() === "copy" && !isRuleExcluded(inspectorItem)
+      ? copyCycleStep(inspectorItem)
+      : null;
   const inspectorCanRetry = Boolean(
     inspectorItem &&
       (inspectorStatus?.isFailed ||
         inspectorStatus?.isTraversalSkipped ||
-        inspectorMarkedForRetry)
+        inspectorMarkedForRetry ||
+        inspectorCopyStep !== null)
   );
   const inspectorCanExclude = Boolean(
     inspectorItem &&
@@ -2123,6 +2565,12 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
         (inspectorStatus?.existsOnBoth || inspectorStatus?.existsOnlyOnDst)
       )
   );
+  const inspectorCanForceReplace = Boolean(
+    inspectorItem && canForceReplaceCopy(inspectorItem, forceReplaceAllowed)
+  );
+  const inspectorCanUnforceReplace = Boolean(
+    inspectorItem && canUnforceReplaceCopy(inspectorItem, forceReplaceAllowed)
+  );
   const inspectorCanCompatActions = Boolean(
     inspectorItem &&
       !isSourceCleanupView &&
@@ -2131,7 +2579,7 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
   );
   return (
     <section className={`path-review${listFiltersPageOpen ? " path-review--filters-page" : ""}`}>
-      <GlassSurfacePanel
+      <PageShell
         className={`path-review__content path-review__content--with-button${
           listFiltersPageOpen ? " path-review__content--filters-page" : ""
         }`}
@@ -2143,20 +2591,22 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
                 setListFiltersPageOpen(false);
                 return;
               }
-              if ((isCopyPlanView || isSourceCleanupView) && migrationId) {
-                navigate(`/path-review/${migrationId}`);
+              if (!migrationId) {
+                navigate("/choose");
                 return;
               }
-              navigate(-1);
+              navigate(
+                getPathReviewPageBackPath(
+                  migrationId,
+                  migrationStatus,
+                  reviewView
+                )
+              );
             }}
             title={
               listFiltersPageOpen
                 ? "Back to list search"
-                : isCopyPlanView
-                  ? "Back to discovery review"
-                  : isSourceCleanupView
-                    ? "Back to copy review"
-                    : "Go back to previous page"
+                : getPathReviewPageBackTitle(migrationStatus, reviewView)
             }
             className="path-review__back"
           />
@@ -2167,24 +2617,32 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
                 <span className="path-review__highlight">filters</span>
               </>
             ) : isSourceCleanupView ? (
-              <>Plan <span className="path-review__highlight">Source Removal</span></>
+              <>
+                Review{" "}
+                <span className="path-review__highlight--magenta">source</span>{" "}
+                removal plan
+              </>
             ) : isCopyPlanView ? (
-              <>Review the <span className="path-review__highlight">Copy Plan</span></>
+              <>
+                Review the <span className="path-review__highlight">copy plan</span>
+              </>
             ) : isDeletePhase(migrationStatus) ? (
-              <>Review <span className="path-review__highlight">Removal Results</span></>
+              <>
+                Review{" "}
+                <span className="path-review__highlight--magenta">source</span>{" "}
+                removal results
+              </>
             ) : isCopyPhase(migrationStatus) ? (
-              <>Review <span className="path-review__highlight">Copy Results</span></>
+              <>
+                Review <span className="path-review__highlight">copy</span> results
+              </>
             ) : (
-              <>Review the <span className="path-review__highlight">Action Plan</span></>
+              <>
+                Review <span className="path-review__highlight">discovery</span> results
+              </>
             )}
           </h1>
         </header>
-        {!listFiltersPageOpen && (
-          <PathReviewPhaseStepper
-            state={getPathReviewStepperState(migrationStatus, reviewView)}
-          />
-        )}
-
         {/* Tabs */}
         {!listFiltersPageOpen && (
         <div className="path-review__tabs">
@@ -2309,37 +2767,48 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
               </div>
               {pagination && (
               <div className="path-review-list__page-nav">
-                <div className="path-review-list__items-per-page-compact" ref={treeItemsPerPageDropdownRef}>
+                <div className="path-review-list__items-per-page-compact">
                   <button
+                    ref={treeItemsPerPageButtonRef}
                     type="button"
                     className="path-review-list__items-per-page-button"
                     onClick={() => setShowTreeItemsPerPageDropdown(!showTreeItemsPerPageDropdown)}
                     title="Items per page"
                     aria-label="Items per page"
+                    aria-expanded={showTreeItemsPerPageDropdown}
                   >
                     {treeItemsPerPage}
                     <ChevronDown size={14} />
                   </button>
-                  {showTreeItemsPerPageDropdown && (
-                    <div className="path-review-list__items-per-page-dropdown">
-                      {[50, 100, 500, 1000].map((value) => (
-                        <button
-                          key={value}
-                          type="button"
-                          className={`path-review-list__items-per-page-option ${
-                            treeItemsPerPage === value ? "path-review-list__items-per-page-option--selected" : ""
-                          }`}
-                          onClick={() => {
-                            setTreeItemsPerPage(value);
-                            setTreeCurrentPage(0);
-                            setShowTreeItemsPerPageDropdown(false);
-                          }}
-                        >
-                          {value}
-                        </button>
-                      ))}
-                    </div>
-                  )}
+                  {showTreeItemsPerPageDropdown &&
+                    typeof document !== "undefined" &&
+                    createPortal(
+                      <div
+                        ref={treeItemsPerPageDropdownRef}
+                        className="path-review-list__items-per-page-dropdown path-review-list__items-per-page-dropdown--portal"
+                        style={treeItemsPerPageDropdownStyle}
+                      >
+                        {[50, 100, 500, 1000].map((value) => (
+                          <button
+                            key={value}
+                            type="button"
+                            className={`path-review-list__items-per-page-option ${
+                              treeItemsPerPage === value
+                                ? "path-review-list__items-per-page-option--selected"
+                                : ""
+                            }`}
+                            onClick={() => {
+                              setTreeItemsPerPage(value);
+                              setTreeCurrentPage(0);
+                              setShowTreeItemsPerPageDropdown(false);
+                            }}
+                          >
+                            {value}
+                          </button>
+                        ))}
+                      </div>,
+                      document.body
+                    )}
                 </div>
                 <button
                   type="button"
@@ -2349,6 +2818,7 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
                     const currentLocationPath = breadcrumbs.length > 0 
                       ? breadcrumbs[breadcrumbs.length - 1].path 
                       : "/";
+                    clearTreeMultiSelect();
                     setTreeCurrentPage(newPage);
                     // Save the page immediately
                     setFolderPageMap((prev) => {
@@ -2381,6 +2851,7 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
                     const currentLocationPath = breadcrumbs.length > 0 
                       ? breadcrumbs[breadcrumbs.length - 1].path 
                       : "/";
+                    clearTreeMultiSelect();
                     setTreeCurrentPage(newPage);
                     // Save the page immediately
                     setFolderPageMap((prev) => {
@@ -2415,9 +2886,144 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
           </div>
         )}
 
+        {treeSelectedCount > 0 && (
+          <div className="path-review-list__bulk-actions path-review__tree-bulk-actions">
+            <span className="path-review-list__bulk-count">
+              {treeSelectedCount} item{treeSelectedCount !== 1 ? "s" : ""} selected
+            </span>
+            <div className="path-review-list__bulk-buttons">
+              <div className="path-review-list__apply-action" ref={treeApplyMenuRef}>
+                <button
+                  type="button"
+                  className="action-button action-button--small"
+                  disabled={treeBulkLoading}
+                  onClick={() => setTreeApplyMenuOpen((open) => !open)}
+                  aria-haspopup="menu"
+                  aria-expanded={treeApplyMenuOpen}
+                >
+                  {treeBulkLoading ? "Working…" : "Apply action"}
+                  <ChevronDown size={14} style={{ marginLeft: "0.35rem" }} />
+                </button>
+                {treeApplyMenuOpen ? (
+                  <div className="path-review-list__apply-action-menu" role="menu">
+                    {canTreeBulkExclude ? (
+                      <>
+                        <button
+                          type="button"
+                          className="path-review-list__apply-action-option"
+                          role="menuitem"
+                          disabled={treeBulkLoading || treeBulkPartitions.exclude.valid.length === 0}
+                          title={
+                            treeBulkPartitions.exclude.valid.length === 0
+                              ? "No selected items can be excluded"
+                              : undefined
+                          }
+                          onClick={() => requestTreeBulkAction("exclude")}
+                        >
+                          Exclude
+                        </button>
+                        <button
+                          type="button"
+                          className="path-review-list__apply-action-option"
+                          role="menuitem"
+                          disabled={treeBulkLoading || treeBulkPartitions.unexclude.valid.length === 0}
+                          title={
+                            treeBulkPartitions.unexclude.valid.length === 0
+                              ? "No selected items are excluded"
+                              : undefined
+                          }
+                          onClick={() => requestTreeBulkAction("unexclude")}
+                        >
+                          Unexclude
+                        </button>
+                      </>
+                    ) : null}
+                    <button
+                      type="button"
+                      className="path-review-list__apply-action-option"
+                      role="menuitem"
+                      disabled={treeBulkLoading || treeBulkPartitions.mark_retry.valid.length === 0}
+                      title={
+                        treeBulkPartitions.mark_retry.valid.length === 0
+                          ? "No selected items can be marked for retry"
+                          : undefined
+                      }
+                      onClick={() => requestTreeBulkAction("mark_retry")}
+                    >
+                      Mark for retry
+                    </button>
+                    <button
+                      type="button"
+                      className="path-review-list__apply-action-option"
+                      role="menuitem"
+                      disabled={treeBulkLoading || treeBulkPartitions.mark_failed.valid.length === 0}
+                      title={
+                        treeBulkPartitions.mark_failed.valid.length === 0
+                          ? "No selected items are marked for retry"
+                          : undefined
+                      }
+                      onClick={() => requestTreeBulkAction("mark_failed")}
+                    >
+                      Mark failed
+                    </button>
+                    {forceReplaceAllowed ? (
+                      <>
+                        <button
+                          type="button"
+                          className="path-review-list__apply-action-option"
+                          role="menuitem"
+                          disabled={
+                            treeBulkLoading ||
+                            treeBulkPartitions.force_replace.valid.length === 0
+                          }
+                          title={
+                            treeBulkPartitions.force_replace.valid.length === 0
+                              ? "No selected items exist on both sides"
+                              : undefined
+                          }
+                          onClick={() => requestTreeBulkAction("force_replace")}
+                        >
+                          Replace with source
+                        </button>
+                        <button
+                          type="button"
+                          className="path-review-list__apply-action-option"
+                          role="menuitem"
+                          disabled={
+                            treeBulkLoading ||
+                            treeBulkPartitions.unforce_replace.valid.length === 0
+                          }
+                          title={
+                            treeBulkPartitions.unforce_replace.valid.length === 0
+                              ? "No selected items are marked to replace with source"
+                              : undefined
+                          }
+                          onClick={() => requestTreeBulkAction("unforce_replace")}
+                        >
+                          Keep destination (undo replace)
+                        </button>
+                      </>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+              <button
+                type="button"
+                className="path-review-list__clear-selection"
+                onClick={clearTreeMultiSelect}
+              >
+                Clear Selection
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Items List */}
         <div className="path-review__list-container" style={densityStyle}>
-          <div ref={treeListRef} className="path-review__list">
+          <div
+            ref={treeListRef}
+            className={`path-review__list${altTextSelect ? " path-review__list--text-select" : ""}`}
+          >
             {loading ? (
               <div className="path-review__empty">Loading...</div>
             ) : items.length === 0 ? (
@@ -2425,7 +3031,7 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
             ) : (
               <>
                 <PathReviewSizeColumnHeader variant="tree" />
-                {items.map((item) => {
+                {items.map((item, index) => {
                   const status = getItemStatus(item);
                   const isFolder = item.type === "folder";
                   const isLocked = isFolder && (status.existsOnBoth || status.existsOnlyOnDst); // Locked if folder exists on both or only on destination
@@ -2452,7 +3058,8 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
                         !status.existsOnlyOnDst
                   );
                   const folderOpTitle = inFlightOpTitle(mutationOps, itemMutationIds(item));
-                  const isSelected = inspectorItem?.id === item.id;
+                  const isInspectorFocused = inspectorItem?.id === item.id;
+                  const isMultiSelected = isTreeSelected(item.id);
                   const shownPath =
                     item.displayPath ||
                     (breadcrumbs.length
@@ -2464,9 +3071,17 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
                   return (
                     <div
                       key={item.id}
-                      className={`path-review__item ${status.isExcluded ? "path-review__item--excluded" : ""} ${status.isTraversalSkipped ? "path-review__item--traversal-skipped" : ""} ${status.isDeleted ? "path-review__item--deleted" : ""} ${status.existsOnlyOnDst ? "path-review__item--destination-only" : ""} ${isHighlighted ? "path-review__item--highlighted" : ""} ${isSelected ? "path-review__item--selected" : ""} ${showCompatUI && item.pathIssueStatus === "manual_review" && !item.pathIssueIgnored ? "path-review__item--path-issue" : ""}`}
-                      onClick={() => selectInspectorItem(item)}
+                      className={`path-review__item ${status.isExcluded ? "path-review__item--excluded" : ""} ${status.isTraversalSkipped ? "path-review__item--traversal-skipped" : ""} ${status.isDeleted ? "path-review__item--deleted" : ""} ${status.existsOnlyOnDst ? "path-review__item--destination-only" : ""} ${isHighlighted ? "path-review__item--highlighted" : ""} ${isMultiSelected ? "path-review__item--selected" : ""} ${isInspectorFocused ? "path-review__item--inspector-focused" : ""} ${showCompatUI && item.pathIssueStatus === "manual_review" && !item.pathIssueIgnored ? "path-review__item--path-issue" : ""}`}
+                      onClick={(event) => {
+                        if (altTextSelect) return;
+                        handleTreeItemSelect(item, index, event);
+                      }}
                       onDoubleClick={() => {
+                        if (altTextSelect) return;
+                        if (treeFolderClickTimerRef.current != null) {
+                          window.clearTimeout(treeFolderClickTimerRef.current);
+                          treeFolderClickTimerRef.current = null;
+                        }
                         if (canOpenFolder) handleFolderClick(item);
                       }}
                       onContextMenu={(e) => handleItemContextMenu(item, e)}
@@ -2489,11 +3104,11 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
                       </div>
 
                       <div className="path-review__item-icon">
-                        {isFolder ? (
-                          <Folder size={16} />
-                        ) : (
-                          <File size={16} />
-                        )}
+                        <FileTypeIcon
+                          name={item.name}
+                          type={isFolder ? "folder" : "file"}
+                          size={16}
+                        />
                       </div>
 
                       <div
@@ -2632,6 +3247,10 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
               }}
               inspectorItemId={inspectorItem?.id ?? null}
               onInspectorSelect={selectInspectorItem}
+              onInspectorClear={() => {
+                setInspectorItem(null);
+                setHighlightedItemId(null);
+              }}
               onInspectorEnsure={ensureInspectorItem}
               onItemUpdate={() => {
                 startStatsPolling();
@@ -2647,6 +3266,7 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
               onCalculatedTotalChange={(total) => {
                 setListCalculatedTotal(total);
               }}
+              forceReplaceAllowed={forceReplaceAllowed}
             />
           </div>
         )}
@@ -2675,6 +3295,11 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
             }
             canExclude={inspectorCanExclude}
             canRetry={inspectorCanRetry}
+            canForceReplace={inspectorCanForceReplace}
+            canUnforceReplace={inspectorCanUnforceReplace}
+            retryLabel={
+              inspectorCopyStep ? COPY_CYCLE_LABELS[inspectorCopyStep] : undefined
+            }
             isExcluded={!!inspectorStatus?.isExcluded}
             isMarkedForRetry={inspectorMarkedForRetry}
             canRename={
@@ -2704,6 +3329,12 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
             }}
             onRetry={() => {
               void handleRetryClick(inspectorItem);
+            }}
+            onForceReplace={() => {
+              void handleForceReplaceClick(inspectorItem, true);
+            }}
+            onUnforceReplace={() => {
+              void handleForceReplaceClick(inspectorItem, false);
             }}
           />
           ) : null}
@@ -2781,14 +3412,14 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
             <div className="path-review__footer-actions">
               <button
                 type="button"
-                className="glass-button glass-button--secondary"
+                className="action-button action-button--secondary"
                 onClick={() => advancedFiltersClearRef.current()}
               >
                 Clear rules
               </button>
               <button
                 type="button"
-                className="glass-button glass-button--progress-cta"
+                className="action-button action-button--primary"
                 onClick={() => advancedFiltersApplyRef.current()}
                 disabled={!advancedFiltersCanApply}
               >
@@ -2937,7 +3568,7 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
             {isSourceCleanupView ? (
               <button
                 type="button"
-                className="glass-button glass-button--progress-cta glass-button--multiline"
+                className="action-button action-button--primary action-button--multiline"
                 onClick={handleBeginRemoval}
                 disabled={isTriggeringSweep || hasRunningTasks}
                 title="Start removing copied items from the source"
@@ -2947,7 +3578,7 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
             ) : isCopyPlanView ? (
               <button
                 type="button"
-                className="glass-button glass-button--progress-cta"
+                className="action-button action-button--primary"
                 onClick={handleStartCopying}
                 disabled={!checkCanStartCopy() || hasRunningTasks || isTriggeringSweep}
                 title={
@@ -2972,7 +3603,7 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
               (stats?.pendingRetriesCount ?? 0) > 0 ? (
                 <button
                   type="button"
-                  className="glass-button glass-button--progress-cta"
+                  className="action-button action-button--primary"
                   onClick={handleStartDeleteRetry}
                   disabled={isTriggeringSweep || hasRunningTasks}
                   title="Retry removing failed items from the source"
@@ -2985,7 +3616,7 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
               (stats?.pendingRetriesCount ?? 0) > 0 ? (
                 <button
                   type="button"
-                  className="glass-button glass-button--progress-cta"
+                  className="action-button action-button--primary"
                   onClick={handleStartCopying}
                   disabled={isTriggeringSweep || hasRunningTasks}
                   title="Retry copying failed and pending items"
@@ -2996,7 +3627,7 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
               ) : isAwaitingCopyReview ? (
                 <button
                   type="button"
-                  className="glass-button glass-button--progress-cta glass-button--multiline"
+                  className="action-button action-button--primary action-button--multiline"
                   onClick={() => navigate(`/path-review/${migrationId}/source-cleanup`)}
                   disabled={isTriggeringSweep || hasRunningTasks}
                   title="Review which copied items to remove from the source"
@@ -3009,7 +3640,7 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
               (stats?.pendingRetriesCount ?? 0) > 0 ? (
                 <button
                   type="button"
-                  className="glass-button glass-button--progress-cta"
+                  className="action-button action-button--primary"
                   onClick={handleStartRetryDiscovery}
                   disabled={isTriggeringSweep || hasRunningTasks}
                   title="Retry failed items and re-traverse them"
@@ -3020,7 +3651,7 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
               ) : (
                 <button
                   type="button"
-                  className="glass-button glass-button--progress-cta glass-button--multiline"
+                  className="action-button action-button--primary action-button--multiline"
                   onClick={() => navigate(`/path-review/${migrationId}/copy-plan`)}
                   disabled={isTriggeringSweep || hasRunningTasks}
                   title="Review what will be copied before starting"
@@ -3033,7 +3664,7 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
           </div>
         </div>
         )}
-      </GlassSurfacePanel>
+      </PageShell>
 
       {/* Confirmation Dialog */}
       {showConfirmDialog && (
@@ -3128,6 +3759,94 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
               : undefined
           }
           onCancel={() => setShowConfirmDialog(false)}
+        />
+      )}
+
+      {pendingTreeBulk && (
+        <BulkActionConfirmDialog
+          actionLabel={BULK_ACTION_LABELS[pendingTreeBulk.action]}
+          validCount={pendingTreeBulk.partition.valid.length}
+          invalid={pendingTreeBulk.partition.invalid}
+          onConfirm={() => {
+            const { action, partition } = pendingTreeBulk;
+            setPendingTreeBulk(null);
+            if (
+              action === "force_replace" &&
+              partition.valid.some((item) => item.type === "folder")
+            ) {
+              setForceReplaceConfirm({ items: partition.valid });
+              return;
+            }
+            void runTreeBulkAction(action, partition.valid);
+          }}
+          onCancel={() => setPendingTreeBulk(null)}
+        />
+      )}
+
+      {forceReplaceConfirm && (
+        <ConfirmDialog
+          title="Replace with source"
+          message={
+            forceReplaceConfirm.items
+              ? FORCE_REPLACE_BULK_FOLDER_CONFIRM
+              : FORCE_REPLACE_FOLDER_CONFIRM
+          }
+          confirmLabel="Yes"
+          cancelLabel="No"
+          onConfirm={() => {
+            const pending = forceReplaceConfirm;
+            setForceReplaceConfirm(null);
+            if (pending.items) {
+              void runTreeBulkAction("force_replace", pending.items);
+              return;
+            }
+            if (pending.item?.src?.id && migrationId) {
+              void (async () => {
+                const item = pending.item!;
+                const nodeId = item.src!.id;
+                setMutationOps((prev) =>
+                  withInFlightOp(prev, [nodeId, item.id], "Replace with source")
+                );
+                try {
+                  const result = await forceReplaceCopyNode(migrationId, nodeId);
+                  const toastInfo = formatBulkActionToast(
+                    "Replace with source",
+                    result
+                  );
+                  if (toastInfo) {
+                    setToast({ message: toastInfo.message, type: toastInfo.type });
+                  }
+                  if (result.deltas && Object.keys(result.deltas).length > 0) {
+                    handleApplyStatsDeltas(result.deltas);
+                  }
+                  if (result.success) {
+                    const pathForLoad =
+                      breadcrumbs.length > 0
+                        ? breadcrumbs[breadcrumbs.length - 1].path
+                        : undefined;
+                    await loadItems(pathForLoad, undefined, { silent: true });
+                    setTreeListRefreshToken((token) => token + 1);
+                  }
+                } catch (err) {
+                  setToast({
+                    message:
+                      err instanceof Error
+                        ? err.message
+                        : "Failed to replace with source",
+                    type: "error",
+                  });
+                } finally {
+                  setMutationOps((prev) => {
+                    const next = new Map(prev);
+                    next.delete(nodeId);
+                    next.delete(item.id);
+                    return next;
+                  });
+                }
+              })();
+            }
+          }}
+          onCancel={() => setForceReplaceConfirm(null)}
         />
       )}
 

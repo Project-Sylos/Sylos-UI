@@ -1,7 +1,7 @@
 import { ReactNode } from "react";
 
 import PageBackButton from "./PageBackButton";
-import { GlassSurfacePanel } from "./GlassSurfacePanel";
+import { PageShell } from "./PageShell";
 import "./SelectionPage.css";
 
 export type SelectionIconAccent = "a" | "b";
@@ -17,6 +17,7 @@ export type SelectionOption = {
 
 export type SelectionPageProps = {
   title: ReactNode;
+  subtitle?: ReactNode;
   options: SelectionOption[];
   onSelect: (id: string) => void;
   onBack?: () => void;
@@ -24,10 +25,16 @@ export type SelectionPageProps = {
   error?: ReactNode;
   emptyMessage?: ReactNode;
   isBusy?: boolean;
+  /**
+   * brand: neon fill + ink outline cards (Start / Resume chooser).
+   * default: quieter cards for service/provider grids.
+   */
+  variant?: "default" | "brand";
 };
 
 export default function SelectionPage({
   title,
+  subtitle,
   options,
   onSelect,
   onBack,
@@ -35,10 +42,15 @@ export default function SelectionPage({
   error,
   emptyMessage,
   isBusy = false,
+  variant = "default",
 }: SelectionPageProps) {
   return (
-    <section className="selection-page">
-      <GlassSurfacePanel className="selection-page__content">
+    <section
+      className={`selection-page${
+        variant === "brand" ? " selection-page--brand" : ""
+      }`}
+    >
+      <PageShell className="selection-page__content">
         {onBack ? (
           <PageBackButton
             onClick={onBack}
@@ -49,6 +61,9 @@ export default function SelectionPage({
         <div className="selection-page__scroll scroll-region">
           <header className="selection-page__header">
             <h1>{title}</h1>
+            {subtitle ? (
+              <p className="selection-page__subtitle">{subtitle}</p>
+            ) : null}
             {error ? (
               <div className="selection-page__error">{error}</div>
             ) : null}
@@ -92,7 +107,7 @@ export default function SelectionPage({
             )}
           </div>
         </div>
-      </GlassSurfacePanel>
+      </PageShell>
     </section>
   );
 }

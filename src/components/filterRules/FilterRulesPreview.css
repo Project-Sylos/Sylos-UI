@@ -9,7 +9,6 @@
   justify-content: center;
   padding: clamp(0.75rem, 2vw, 1.5rem);
   background: var(--ui-overlay-60);
-  backdrop-filter: blur(6px);
 }
 
 .filter-rules-preview__panel {
@@ -18,9 +17,9 @@
   display: flex;
   flex-direction: column;
   border-radius: 1rem;
-  border: 1px solid var(--glass-border);
+  border: 1px solid var(--border-color);
   background: var(--ui-overlay-95);
-  box-shadow: var(--elevation-contact-hover), var(--glass-panel-outer-shadow);
+  box-shadow: var(--elevation-contact-hover), var(--surface-panel-shadow);
   color: var(--text-primary);
   overflow: hidden;
 }
@@ -65,7 +64,7 @@
 .filter-rules-preview__crumb {
   border: none;
   background: transparent;
-  color: var(--accent-cyan);
+  color: var(--accent);
   cursor: pointer;
   font: inherit;
   padding: 0;
@@ -144,7 +143,7 @@
 }
 
 .filter-rules-preview__folder-button:hover .browse-folder__item-name {
-  color: var(--accent-cyan);
+  color: var(--accent);
 }
 
 .filter-rules-preview__current-folder {

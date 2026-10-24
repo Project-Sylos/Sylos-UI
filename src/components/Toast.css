@@ -1,4 +1,4 @@
-@import "../styles/components/glass-container.css";
+@import "../styles/components/surface.css";
 @import "../styles/components/text-styles.css";
 
 .toast {
@@ -14,7 +14,6 @@
   font-size: 0.95rem;
   max-width: 400px;
   animation: slideIn 0.3s ease-out;
-  backdrop-filter: blur(var(--glass-blur-primary));
   background: var(--ui-overlay-95);
   border: 1px solid var(--ui-border-strong);
   box-shadow: var(--elevation-contact-rest),

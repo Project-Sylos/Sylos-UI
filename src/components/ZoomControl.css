@@ -4,20 +4,18 @@
   gap: 0.25rem;
   padding: 0.5rem 0.75rem;
   background: rgba(
-    var(--glass-bg-base-r),
-    var(--glass-bg-base-g),
-    var(--glass-bg-base-b),
-    var(--glass-bg-opacity-secondary)
+    var(--surface-base-r),
+    var(--surface-base-g),
+    var(--surface-base-b),
+    var(--surface-opacity-secondary)
   );
   border: 1px solid rgba(
     var(--color-base-slate-r),
     var(--color-base-slate-g),
     var(--color-base-slate-b),
-    var(--glass-border-opacity-default)
+    var(--border-opacity-default)
   );
   border-radius: 12px;
-  backdrop-filter: blur(var(--glass-blur-tertiary))
-    saturate(var(--glass-backdrop-saturate));
   position: relative;
 }
 
@@ -30,10 +28,14 @@
   height: 24px;
 }
 
-.zoom-control__icon {
-  color: var(--text-secondary);
+.zoom-control__aa {
+  color: var(--text-primary);
+  font-family: "Nunito", "Segoe UI", system-ui, sans-serif;
+  font-weight: 500;
+  font-size: 1.05rem;
+  letter-spacing: -0.03em;
+  line-height: 1;
   flex-shrink: 0;
-  transition: all 0.2s ease;
 }
 
 .zoom-control__percentage {
@@ -58,7 +60,7 @@
     var(--color-base-slate-r),
     var(--color-base-slate-g),
     var(--color-base-slate-b),
-    var(--glass-border-opacity-strong)
+    var(--border-opacity-strong)
   );
   color: var(--text-secondary);
 }

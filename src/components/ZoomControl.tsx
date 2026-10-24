@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useZoom, MIN_ZOOM, MAX_ZOOM } from "../contexts/ZoomContext";
-import { ZoomIn, ZoomOut, Search } from "lucide-react";
+import { ZoomIn, ZoomOut } from "lucide-react";
 import "./ZoomControl.css";
 
 // Preset zoom levels similar to browser zoom
@@ -53,7 +53,9 @@ export default function ZoomControl() {
         <ZoomOut size={16} />
       </button>
       <div className="zoom-control__icon-container">
-        <Search size={18} className="zoom-control__icon" />
+        <span className="zoom-control__aa" aria-hidden="true">
+          Aa
+        </span>
         {showPercent && (
           <span className="zoom-control__percentage">{zoomPercent}%</span>
         )}

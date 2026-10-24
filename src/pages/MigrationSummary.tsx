@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router";
-import { Search, CheckCircle2, Circle, ChevronRight, Pencil } from "lucide-react";
+import { Search, ChevronRight, Pencil } from "lucide-react";
 
 import PageContainer from "../components/PageContainer";
 import CloudConnectionIssues from "../components/CloudConnectionIssues";
@@ -479,7 +479,7 @@ export default function MigrationSummary() {
       <div className="migration-summary__checklist">
         <SetupEndpointCard
           label="Source"
-          accentClass="migration-summary__highlight--magenta"
+          tone="source"
           configured={sourceConfigured}
           locked={spectraLocked && spectraPrimaryRole !== "source"}
           lockTitle={spectraLocked && spectraPrimaryRole !== "source" ? spectraLockTitle : undefined}
@@ -510,7 +510,7 @@ export default function MigrationSummary() {
 
         <SetupEndpointCard
           label="Destination"
-          accentClass="migration-summary__highlight--cyan"
+          tone="destination"
           configured={destinationConfigured}
           locked={spectraLocked && spectraPrimaryRole !== "destination"}
           lockTitle={
@@ -581,7 +581,7 @@ export default function MigrationSummary() {
       <div className="migration-summary__footer">
         <button
           type="button"
-          className="glass-button glass-button--progress-cta"
+          className="action-button action-button--primary"
           onClick={() => void handleStartDiscovery()}
           disabled={checkingConnections || starting || !canStart}
           title={startTitle}
@@ -596,7 +596,7 @@ export default function MigrationSummary() {
 
 type SetupEndpointCardProps = {
   label: string;
-  accentClass: string;
+  tone: "source" | "destination";
   configured: boolean;
   locked: boolean;
   lockTitle?: string;
@@ -626,7 +626,7 @@ const FS_STORAGE_TIP = (
 
 function SetupEndpointCard({
   label,
-  accentClass,
+  tone,
   configured,
   locked,
   lockTitle,
@@ -645,7 +645,6 @@ function SetupEndpointCard({
   storageWarning,
   onSelect,
 }: SetupEndpointCardProps) {
-  const StatusIcon = configured ? CheckCircle2 : Circle;
   const editTitle = configured
     ? `Change ${label.toLowerCase()}`
     : `Select ${label.toLowerCase()}`;
@@ -653,23 +652,13 @@ function SetupEndpointCard({
 
   return (
     <div
-      className={`migration-summary__endpoint${
+      className={`migration-summary__endpoint migration-summary__endpoint--${tone}${
         configured ? " migration-summary__endpoint--configured" : ""
       }${locked ? " migration-summary__endpoint--locked" : ""}`}
       title={locked ? lockTitle : undefined}
     >
       <div className="migration-summary__endpoint-header">
-        <StatusIcon
-          size={22}
-          className={`migration-summary__endpoint-status${
-            configured
-              ? " migration-summary__endpoint-status--done"
-              : " migration-summary__endpoint-status--pending"
-          }`}
-        />
-        <h2 className={`migration-summary__endpoint-title ${accentClass}`}>
-          {label}
-        </h2>
+        <h2 className="migration-summary__endpoint-title">{label}</h2>
         {!locked && configured && (
           <button
             type="button"

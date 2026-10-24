@@ -1,5 +1,11 @@
+import type { ReactElement } from "react";
 import { Clock, X, Check, AlertCircle, RotateCw, Trash2, Ban } from "lucide-react";
 import { DiffItem } from "../api/services";
+import InteractionHint from "./InteractionHint";
+import {
+  STATUS_HINT,
+  STATUS_HINT_COPY,
+} from "./pathReviewStatusHints";
 import {
   excludedByRuleText,
   isRuleExcluded,
@@ -25,6 +31,24 @@ export interface PathReviewStatusIconProps {
   onSkipDeleteClick?: (item: DiffItem) => void;
   /** When set, replace the status glyph with a spinner until the backend op finishes. */
   opInProgressTitle?: string;
+}
+
+function maybeHint(
+  tipId: string,
+  content: string,
+  canToggle: boolean,
+  icon: ReactElement
+): ReactElement {
+  if (!canToggle) return icon;
+  return (
+    <InteractionHint tipId={tipId} content={content} position="right">
+      {icon}
+    </InteractionHint>
+  );
+}
+
+function interactiveClass(baseClass: string, canToggle: boolean): string {
+  return canToggle ? ` ${baseClass}--interactive` : "";
 }
 
 export default function PathReviewStatusIcon({
@@ -80,12 +104,17 @@ export default function PathReviewStatusIcon({
     }
     const deleteStatus = item.src?.deleteStatus || "";
     if (deleteStatus === "skipped") {
-      return (
+      const canToggle = true;
+      return maybeHint(
+        STATUS_HINT.include,
+        STATUS_HINT_COPY.include,
+        canToggle,
         <X
           size={iconSize}
-          className={`${baseClass} ${baseClass}--excluded`}
+          className={`${baseClass} ${baseClass}--excluded${interactiveClass(baseClass, canToggle)}`}
           onClick={() => onSkipDeleteClick?.(item)}
           style={{ cursor: "pointer" }}
+          title="Skipped for removal. Click to include again."
         />
       );
     }
@@ -99,12 +128,17 @@ export default function PathReviewStatusIcon({
         />
       );
     }
-    return (
+    const canToggle = true;
+    return maybeHint(
+      STATUS_HINT.exclude,
+      STATUS_HINT_COPY.exclude,
+      canToggle,
       <Trash2
         size={iconSize}
-        className={`${baseClass} ${baseClass}--pending`}
+        className={`${baseClass} ${baseClass}--pending${interactiveClass(baseClass, canToggle)}`}
         onClick={() => onSkipDeleteClick?.(item)}
         style={{ cursor: "pointer" }}
+        title="Scheduled for removal. Click to skip."
       />
     );
   }
@@ -139,22 +173,32 @@ export default function PathReviewStatusIcon({
       );
     }
     if (deleteStatus === "failed") {
-      return (
+      const canToggle = true;
+      return maybeHint(
+        STATUS_HINT.markRetry,
+        STATUS_HINT_COPY.markRetry,
+        canToggle,
         <AlertCircle
           size={iconSize}
-          className={`${baseClass} ${baseClass}--failed`}
+          className={`${baseClass} ${baseClass}--failed${interactiveClass(baseClass, canToggle)}`}
           onClick={() => onRetryClick?.(item)}
           style={{ cursor: "pointer" }}
+          title="Removal failed. Click to mark for retry."
         />
       );
     }
     if (deleteStatus === "pending_explicit") {
-      return (
+      const canToggle = true;
+      return maybeHint(
+        STATUS_HINT.undoRetry,
+        STATUS_HINT_COPY.undoRetry,
+        canToggle,
         <RotateCw
           size={iconSize}
-          className={`${baseClass} ${baseClass}--retry`}
+          className={`${baseClass} ${baseClass}--retry${interactiveClass(baseClass, canToggle)}`}
           onClick={() => onRetryClick?.(item)}
           style={{ cursor: "pointer" }}
+          title="Marked for removal retry. Click to undo."
         />
       );
     }
@@ -170,14 +214,18 @@ export default function PathReviewStatusIcon({
     ) {
       const ruleExcluded = isRuleExcluded(item);
       const ruleTip = excludedByRuleText(item);
-      return (
+      const canToggle = !isLocked && !ruleExcluded;
+      return maybeHint(
+        STATUS_HINT.include,
+        STATUS_HINT_COPY.include,
+        canToggle,
         <X
           size={iconSize}
           className={`${baseClass} ${baseClass}--excluded${
             ruleExcluded ? ` ${baseClass}--rule-excluded` : ""
-          }`}
-          onClick={() => !isLocked && !ruleExcluded && onExcludeClick?.(item, false)}
-          style={{ cursor: isLocked || ruleExcluded ? "default" : "pointer" }}
+          }${interactiveClass(baseClass, canToggle)}`}
+          onClick={() => canToggle && onExcludeClick?.(item, false)}
+          style={{ cursor: canToggle ? "pointer" : "default" }}
           title={
             ruleTip ||
             (ruleExcluded
@@ -206,12 +254,16 @@ export default function PathReviewStatusIcon({
       );
     }
     if (copyStatus === "pending" || copyStatus === "") {
-      return (
+      const canToggle = !isLocked;
+      return maybeHint(
+        STATUS_HINT.exclude,
+        STATUS_HINT_COPY.exclude,
+        canToggle,
         <Clock
           size={iconSize}
-          className={`${baseClass} ${baseClass}--pending`}
-          onClick={() => !isLocked && onExcludeClick?.(item, true)}
-          style={{ cursor: isLocked ? "not-allowed" : "pointer" }}
+          className={`${baseClass} ${baseClass}--pending${interactiveClass(baseClass, canToggle)}`}
+          onClick={() => canToggle && onExcludeClick?.(item, true)}
+          style={{ cursor: canToggle ? "pointer" : "not-allowed" }}
           title="Will be copied. Click to exclude."
         />
       );
@@ -221,23 +273,33 @@ export default function PathReviewStatusIcon({
 
   if (isCopy) {
     if (copyStatus === "failed") {
-      return (
+      const canToggle = true;
+      return maybeHint(
+        STATUS_HINT.markRetry,
+        STATUS_HINT_COPY.markRetry,
+        canToggle,
         <AlertCircle
           size={iconSize}
-          className={`${baseClass} ${baseClass}--failed`}
+          className={`${baseClass} ${baseClass}--failed${interactiveClass(baseClass, canToggle)}`}
           onClick={() => onRetryClick?.(item)}
           style={{ cursor: "pointer" }}
+          title="Copy failed. Click to mark for retry."
         />
       );
     }
 
     if (copyStatus === "pending") {
-      return (
+      const canToggle = true;
+      return maybeHint(
+        STATUS_HINT.undoRetry,
+        STATUS_HINT_COPY.undoRetry,
+        canToggle,
         <RotateCw
           size={iconSize}
-          className={`${baseClass} ${baseClass}--retry`}
+          className={`${baseClass} ${baseClass}--retry${interactiveClass(baseClass, canToggle)}`}
           onClick={() => onRetryClick?.(item)}
           style={{ cursor: "pointer" }}
+          title="Marked for copy retry. Click to undo."
         />
       );
     }
@@ -247,14 +309,20 @@ export default function PathReviewStatusIcon({
       copyStatus === "exclusion_inherited" ||
       copyStatus === "excluded"
     ) {
+      const ruleExcluded = isRuleExcluded(item);
       const ruleTip = excludedByRuleText(item);
-      return (
+      const canToggle = !isLocked && !ruleExcluded;
+      return maybeHint(
+        STATUS_HINT.include,
+        STATUS_HINT_COPY.include,
+        canToggle,
         <X
           size={iconSize}
           className={`${baseClass} ${baseClass}--excluded${
-            isRuleExcluded(item) ? ` ${baseClass}--rule-excluded` : ""
-          }`}
-          style={{ cursor: "default" }}
+            ruleExcluded ? ` ${baseClass}--rule-excluded` : ""
+          }${interactiveClass(baseClass, canToggle)}`}
+          onClick={() => canToggle && onRetryClick?.(item)}
+          style={{ cursor: canToggle ? "pointer" : "default" }}
           title={ruleTip || "Excluded from copy"}
         />
       );
@@ -288,10 +356,14 @@ export default function PathReviewStatusIcon({
   const skippedDiscovery = isTraversalSkipped(item);
 
   if (skippedDiscovery) {
-    return (
+    const canToggle = true;
+    return maybeHint(
+      STATUS_HINT.markRetry,
+      STATUS_HINT_COPY.markRetry,
+      canToggle,
       <Ban
         size={iconSize}
-        className={`${baseClass} ${baseClass}--traversal-skipped`}
+        className={`${baseClass} ${baseClass}--traversal-skipped${interactiveClass(baseClass, canToggle)}`}
         onClick={() => onRetryClick?.(item)}
         style={{ cursor: "pointer" }}
         title="Skipped at root pick. Click to mark for discovery retry."
@@ -300,23 +372,33 @@ export default function PathReviewStatusIcon({
   }
 
   if (hasFailedStatus) {
-    return (
+    const canToggle = true;
+    return maybeHint(
+      STATUS_HINT.markRetry,
+      STATUS_HINT_COPY.markRetry,
+      canToggle,
       <AlertCircle
         size={iconSize}
-        className={`${baseClass} ${baseClass}--failed`}
+        className={`${baseClass} ${baseClass}--failed${interactiveClass(baseClass, canToggle)}`}
         onClick={() => onRetryClick?.(item)}
         style={{ cursor: "pointer" }}
+        title="Discovery failed. Click to mark for retry."
       />
     );
   }
 
   if (hasPendingRetry) {
-    return (
+    const canToggle = true;
+    return maybeHint(
+      STATUS_HINT.undoRetry,
+      STATUS_HINT_COPY.undoRetry,
+      canToggle,
       <RotateCw
         size={iconSize}
-        className={`${baseClass} ${baseClass}--retry`}
+        className={`${baseClass} ${baseClass}--retry${interactiveClass(baseClass, canToggle)}`}
         onClick={() => onRetryClick?.(item)}
         style={{ cursor: "pointer" }}
+        title="Marked for discovery retry. Click to undo."
       />
     );
   }

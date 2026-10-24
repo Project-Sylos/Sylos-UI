@@ -23,7 +23,6 @@
 .help-modal__link-row:hover {
   background: var(--ui-icon-button-bg-hover);
   border-color: var(--ui-icon-button-border-hover);
-  transform: translateY(-1px);
 }
 
 .help-modal__brand-icon {
@@ -42,14 +41,8 @@
   );
 }
 
-.help-modal__brand-icon img {
-  width: 24px;
-  height: 24px;
-  object-fit: contain;
-}
-
-.help-modal__brand-icon--discord {
-  background: #5865f2;
+.help-modal__brand-icon svg {
+  color: var(--text-secondary);
 }
 
 .help-modal__link-copy {

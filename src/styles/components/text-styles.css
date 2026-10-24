@@ -24,11 +24,11 @@
   color: var(--text-hover);
 }
 
-/* Accent colors */
-.text-accent-magenta {
-  color: var(--accent-magenta);
+/* Soft accent text (not neon fills). Prefer primary CTAs for brand color. */
+.text-accent-secondary {
+  color: var(--accent-secondary);
 }
 
-.text-accent-cyan {
-  color: var(--accent-cyan);
+.text-accent {
+  color: var(--accent);
 }

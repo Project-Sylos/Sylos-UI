@@ -1,44 +1,67 @@
 /* Design Token System - CSS Variables for Theming */
 
-/* Glass Container Tokens */
+/* Surface Tokens */
 :root {
-  /* Background opacity levels */
-  --glass-bg-opacity-primary: 0.28;
-  --glass-bg-opacity-secondary: 0.15;
-  --glass-bg-opacity-tertiary: 0.1;
-  --glass-bg-opacity-hover: 0.35;
-  --glass-bg-opacity-active: 0.4;
-  
-  /* Backdrop blur levels */
-  --glass-blur-primary: 16px;
-  --glass-blur-secondary: 12px;
-  --glass-blur-tertiary: 8px;
-  
+  /* Page and panel surfaces (theme packs override the concrete colors) */
+  --page-bg: #0e0f11;
+  --border-subtle: var(--border);
+  --surface-elevated: var(--surface-bg);
+  --surface-elevated-strong: var(--surface-bg-hover);
+  --surface-base: var(--surface-bg);
+  --bg-primary: var(--page-bg);
+  --bg-secondary: var(--surface-bg-subtle);
+  --color-bg: var(--page-bg);
+  --warning: var(--ui-status-warning);
+  --surface-bg: #17181c;
+  --surface-bg-subtle: #121316;
+  --surface-bg-hover: #1f2025;
+  --border: #2a2c31;
+  --border-strong: #3f434c;
+
+  /* Opacity levels for tinted / glass surfaces over the page wash */
+  --surface-opacity-primary: 0.72;
+  --surface-opacity-secondary: 0.5;
+  --surface-opacity-tertiary: 0.35;
+  --surface-opacity-hover: 0.82;
+  --surface-opacity-active: 0.9;
+
   /* Border opacity levels */
-  --glass-border-opacity-default: 0.18;
-  --glass-border-opacity-subtle: 0.1;
-  --glass-border-opacity-strong: 0.3;
-  --glass-border-opacity-hover: 0.3;
-  --glass-border: rgba(
+  --border-opacity-default: 0.45;
+  --border-opacity-subtle: 0.28;
+  --border-opacity-strong: 0.65;
+  --border-opacity-hover: 0.75;
+  --border-color: rgba(
     var(--color-base-slate-r),
     var(--color-base-slate-g),
     var(--color-base-slate-b),
-    var(--glass-border-opacity-default)
+    var(--border-opacity-default)
   );
-  
-  /* Shadow opacity and intensity */
-  --glass-shadow-opacity-sm: 0.1;
-  --glass-shadow-opacity-md: 0.2;
-  --glass-shadow-opacity-lg: 0.35;
-  --glass-shadow-blur-sm: 16px;
-  --glass-shadow-blur-md: 24px;
-  --glass-shadow-blur-lg: 90px;
-  --glass-shadow-spread-sm: 4px;
-  --glass-shadow-spread-md: 8px;
-  --glass-shadow-spread-lg: 40px;
 
-  /* Inset top highlight on glass panels (obsidian sets a soft sheen; neon stays transparent) */
-  --glass-inset-sheen: transparent;
+  /* Soft diffused shadows for glass elevation */
+  --shadow-opacity-sm: 0.14;
+  --shadow-opacity-md: 0.18;
+  --shadow-opacity-lg: 0.24;
+  --shadow-blur-sm: 12px;
+  --shadow-blur-md: 24px;
+  --shadow-blur-lg: 40px;
+  --shadow-spread-sm: 0px;
+  --shadow-spread-md: -2px;
+  --shadow-spread-lg: -4px;
+
+  /* Frost / glass shell */
+  --surface-blur: 18px;
+  --surface-glass-bg: rgba(
+    var(--surface-base-r),
+    var(--surface-base-g),
+    var(--surface-base-b),
+    var(--surface-opacity-primary)
+  );
+  --surface-rim: rgba(255, 255, 255, 0.1);
+  --surface-radius: 14px;
+  --bg-orb-primary: rgba(163, 216, 255, 0.12);
+  --bg-orb-secondary: rgba(240, 140, 255, 0.08);
+
+  --surface-inset-highlight: transparent;
   
   /* Text Color Tokens */
   --text-primary: #f8fafc;
@@ -61,13 +84,46 @@
   --button-shadow-opacity: 0.1;
   --button-shadow-opacity-hover: 0.2;
   
-  /* Accent Colors */
-  --accent-magenta: #ff00ff;
-  --accent-cyan: #00ffff;
-  --accent-magenta-opacity-10: rgba(255, 0, 255, 0.1);
-  --accent-magenta-opacity-20: rgba(255, 0, 255, 0.2);
-  --accent-cyan-opacity-10: rgba(0, 255, 255, 0.1);
-  --accent-cyan-opacity-20: rgba(0, 255, 255, 0.2);
+  /*
+   * Logo-inspired airy accents (scarce): soft pink source, sky destination,
+   * periwinkle-sky primary for CTAs/nav. Not used as page wash fills.
+   */
+  /* Darker sky blue (slider / nav / destination / primary CTAs) */
+  --accent: #4a8fc4;
+  --accent-hover: #5a9fd4;
+  --accent-fg: #ffffff;
+  --accent-solid: #3d7fb4;
+  --accent-solid-hover: #4a8fc4;
+  --accent-secondary: #e08cff;
+  --accent-secondary-hover: #e9a4ff;
+  --accent-secondary-opacity-10: rgba(224, 140, 255, 0.14);
+  --accent-secondary-opacity-20: rgba(224, 140, 255, 0.26);
+  --accent-opacity-10: rgba(74, 143, 196, 0.16);
+  --accent-opacity-20: rgba(74, 143, 196, 0.28);
+
+  /* Role aliases (names kept: cyan=destination, magenta=source) */
+  --brand-ink: #ffffff;
+  --brand-outline-width: 1px;
+  --brand-cyan: var(--accent);
+  --brand-cyan-hover: var(--accent-hover);
+  --brand-magenta: #e891f5;
+  --brand-magenta-hover: #f0a8fa;
+  --brand-danger: #e85a68;
+  --brand-danger-hover: #f0717c;
+
+  /*
+   * Brand marks: muted role color + hairline rim (no neon fill / ink outline).
+   */
+  --brand-mark-fg: var(--text-primary);
+  --brand-mark-bg-cyan: var(--brand-cyan);
+  --brand-mark-bg-magenta: var(--brand-magenta);
+  --brand-mark-outline: var(--surface-rim);
+  --brand-mark-outline-width: 1px;
+  --brand-chip-fg: var(--text-primary);
+  --brand-chip-bg-cyan: var(--brand-cyan);
+  --brand-chip-bg-magenta: var(--brand-magenta);
+  --brand-tab-line: var(--accent);
+  --brand-tab-fg-active: var(--text-primary);
   
   /* Base Colors (RGB values for rgba usage) */
   --color-base-dark-r: 15;
@@ -88,13 +144,13 @@
   --bg-base-light: #f8fafc;
   --bg-base-container: #0a0a1a;
   
-  /* Glass Container Base Colors (default - will be overridden by theme packs) */
-  --glass-bg-base-r: 15;
-  --glass-bg-base-g: 23;
-  --glass-bg-base-b: 42;
-
-  /* Backdrop saturation (light themes use >1 for liquid-glass read) */
-  --glass-backdrop-saturate: 1;
+  /* Surface base color channels (default dark, theme packs override) */
+  --surface-base-r: 31;
+  --surface-base-g: 34;
+  --surface-base-b: 39;
+  --border-base-r: 148;
+  --border-base-g: 163;
+  --border-base-b: 184;
 
   /* Raised fields / modals (PathReview filters, etc.) - dark default */
   --ui-overlay-20: rgba(15, 23, 42, 0.2);
@@ -104,14 +160,6 @@
   --ui-overlay-60: rgba(15, 23, 42, 0.6);
   --ui-overlay-70: rgba(15, 23, 42, 0.7);
   --ui-overlay-95: rgba(15, 23, 42, 0.95);
-
-  /*
-   * Surface / elevation - theme packs override (see quartz-theme / obsidian-theme).
-   * Future: load extra stylesheets that only set these custom properties (plugin-style themes).
-   * Prepend to box-shadow stacks: var(--elevation-contact-rest), …
-   */
-  --elevation-contact-rest: 0 1px 2px rgba(0, 0, 0, 0.28);
-  --elevation-contact-hover: 0 1px 3px rgba(0, 0, 0, 0.35);
 
   /*
    * Icon-only circular chrome (back-button--icon, path-review back, etc.)
@@ -128,27 +176,20 @@
   --chrome-icon-color: var(--text-primary);
   --chrome-icon-color-hover: var(--text-hover);
   --chrome-icon-shadow-rest: none;
-  --chrome-icon-shadow-hover: 0 0 0 1px var(--accent-cyan-opacity-10),
-    0 4px 12px var(--accent-cyan-opacity-10);
+  --chrome-icon-shadow-hover: none;
 
-  /*
-   * Main frosted shell (.glass-surface--panel / .glass-container default stack)
-   */
-  --glass-panel-outer-shadow: inset 0 1px 0 var(--glass-inset-sheen),
-    0 var(--glass-shadow-spread-lg) var(--glass-shadow-blur-lg) rgba(
-      var(--glass-bg-base-r),
-      var(--glass-bg-base-g),
-      var(--glass-bg-base-b),
-      var(--glass-shadow-opacity-lg)
-    );
-  --glass-panel-shadow-hover-extra: 0 0 0 1px var(--accent-cyan-opacity-10),
-    0 10px 30px var(--accent-cyan-opacity-10);
-  --glass-panel-shadow-focus-extra: 0 0 0 2px var(--accent-cyan-opacity-20);
+  /* Page shell and bordered surfaces */
+  --surface-panel-shadow: 0 12px 40px rgba(0, 0, 0, var(--shadow-opacity-md));
+  --surface-hover-shadow: 0 16px 48px rgba(0, 0, 0, var(--shadow-opacity-lg));
+  --surface-focus-ring: 0 0 0 2px var(--accent-opacity-20);
+
+  --elevation-contact-rest: 0 8px 28px rgba(0, 0, 0, 0.22);
+  --elevation-contact-hover: 0 12px 36px rgba(0, 0, 0, 0.28);
 
   /*
    * Footer bands under lists / scroll regions
    */
-  --surface-footer-border-top: 1px solid var(--accent-cyan-opacity-10);
+  --surface-footer-border-top: 1px solid var(--border);
   --surface-footer-background: transparent;
   --surface-footer-padding: 0.5rem 0 0;
   --surface-footer-margin-top: 1rem;
@@ -158,38 +199,34 @@
   /*
    * Selection grid cards (migration type, service pickers, etc.)
    */
-  --selection-card-background: linear-gradient(
-    160deg,
-    rgba(15, 23, 42, 0.65) 0%,
-    rgba(30, 41, 59, 0.35) 100%
+  --selection-card-background: var(--surface-glass-bg);
+  --selection-card-border-color: var(--surface-rim);
+  --selection-card-shadow: var(--surface-panel-shadow);
+  --selection-card-border-color-hover: var(--border-strong);
+  --selection-card-hover-background: rgba(
+    var(--surface-base-r),
+    var(--surface-base-g),
+    var(--surface-base-b),
+    var(--surface-opacity-hover)
   );
-  --selection-card-border-color: rgba(148, 163, 184, 0.22);
-  --selection-card-shadow: var(--elevation-contact-rest),
-    0 24px 60px rgba(15, 23, 42, 0.35);
-  --selection-card-border-color-hover: rgba(255, 255, 255, 0.45);
-  --selection-card-hover-background: rgba(15, 23, 42, 0.6);
-  --selection-card-hover-shadow: var(--elevation-contact-hover),
-    0 32px 70px rgba(8, 47, 73, 0.45);
-  --selection-card-disabled-shadow: var(--elevation-contact-rest),
-    0 18px 40px rgba(15, 23, 42, 0.2);
+  --selection-card-hover-shadow: var(--surface-hover-shadow);
+  --selection-card-disabled-shadow: none;
 
-  /* Fixed .sidebar: slate lives here rather than inline so themes can retint it. */
-  --sidebar-surface-bg: rgba(15, 23, 42, 0.15);
-  --sidebar-surface-border: 1px solid rgba(148, 163, 184, 0.2);
-  --sidebar-edge-shadow: 4px 0 16px rgba(15, 23, 42, 0.1);
-  --sidebar-button-bg: rgba(15, 23, 42, 0.15);
-  --sidebar-button-bg-hover: rgba(15, 23, 42, 0.25);
-  --sidebar-button-bg-active: rgba(15, 23, 42, 0.15);
-  --sidebar-button-border-color: rgba(148, 163, 184, 0.2);
-  --sidebar-button-border-color-hover: rgba(148, 163, 184, 0.3);
-  --sidebar-button-shadow-rest: var(--elevation-contact-rest),
-    0 2px 8px rgba(15, 23, 42, 0.1);
-  --sidebar-button-shadow-hover: var(--elevation-contact-hover),
-    0 4px 12px rgba(15, 23, 42, 0.15);
-  --sidebar-button-primary-bg: rgba(15, 23, 42, 0.2);
-  --sidebar-button-primary-bg-hover: rgba(15, 23, 42, 0.3);
-  --sidebar-button-primary-border: rgba(148, 163, 184, 0.25);
-  --sidebar-button-primary-border-hover: rgba(148, 163, 184, 0.35);
+  /* Sidebar surfaces; themes retint these. */
+  --sidebar-surface-bg: #131418;
+  --sidebar-surface-border: 1px solid #232529;
+  --sidebar-edge-shadow: none;
+  --sidebar-button-bg: transparent;
+  --sidebar-button-bg-hover: #1f2025;
+  --sidebar-button-bg-active: #24262c;
+  --sidebar-button-border-color: transparent;
+  --sidebar-button-border-color-hover: transparent;
+  --sidebar-button-shadow-rest: none;
+  --sidebar-button-shadow-hover: none;
+  --sidebar-button-primary-bg: var(--accent-opacity-10);
+  --sidebar-button-primary-bg-hover: var(--accent-opacity-20);
+  --sidebar-button-primary-border: transparent;
+  --sidebar-button-primary-border-hover: transparent;
 
   /*
    * Shared UI primitives (fields, alerts, badges, intent buttons, tables)
@@ -220,14 +257,14 @@
   --ui-alert-warning-fg: #fbbf24;
   --ui-alert-warning-bg: rgba(251, 191, 36, 0.12);
   --ui-alert-warning-border: rgba(251, 191, 36, 0.35);
-  --ui-alert-info-fg: #93c5fd;
-  --ui-alert-info-bg: rgba(59, 130, 246, 0.15);
-  --ui-alert-info-border: rgba(59, 130, 246, 0.35);
+  --ui-alert-info-fg: #9ad0f0;
+  --ui-alert-info-bg: rgba(122, 212, 240, 0.14);
+  --ui-alert-info-border: rgba(122, 212, 240, 0.34);
 
   --ui-badge-neutral-fg: rgba(255, 255, 255, 0.82);
   --ui-badge-neutral-bg: rgba(255, 255, 255, 0.1);
-  --ui-badge-admin-fg: #9ef0f3;
-  --ui-badge-admin-bg: rgba(92, 225, 230, 0.16);
+  --ui-badge-admin-fg: #b8c3f5;
+  --ui-badge-admin-bg: rgba(184, 195, 245, 0.18);
   --ui-badge-danger-fg: #ff9b9b;
   --ui-badge-danger-bg: rgba(255, 95, 95, 0.16);
   --ui-badge-success-fg: #8dffb2;
@@ -235,19 +272,24 @@
   --ui-badge-warning-fg: #ffd98a;
   --ui-badge-warning-bg: rgba(255, 196, 86, 0.18);
 
-  --ui-button-danger-fg: #fecaca;
-  --ui-button-danger-bg: rgba(220, 38, 38, 0.22);
-  --ui-button-danger-border: rgba(220, 38, 38, 0.55);
+  --ui-button-danger-fg: #ffffff;
+  --ui-button-danger-bg: var(--brand-danger);
+  --ui-button-danger-border: transparent;
   --ui-button-danger-fg-hover: #ffffff;
-  --ui-button-danger-bg-hover: rgba(220, 38, 38, 0.32);
-  --ui-button-danger-border-hover: rgba(248, 113, 113, 0.65);
-  --ui-button-danger-solid-bg: #b91c1c;
+  --ui-button-danger-bg-hover: var(--brand-danger-hover);
+  --ui-button-danger-border-hover: transparent;
+  --ui-button-danger-solid-bg: var(--brand-danger);
   --ui-button-danger-solid-fg: #ffffff;
 
-  --ui-button-primary-fg: var(--text-primary);
-  --ui-button-primary-bg: rgba(59, 130, 246, 0.2);
-  --ui-button-primary-border: rgba(59, 130, 246, 0.45);
-  --ui-button-primary-bg-hover: rgba(59, 130, 246, 0.3);
+  --ui-button-primary-fg: #ffffff;
+  --ui-button-primary-bg: var(--accent-solid);
+  --ui-button-primary-border: transparent;
+  --ui-button-primary-bg-hover: var(--accent-solid-hover);
+
+  --ui-button-magenta-fg: #ffffff;
+  --ui-button-magenta-bg: #c45fd4;
+  --ui-button-magenta-border: transparent;
+  --ui-button-magenta-bg-hover: #d278e0;
 
   --ui-button-secondary-fg: var(--text-primary);
   --ui-button-secondary-bg: rgba(148, 163, 184, 0.15);
@@ -257,8 +299,8 @@
   --ui-status-danger: #f87171;
   --ui-status-success: #34d399;
   --ui-status-warning: #fbbf24;
-  --ui-status-info: #60a5fa;
-  --ui-status-running: #60a5fa;
+  --ui-status-info: var(--accent);
+  --ui-status-running: var(--accent);
   --ui-status-suspended: #fbbf24;
   --ui-status-healthy: #8dffb2;
   --ui-status-unhealthy: #ff8f8f;

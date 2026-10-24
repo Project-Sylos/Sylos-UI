@@ -70,9 +70,9 @@
 .path-review-issues-panel__close:hover {
   color: var(--text-primary);
   background: rgba(
-    var(--glass-bg-base-r),
-    var(--glass-bg-base-g),
-    var(--glass-bg-base-b),
+    var(--surface-base-r),
+    var(--surface-base-g),
+    var(--surface-base-b),
     0.25
   );
 }
@@ -144,19 +144,19 @@
 }
 
 .path-review-issues-panel__row--failed {
-  color: #fca5a5;
+  color: var(--ui-status-danger);
   background: rgba(239, 68, 68, 0.1);
   border-color: rgba(239, 68, 68, 0.28);
 }
 
 .path-review-issues-panel__row--manual {
-  color: #fda4af;
+  color: var(--ui-status-danger);
   background: rgba(244, 63, 94, 0.1);
   border-color: rgba(244, 63, 94, 0.28);
 }
 
 .path-review-issues-panel__row--compat {
-  color: #fcd34d;
+  color: var(--ui-status-warning);
   background: rgba(251, 191, 36, 0.1);
   border-color: rgba(251, 191, 36, 0.28);
 }
@@ -213,7 +213,7 @@
 
 .path-review-issues-panel__jump:hover:not(:disabled) {
   opacity: 1;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--ui-inset-bg);
 }
 
 .path-review-issues-panel__jump:disabled {
@@ -239,7 +239,7 @@
 }
 
 .path-review-issues-panel__tip .help-tooltip__content a {
-  color: var(--accent-cyan, #67e8f9);
+  color: var(--accent, #67e8f9);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
@@ -250,6 +250,6 @@
   font-size: 0.95rem;
   font-weight: 650;
   letter-spacing: 0.12em;
-  color: #fcd34d;
+  color: var(--ui-status-warning);
   word-break: break-all;
 }

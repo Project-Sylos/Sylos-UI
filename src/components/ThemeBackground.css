@@ -1,55 +1,52 @@
 .sylos-bg-container {
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  inset: 0;
   z-index: -1;
   overflow: hidden;
   width: 100vw;
   height: 100vh;
-  background: #0a0a1a;
+  background: var(--page-bg);
   pointer-events: none;
 }
 
-/* Obsidian: darker base + faint cool specular */
-.sylos-bg-container--obsidian {
-  background:
-    radial-gradient(
-      ellipse 52% 44% at 50% 32%,
-      rgba(130, 170, 220, 0.05) 0%,
-      transparent 58%
-    ),
-    radial-gradient(
-      ellipse 88% 72% at 50% 48%,
-      #0f141f 0%,
-      #080b12 44%,
-      #05070c 100%
-    );
+.sylos-bg-container::before,
+.sylos-bg-container::after {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(100px);
+  opacity: 1;
+  pointer-events: none;
 }
 
-/* Quartz: soft pastel blobs behind glass */
+.sylos-bg-container::before {
+  width: min(78vw, 820px);
+  height: min(78vw, 820px);
+  top: -18%;
+  right: -12%;
+  background: var(--bg-orb-primary);
+}
+
+.sylos-bg-container::after {
+  width: min(68vw, 680px);
+  height: min(68vw, 680px);
+  bottom: -22%;
+  left: -14%;
+  background: var(--bg-orb-secondary);
+}
+
+/* Quiet navy glass; tiny sky/pink mist only */
+.sylos-bg-container--obsidian {
+  background:
+    radial-gradient(ellipse 90% 70% at 18% 8%, rgba(90, 140, 180, 0.16), transparent 58%),
+    radial-gradient(ellipse 75% 55% at 88% 78%, rgba(120, 80, 140, 0.1), transparent 52%),
+    var(--page-bg);
+}
+
+/* Soft sky fluff; faint pink only at the edge */
 .sylos-bg-container--quartz {
   background:
-    radial-gradient(
-      ellipse 55% 45% at 12% 18%,
-      rgba(196, 210, 255, 0.55) 0%,
-      transparent 52%
-    ),
-    radial-gradient(
-      ellipse 50% 42% at 88% 22%,
-      rgba(250, 200, 255, 0.38) 0%,
-      transparent 48%
-    ),
-    radial-gradient(
-      ellipse 60% 50% at 78% 85%,
-      rgba(180, 230, 252, 0.45) 0%,
-      transparent 50%
-    ),
-    radial-gradient(
-      ellipse 70% 55% at 22% 78%,
-      rgba(255, 228, 200, 0.28) 0%,
-      transparent 48%
-    ),
-    linear-gradient(165deg, #f1f5f9 0%, #e8eef5 40%, #dde5ee 100%);
+    radial-gradient(ellipse 90% 65% at 12% 0%, rgba(190, 220, 245, 0.65), transparent 55%),
+    radial-gradient(ellipse 70% 55% at 95% 90%, rgba(235, 200, 245, 0.28), transparent 50%),
+    linear-gradient(165deg, #f4f8fc 0%, #eaf2f9 50%, #f2f4fa 100%);
 }

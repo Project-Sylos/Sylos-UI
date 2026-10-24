@@ -59,6 +59,7 @@ import {
 } from "../types/migrations";
 import { useSelection } from "../context/SelectionContext";
 import { formatMigrationPath } from "../utils/migrationRoots";
+import { formatEtaSeconds } from "../utils/formatBytes";
 import type { QueueMetrics } from "../types/migrations";
 import HelpTooltip from "../components/HelpTooltip";
 import { useScreenWakeLock } from "../hooks/useScreenWakeLock";
@@ -66,7 +67,7 @@ import ConfirmDialog from "../components/ConfirmDialog";
 import FinalizeRetryDialog from "../components/FinalizeRetryDialog";
 import StopProgressPopover from "../components/StopProgressPopover";
 import Toast from "../components/Toast";
-import { GlassSurfacePanel } from "../components/GlassSurfacePanel";
+import { PageShell } from "../components/PageShell";
 import PageBackButton from "../components/PageBackButton";
 import "./ProgressMonitor.css";
 
@@ -186,7 +187,7 @@ function PhaseOutcomeGrid({
   );
 }
 
-/** Stacked fill: ok (gradient) → already exists (green) → failed (red). */
+/** Stacked fill: ok (accent) → already exists (green) → failed (red). */
 function StackedProgressTrack({
   okPercent,
   alreadyExistsPercent,
@@ -394,9 +395,11 @@ function batchProgressCaption(
 function DiscoveryBatchProgressBar({
   metrics,
   complete = false,
+  tone,
 }: {
   metrics: QueueMetrics;
   complete?: boolean;
+  tone: "source" | "destination";
 }) {
   const done = isDiscoveryQueueComplete(metrics, complete);
   const pct = batchProgressPercent(metrics, done);
@@ -408,11 +411,9 @@ function DiscoveryBatchProgressBar({
     !done && metrics.eta_basis != null && metrics.eta_basis !== "";
   return (
     <div
-      className={
-        done
-          ? "progress-monitor__progress progress-monitor__progress--complete"
-          : "progress-monitor__progress"
-      }
+      className={`progress-monitor__progress progress-monitor__progress--${tone}${
+        done ? " progress-monitor__progress--complete" : ""
+      }`}
     >
       <div className="progress-monitor__progress-stack">
         <div className="progress-monitor__progress-bar-block">
@@ -483,18 +484,6 @@ function SizeFoldProgress({ metrics }: { metrics?: QueueMetrics | null }) {
       {eta != null && eta > 0 ? ` ETA ${formatEtaSeconds(eta)}.` : ""}
     </p>
   );
-}
-
-function formatEtaSeconds(secs: number | null): string {
-  if (secs == null || !Number.isFinite(secs) || secs < 0) return "-";
-  if (secs < 1) return "<1s";
-  if (secs < 60) return `~${Math.ceil(secs)}s`;
-  const m = Math.floor(secs / 60);
-  const s = Math.ceil(secs % 60);
-  if (m < 60) return `~${m}m ${s.toString().padStart(2, "0")}s`;
-  const h = Math.floor(m / 60);
-  const rm = m % 60;
-  return `~${h}h ${rm}m`;
 }
 
 function flattenMigrationLogs(logs: {
@@ -1513,17 +1502,20 @@ export default function ProgressMonitor() {
 
   return (
     <section className="progress-monitor">
-      <GlassSurfacePanel className="progress-monitor__content">
+      <PageShell className="progress-monitor__content">
         <PageBackButton
-          onClick={() => navigate("/")}
-          title="Back to home"
+          onClick={() => navigate("/choose")}
+          title="Back to start or resume"
           className="progress-monitor__back"
         />
         <div className="progress-monitor__scroll">
         <header className="progress-monitor__header">
           <h1>
             {showDeleteUI ? (
-              <>Source Removal <span className="progress-monitor__highlight">Progress</span></>
+              <>
+                <span className="progress-monitor__highlight--magenta">Source</span>{" "}
+                Removal <span className="progress-monitor__highlight">Progress</span>
+              </>
             ) : showCopyUI ? (
               <>Copy <span className="progress-monitor__highlight">Progress</span></>
             ) : (
@@ -1833,6 +1825,7 @@ export default function ProgressMonitor() {
                     <DiscoveryBatchProgressBar
                       metrics={queueMetrics.srcTraversal}
                       complete={discoveryPhaseDone}
+                      tone="source"
                     />
                   </div>
                 ) : (
@@ -2002,6 +1995,7 @@ export default function ProgressMonitor() {
                     <DiscoveryBatchProgressBar
                       metrics={queueMetrics.dstTraversal}
                       complete={discoveryPhaseDone}
+                      tone="destination"
                     />
                   </div>
                 ) : (
@@ -2010,6 +2004,123 @@ export default function ProgressMonitor() {
               </div>
             )}
           </div>
+
+        <details
+          className="progress-monitor__advanced"
+          open={advancedOpen}
+          onToggle={(e) => setAdvancedOpen((e.target as HTMLDetailsElement).open)}
+        >
+          <summary className="progress-monitor__advanced-summary">
+            {advancedOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+            Advanced info
+          </summary>
+          <div className="progress-monitor__advanced-body">
+            <div className="progress-monitor__worker-caps">
+              <div className="progress-monitor__workers-row">
+                <span className="progress-monitor__workers-label">Workers:</span>
+                <span className="progress-monitor__workers-value">
+                  {(
+                    (showDeleteUI
+                      ? queueMetrics?.delete?.workers
+                      : showCopyUI
+                        ? queueMetrics?.copy?.workers
+                        : queueMetrics?.srcTraversal?.workers) ?? 0
+                  ).toLocaleString()}
+                </span>
+                <button
+                  type="button"
+                  className="progress-monitor__workers-edit"
+                  disabled={workerCapBusy || !migrationId}
+                  title="Override worker limits"
+                  aria-label="Override worker limits"
+                  onClick={async () => {
+                    if (!migrationId) return;
+                    setWorkerCapError(null);
+                    try {
+                      setWorkerCapBusy(true);
+                      const [defaultsMap, scaling] = await Promise.all([
+                        fetchScalingDefaults(),
+                        getMigrationScaling(migrationId),
+                      ]);
+                      const providerDefaults =
+                        (defaultsMap[persistProviderId] as ProviderWorkerCaps | undefined) ||
+                        defaultsMap.generic ||
+                        defaultsMap.local;
+                      setWorkerCapDefaults(providerDefaults?.modes || {});
+                      setWorkerCapModes(scaling.modes || {});
+                      setWorkerCapDialogOpen(true);
+                    } catch (err) {
+                      setWorkerCapError(
+                        err instanceof Error ? err.message : "Failed to load worker limits"
+                      );
+                    } finally {
+                      setWorkerCapBusy(false);
+                    }
+                  }}
+                >
+                  <Pencil size={14} />
+                </button>
+              </div>
+              {workerCapError && !workerCapDialogOpen ? (
+                <p className="progress-monitor__worker-caps-error">{workerCapError}</p>
+              ) : null}
+            </div>
+            <div className="progress-monitor__logs-toolbar">
+              <label className="progress-monitor__logs-filter">
+                Level
+                <select
+                  value={logFilter}
+                  onChange={(e) => setLogFilter(e.target.value as LogLevel | "all")}
+                >
+                  <option value="all">all</option>
+                  {LOG_LEVELS.map((lvl) => (
+                    <option key={lvl} value={lvl}>
+                      {lvl}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                className="progress-monitor__logs-pause"
+                onClick={toggleLogsPaused}
+              >
+                {logsPaused ? "Resume logs" : "Pause logs"}
+              </button>
+              <span className="progress-monitor__logs-count">
+                {filteredLogLines.length.toLocaleString()} lines
+              </span>
+            </div>
+            <div
+              ref={logTerminalRef}
+              className="progress-monitor__logs-terminal"
+              onScroll={syncLogsStickToBottom}
+            >
+              {filteredLogLines.length === 0 ? (
+                <div className="progress-monitor__logs-empty">
+                  Waiting for log entries…
+                </div>
+              ) : (
+                filteredLogLines.map((line) => (
+                  <div
+                    key={line.id}
+                    className={`progress-monitor__log-line progress-monitor__log-line--${line.level}`}
+                  >
+                    <span className="progress-monitor__log-level">{line.level}</span>
+                    <span className="progress-monitor__log-time">
+                      {line.data?.timestamp
+                        ? new Date(line.data.timestamp).toLocaleTimeString()
+                        : ""}
+                    </span>
+                    <span className="progress-monitor__log-msg">
+                      {line.data?.message ?? JSON.stringify(line.data)}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </details>
 
         {/* Footer: stop/resume + view results */}
         <div className="progress-monitor__footer">
@@ -2164,7 +2275,7 @@ export default function ProgressMonitor() {
             )}
             <button
               type="button"
-              className="glass-button glass-button--progress-cta progress-monitor__see-results"
+              className="action-button action-button--primary progress-monitor__see-results"
               onClick={() => {
                 if (showResultsButton && migrationId) {
                   navigate(`/path-review/${migrationId}`);
@@ -2182,122 +2293,6 @@ export default function ProgressMonitor() {
           </div>
         </div>
 
-        <details
-          className="progress-monitor__advanced"
-          open={advancedOpen}
-          onToggle={(e) => setAdvancedOpen((e.target as HTMLDetailsElement).open)}
-        >
-          <summary className="progress-monitor__advanced-summary">
-            {advancedOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-            Advanced info
-          </summary>
-          <div className="progress-monitor__advanced-body">
-            <div className="progress-monitor__worker-caps">
-              <div className="progress-monitor__workers-row">
-                <span className="progress-monitor__workers-label">Workers:</span>
-                <span className="progress-monitor__workers-value">
-                  {(
-                    (showDeleteUI
-                      ? queueMetrics?.delete?.workers
-                      : showCopyUI
-                        ? queueMetrics?.copy?.workers
-                        : queueMetrics?.srcTraversal?.workers) ?? 0
-                  ).toLocaleString()}
-                </span>
-                <button
-                  type="button"
-                  className="progress-monitor__workers-edit"
-                  disabled={workerCapBusy || !migrationId}
-                  title="Override worker limits"
-                  aria-label="Override worker limits"
-                  onClick={async () => {
-                    if (!migrationId) return;
-                    setWorkerCapError(null);
-                    try {
-                      setWorkerCapBusy(true);
-                      const [defaultsMap, scaling] = await Promise.all([
-                        fetchScalingDefaults(),
-                        getMigrationScaling(migrationId),
-                      ]);
-                      const providerDefaults =
-                        (defaultsMap[persistProviderId] as ProviderWorkerCaps | undefined) ||
-                        defaultsMap.generic ||
-                        defaultsMap.local;
-                      setWorkerCapDefaults(providerDefaults?.modes || {});
-                      setWorkerCapModes(scaling.modes || {});
-                      setWorkerCapDialogOpen(true);
-                    } catch (err) {
-                      setWorkerCapError(
-                        err instanceof Error ? err.message : "Failed to load worker limits"
-                      );
-                    } finally {
-                      setWorkerCapBusy(false);
-                    }
-                  }}
-                >
-                  <Pencil size={14} />
-                </button>
-              </div>
-              {workerCapError && !workerCapDialogOpen ? (
-                <p className="progress-monitor__worker-caps-error">{workerCapError}</p>
-              ) : null}
-            </div>
-            <div className="progress-monitor__logs-toolbar">
-              <label className="progress-monitor__logs-filter">
-                Level
-                <select
-                  value={logFilter}
-                  onChange={(e) => setLogFilter(e.target.value as LogLevel | "all")}
-                >
-                  <option value="all">all</option>
-                  {LOG_LEVELS.map((lvl) => (
-                    <option key={lvl} value={lvl}>
-                      {lvl}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <button
-                type="button"
-                className="progress-monitor__logs-pause"
-                onClick={toggleLogsPaused}
-              >
-                {logsPaused ? "Resume logs" : "Pause logs"}
-              </button>
-              <span className="progress-monitor__logs-count">
-                {filteredLogLines.length.toLocaleString()} lines
-              </span>
-            </div>
-            <div
-              ref={logTerminalRef}
-              className="progress-monitor__logs-terminal"
-              onScroll={syncLogsStickToBottom}
-            >
-              {filteredLogLines.length === 0 ? (
-                <div className="progress-monitor__logs-empty">
-                  Waiting for log entries…
-                </div>
-              ) : (
-                filteredLogLines.map((line) => (
-                  <div
-                    key={line.id}
-                    className={`progress-monitor__log-line progress-monitor__log-line--${line.level}`}
-                  >
-                    <span className="progress-monitor__log-level">{line.level}</span>
-                    <span className="progress-monitor__log-time">
-                      {line.data?.timestamp
-                        ? new Date(line.data.timestamp).toLocaleTimeString()
-                        : ""}
-                    </span>
-                    <span className="progress-monitor__log-msg">
-                      {line.data?.message ?? JSON.stringify(line.data)}
-                    </span>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        </details>
 
         {workerCapDialogOpen && (
           <WorkerCapOverridesDialog
@@ -2379,6 +2374,7 @@ export default function ProgressMonitor() {
             message="This pauses the running migration safely and saves progress so you can resume later. Continue?"
             confirmLabel="Stop migration"
             cancelLabel="Cancel"
+            confirmTone="danger"
             onCancel={() => setConfirmKind(null)}
             onConfirm={() => void handleConfirmStop()}
           />
@@ -2389,6 +2385,7 @@ export default function ProgressMonitor() {
             message="WARNING: This is a destructive action. It may leave this migration unable to resume. Prefer this only if the safe stop is stuck. Continue?"
             confirmLabel="Hard stop"
             cancelLabel="Cancel"
+            confirmTone="danger"
             onCancel={() => setConfirmKind(null)}
             onConfirm={() => void handleConfirmHardStop()}
           />
@@ -2422,7 +2419,7 @@ export default function ProgressMonitor() {
           />
         )}
         </div>
-      </GlassSurfacePanel>
+      </PageShell>
       {toast && (
         <Toast
           message={toast.message}

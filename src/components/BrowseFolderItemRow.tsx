@@ -1,5 +1,6 @@
-import { ChevronRight, File, FolderOpen } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 
+import FileTypeIcon from "./FileTypeIcon";
 import ListItemMeta from "./ListItemMeta";
 
 interface BrowseFolderItemRowProps {
@@ -19,8 +20,6 @@ export default function BrowseFolderItemRow({
   lastUpdated,
   size,
 }: BrowseFolderItemRowProps) {
-  const Icon = type === "folder" ? FolderOpen : File;
-
   return (
     <div
       className={`browse-folder__item-main browse-folder__item-grid${
@@ -28,7 +27,11 @@ export default function BrowseFolderItemRow({
       }`}
     >
       <div className="browse-folder__item-icon browse-folder__item-icon--row">
-        <Icon className="browse-folder__row-icon" strokeWidth={2} aria-hidden="true" />
+        <FileTypeIcon
+          name={name}
+          type={type}
+          className="browse-folder__row-icon"
+        />
       </div>
       <div className="browse-folder__item-name browse-folder__item-name--cell">{name}</div>
       <div className="browse-folder__item-path-col" title={path}>

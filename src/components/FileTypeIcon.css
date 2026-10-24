@@ -1,0 +1,53 @@
+/* svg. prefix beats row-level `.…__item-icon svg { color: … }` rules. */
+svg.file-type-icon {
+  flex-shrink: 0;
+  display: block;
+}
+
+svg.file-type-icon.file-type-icon--folder {
+  color: var(--text-primary);
+}
+
+svg.file-type-icon.file-type-icon--file {
+  color: var(--text-secondary);
+}
+
+svg.file-type-icon.file-type-icon--document {
+  color: #7b9bc7;
+}
+
+svg.file-type-icon.file-type-icon--pdf {
+  color: #e07070;
+}
+
+svg.file-type-icon.file-type-icon--spreadsheet {
+  color: #5cb87a;
+}
+
+svg.file-type-icon.file-type-icon--presentation {
+  color: #d4a574;
+}
+
+svg.file-type-icon.file-type-icon--image {
+  color: var(--brand-magenta);
+}
+
+svg.file-type-icon.file-type-icon--video {
+  color: var(--brand-danger);
+}
+
+svg.file-type-icon.file-type-icon--audio {
+  color: #6ba8c9;
+}
+
+svg.file-type-icon.file-type-icon--archive {
+  color: #c9b06a;
+}
+
+svg.file-type-icon.file-type-icon--code {
+  color: var(--brand-cyan);
+}
+
+svg.file-type-icon.file-type-icon--other {
+  color: var(--text-secondary);
+}

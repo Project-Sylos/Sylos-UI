@@ -720,7 +720,7 @@ export default function FilterConditionEditor({
         {!disabled && (
           <button
             type="button"
-            className="glass-button glass-button--secondary"
+            className="action-button action-button--secondary"
             onClick={onRemove}
             title="Remove condition"
           >

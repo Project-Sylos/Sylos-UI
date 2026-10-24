@@ -74,6 +74,53 @@ export function isCopyPlanPhase(
 }
 
 /**
+ * Stepper-style page Back (not browser history).
+ * Prep → prior phase results; results → that phase's progress monitor.
+ */
+export function getPathReviewPageBackPath(
+  migrationId: string,
+  status: MigrationStatusResponse | null,
+  reviewView: PathReviewRouteView
+): string {
+  const id = migrationId.trim();
+  if (!id) return "/choose";
+
+  if (reviewView === "copy-plan") {
+    return `/path-review/${id}`;
+  }
+  // Source-cleanup prep (before delete) → copy results. Delete *results* on
+  // that same route → delete progress monitor (avoid prep↔results history loop).
+  if (reviewView === "source-cleanup" && isSourceCleanupPlanPhase(status)) {
+    return `/path-review/${id}`;
+  }
+
+  const uiPhase = getPathReviewUIPhase(status);
+  if (reviewView === "source-cleanup" || uiPhase === "delete") {
+    return `/progress-monitor/${id}?mode=delete`;
+  }
+  if (uiPhase === "copy") {
+    return `/progress-monitor/${id}?mode=copy`;
+  }
+  return `/progress-monitor/${id}?mode=discovery`;
+}
+
+export function getPathReviewPageBackTitle(
+  status: MigrationStatusResponse | null,
+  reviewView: PathReviewRouteView
+): string {
+  if (reviewView === "copy-plan") return "Back to discovery review";
+  if (reviewView === "source-cleanup" && isSourceCleanupPlanPhase(status)) {
+    return "Back to copy review";
+  }
+  const uiPhase = getPathReviewUIPhase(status);
+  if (reviewView === "source-cleanup" || uiPhase === "delete") {
+    return "Back to source removal progress";
+  }
+  if (uiPhase === "copy") return "Back to copy progress";
+  return "Back to discovery progress";
+}
+
+/**
  * Derive Discover / Copy / Remove stepper state from migration status + review view.
  * Retry sweeps stay on the same active step until the user advances.
  */

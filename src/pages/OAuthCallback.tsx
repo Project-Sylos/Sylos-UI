@@ -101,14 +101,14 @@ export default function OAuthCallback() {
 
   return (
     <section className="browse-folder">
-      <div className="browse-folder__content glass-surface--panel">
+      <div className="browse-folder__content page-shell">
         {error ? (
           <>
             <h1 className="browse-folder__title">Connection failed</h1>
             <p className="browse-folder__error">{error}</p>
             <button
               type="button"
-              className="glass-button"
+              className="action-button"
               onClick={() => navigate("/summary", { replace: true })}
             >
               Back to setup

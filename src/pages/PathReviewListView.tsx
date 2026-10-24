@@ -1,7 +1,5 @@
 import { useState, useEffect, useRef, useMemo, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
 import {
-  Folder,
-  File,
   ChevronUp,
   ChevronDown,
   ChevronRight,
@@ -23,8 +21,6 @@ import {
   unexcludeNode,
   markNodeForRetryDiscovery,
   unmarkNodeForRetryDiscovery,
-  markNodeForRetryCopy,
-  unmarkNodeForRetryCopy,
   markNodeForRetryDelete,
   unmarkNodeForRetryDelete,
   bulkExcludeNodes,
@@ -46,6 +42,8 @@ import {
   listRulesets,
   type BulkRetryKind,
   type ExclusionResponse,
+  forceReplaceCopyNode,
+  unforceReplaceCopyNode,
 } from "../api/services";
 import type { RulesetSummary } from "../types/rulesets";
 import { hasListSearchPredicate } from "../utils/listSearch";
@@ -97,6 +95,8 @@ import {
 } from "../utils/pathReviewItemStatus";
 import { isCopyComplete } from "../utils/copyStatus";
 import { useListDensity } from "../contexts/ListDensityContext";
+import { useAltTextSelect } from "../hooks/useAltTextSelect";
+import FileTypeIcon from "../components/FileTypeIcon";
 import PathReviewStatusIcon from "../components/PathReviewStatusIcon";
 import PathReviewLegend from "../components/PathReviewLegend";
 import PathReviewIssuesButton from "../components/PathReviewIssuesButton";
@@ -104,6 +104,22 @@ import ListViewPagination from "../components/ListViewPagination";
 import ListItemMeta from "../components/ListItemMeta";
 import PathReviewSizeColumnHeader from "../components/PathReviewSizeColumnHeader";
 import { getDiffItemFailureMessage } from "../utils/diffFailureMessage";
+import {
+  BULK_ACTION_LABELS,
+  bulkNodeIDs,
+  bulkSrcNodeIDs,
+  partitionBulkAction,
+  type BulkActionKind,
+  type BulkActionPartition,
+} from "../utils/bulkActionEligibility";
+import {
+  FORCE_REPLACE_BULK_FOLDER_CONFIRM,
+  FORCE_REPLACE_FOLDER_CONFIRM,
+  canForceReplaceCopy,
+  canUnforceReplaceCopy,
+} from "../utils/forceReplaceCopy";
+import BulkActionConfirmDialog from "../components/BulkActionConfirmDialog";
+import ConfirmDialog from "../components/ConfirmDialog";
 import {
   applyDiscoveryRetryOptimistic,
   getTraversalRetryNodeId,
@@ -114,7 +130,13 @@ import {
   canIncludeRuleExcludedSubtree,
   excludedByRuleText,
   includeRuleExcludedSubtree,
+  isRuleExcluded,
 } from "../utils/pathReviewRuleExclusion";
+import {
+  COPY_CYCLE_LABELS,
+  copyCycleStep,
+  runCopyCycleClick,
+} from "../utils/copyStatusCycle";
 import {
   createEmptyRuleset,
   isRulesetEffectivelyEmpty,
@@ -158,6 +180,7 @@ export interface PathReviewListViewProps {
   /** Shared inspector selection from parent PathReview. */
   inspectorItemId?: string | null;
   onInspectorSelect?: (item: DiffItem) => void;
+  onInspectorClear?: () => void;
   /** Force-select for context menu (does not toggle off). */
   onInspectorEnsure?: (item: DiffItem) => void;
   /** Attention count for Issues button (failed + manual rename). */
@@ -180,6 +203,8 @@ export interface PathReviewListViewProps {
   /** Parent footer can trigger calculate total matches. */
   calculateTotalRef?: MutableRefObject<() => void>;
   onCalculatedTotalChange?: (total: number | null, counting: boolean) => void;
+  /** Copy-plan / awaiting-copy-review prefer-source actions. */
+  forceReplaceAllowed?: boolean;
 }
 
 export default function PathReviewListView({
@@ -208,6 +233,7 @@ export default function PathReviewListView({
   onToggleIgnoreWarning,
   inspectorItemId = null,
   onInspectorSelect,
+  onInspectorClear,
   onInspectorEnsure,
   issuesAttentionCount = 0,
   issuesWarningCount = 0,
@@ -223,8 +249,10 @@ export default function PathReviewListView({
   onAdvancedFiltersCanApplyChange,
   calculateTotalRef,
   onCalculatedTotalChange,
+  forceReplaceAllowed = false,
 }: PathReviewListViewProps) {
   const { densityStyle, setListViewportElement } = useListDensity();
+  const altTextSelect = useAltTextSelect();
   const [items, setItems] = useState<DiffItem[]>([]);
   const [pagination, setPagination] = useState<PaginationInfo | null>(null);
   const [loading, setLoading] = useState(false);
@@ -280,6 +308,14 @@ export default function PathReviewListView({
   const [itemsPerPage, setItemsPerPage] = useState(100);
   const [currentPage, setCurrentPage] = useState(0);
   const [bulkLoading, setBulkLoading] = useState(false);
+  const [pendingBulk, setPendingBulk] = useState<{
+    action: BulkActionKind;
+    partition: BulkActionPartition;
+  } | null>(null);
+  const [forceReplaceConfirm, setForceReplaceConfirm] = useState<{
+    item?: DiffItem;
+    items?: DiffItem[];
+  } | null>(null);
   const [activeTaskIds, setActiveTaskIds] = useState<Set<string>>(new Set());
   const [taskStatuses, setTaskStatuses] = useState<Map<string, BackgroundTask>>(new Map());
   const [showFilterMenu, setShowFilterMenu] = useState(false);
@@ -1033,20 +1069,17 @@ export default function PathReviewListView({
     setLastSelectedIndex(null);
     setAllMatchingSelected(false);
     setApplyMenuOpen(false);
+    onInspectorClear?.();
   };
 
-  const collectSelectedNodeIDs = (): string[] => {
+  const selectedListItems = (): DiffItem[] => {
     const normalized = normalizeExplicitSelection(explicitSelected);
-    const nodeIDs: string[] = [];
+    const selected: DiffItem[] = [];
     normalized.forEach((itemId) => {
       const item = explicitSelectedItemData.get(itemId);
-      if (!item) return;
-      if (item.src?.id) nodeIDs.push(item.src.id);
-      if (item.dst?.id && (!item.src?.id || item.dst.id !== item.src.id)) {
-        nodeIDs.push(item.dst.id);
-      }
+      if (item) selected.push(item);
     });
-    return nodeIDs;
+    return selected;
   };
 
   const retryKindForPhase = (): BulkRetryKind => {
@@ -1061,7 +1094,9 @@ export default function PathReviewListView({
     result: ExclusionResponse
   ) => {
     const toast = formatBulkActionToast(actionLabel, result);
-    onToast?.(toast.message, toast.type);
+    if (toast) {
+      onToast?.(toast.message, toast.type);
+    }
     if (result.taskID) {
       setActiveTaskIds((prev) => new Set(prev).add(result.taskID!));
       onItemUpdate?.();
@@ -1081,11 +1116,49 @@ export default function PathReviewListView({
     clearSelection();
   };
 
-  const handleApplyAction = async (
-    action: "exclude" | "unexclude" | "mark_retry" | "mark_failed"
-  ) => {
+  /** Gate a bulk action on selection eligibility: mixed selections confirm first. */
+  const handleApplyAction = async (action: BulkActionKind) => {
     if (!migrationId || bulkLoading) return;
     setApplyMenuOpen(false);
+    if (allMatchingSelected) {
+      // Search-wide selections cannot be partitioned per item; the backend
+      // applies exclude/unexclude to matching items only.
+      if (
+        action === "mark_retry" ||
+        action === "mark_failed" ||
+        action === "force_replace" ||
+        action === "unforce_replace"
+      ) {
+        onToast?.(
+          "That action needs an explicit row selection. Use Select all visible, or Apply Exclude/Unexclude for all matching.",
+          "error"
+        );
+        return;
+      }
+      await runBulkAction(action, null);
+      return;
+    }
+    const partition = bulkPartitions[action];
+    if (partition.valid.length === 0) return;
+    if (partition.invalid.length > 0) {
+      setPendingBulk({ action, partition });
+      return;
+    }
+    if (
+      action === "force_replace" &&
+      partition.valid.some((item) => item.type === "folder")
+    ) {
+      setForceReplaceConfirm({ items: partition.valid });
+      return;
+    }
+    await runBulkAction(action, partition.valid);
+  };
+
+  const runBulkAction = async (
+    action: BulkActionKind,
+    validItems: DiffItem[] | null
+  ) => {
+    if (!migrationId || bulkLoading) return;
     setBulkLoading(true);
     setServerBulkMutationInProgress(true);
     try {
@@ -1105,15 +1178,7 @@ export default function PathReviewListView({
         return;
       }
 
-      if (allMatchingSelected && (action === "mark_retry" || action === "mark_failed")) {
-        onToast?.(
-          "Mark for retry / Mark failed need an explicit row selection. Use Select all visible, or Apply Exclude/Unexclude for all matching.",
-          "error"
-        );
-        return;
-      }
-
-      const nodeIDs = collectSelectedNodeIDs();
+      const nodeIDs = validItems ? bulkNodeIDs(validItems) : [];
       if (nodeIDs.length === 0) {
         onToast?.("No selectable nodes in the current selection.", "error");
         return;
@@ -1138,6 +1203,37 @@ export default function PathReviewListView({
           result = await bulkUnmarkNodesForRetry(migrationId, { nodeIDs, kind });
           await finishBulkResult("Mark failed", result);
           break;
+        case "force_replace":
+        case "unforce_replace": {
+          const srcIDs = validItems ? bulkSrcNodeIDs(validItems) : [];
+          let affected = 0;
+          const deltas: Record<string, number> = {};
+          let lastError = "";
+          for (const id of srcIDs) {
+            const one =
+              action === "force_replace"
+                ? await forceReplaceCopyNode(migrationId, id)
+                : await unforceReplaceCopyNode(migrationId, id);
+            if (one.success) {
+              affected += one.affectedCount ?? 0;
+              if (one.deltas) {
+                for (const [k, v] of Object.entries(one.deltas)) {
+                  deltas[k] = (deltas[k] ?? 0) + (v as number);
+                }
+              }
+            } else if (one.error) {
+              lastError = one.error;
+            }
+          }
+          result = {
+            success: affected > 0,
+            affectedCount: affected,
+            deltas,
+            error: affected > 0 ? undefined : lastError || "no items changed",
+          };
+          await finishBulkResult(BULK_ACTION_LABELS[action], result);
+          break;
+        }
       }
     } catch (err) {
       onToast?.(
@@ -1490,6 +1586,21 @@ export default function PathReviewListView({
     const isDelete = currentPhase === "delete";
     const srcNodeId = item.src?.id;
 
+    if (isCopy) {
+      await runCopyCycleClick(migrationId, item, {
+        setItems,
+        mutationOps,
+        setMutationOps,
+        notify: (message, type) => onToast?.(message, type),
+        applyDeltas: onApplyStatsDeltas,
+        afterSuccess: async () => {
+          await loadItems(false, { silent: true });
+          onListDataMutated?.();
+        },
+      });
+      return;
+    }
+
     // Determine which node has failed or pending status (failed takes priority)
     let nodeIdToUpdate: string | null = null;
     let isMarkedForRetry = false;
@@ -1499,17 +1610,6 @@ export default function PathReviewListView({
       if ((deleteStatus === "failed" || isDeletePendingExplicit(deleteStatus)) && srcNodeId) {
         nodeIdToUpdate = srcNodeId;
         isMarkedForRetry = isDeletePendingExplicit(deleteStatus);
-      }
-    } else if (isCopy) {
-      // Copy phase: check copyStatus (only on src nodes)
-      const copyStatus = item.src?.copyStatus || item.copyStatus || "";
-      
-      if (copyStatus === "failed" && srcNodeId) {
-        nodeIdToUpdate = srcNodeId;
-        isMarkedForRetry = false;
-      } else if (copyStatus === "pending" && srcNodeId) {
-        nodeIdToUpdate = srcNodeId;
-        isMarkedForRetry = true;
       }
     } else {
       const nodeId = getTraversalRetryNodeId(item);
@@ -1558,14 +1658,6 @@ export default function PathReviewListView({
             },
           };
         }
-        if (isCopy && i.src) {
-          const nextCopy = isMarkedForRetry ? "failed" : "pending";
-          return {
-            ...i,
-            src: { ...i.src, copyStatus: nextCopy },
-            copyStatus: nextCopy,
-          };
-        }
         return applyDiscoveryRetryOptimistic(i, newRetryState, "failed");
       })
     );
@@ -1576,13 +1668,9 @@ export default function PathReviewListView({
       const result = isMarkedForRetry
         ? (isDelete
             ? await unmarkNodeForRetryDelete(migrationId, nodeIdToUpdate)
-            : isCopy
-            ? await unmarkNodeForRetryCopy(migrationId, nodeIdToUpdate)
             : await unmarkNodeForRetryDiscovery(migrationId, nodeIdToUpdate))
         : (isDelete
             ? await markNodeForRetryDelete(migrationId, nodeIdToUpdate)
-            : isCopy
-            ? await markNodeForRetryCopy(migrationId, nodeIdToUpdate)
             : await markNodeForRetryDiscovery(migrationId, nodeIdToUpdate));
       
       // If the call fails, revert optimistic update
@@ -1628,6 +1716,37 @@ export default function PathReviewListView({
   const getItemStatus = (item: DiffItem) =>
     getPathReviewItemStatus(item, itemStatusPhase(getDisplayPhase()));
 
+  // Eligibility is recomputed as the selection is added to / dropped from,
+  // so the menu and confirm dialog only ever read the current partitions.
+  const bulkPartitions = useMemo<Record<BulkActionKind, BulkActionPartition>>(
+    () => {
+      const selected = selectedListItems();
+      const phase = itemStatusPhase(getDisplayPhase());
+      return {
+        exclude: partitionBulkAction(selected, "exclude", getItemStatus, phase),
+        unexclude: partitionBulkAction(selected, "unexclude", getItemStatus, phase),
+        mark_retry: partitionBulkAction(selected, "mark_retry", getItemStatus, phase),
+        mark_failed: partitionBulkAction(selected, "mark_failed", getItemStatus, phase),
+        force_replace: partitionBulkAction(
+          selected,
+          "force_replace",
+          getItemStatus,
+          phase,
+          forceReplaceAllowed
+        ),
+        unforce_replace: partitionBulkAction(
+          selected,
+          "unforce_replace",
+          getItemStatus,
+          phase,
+          forceReplaceAllowed
+        ),
+      };
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [explicitSelected, explicitSelectedItemData, migrationStatus, forceReplaceAllowed]
+  );
+
   const handleIncludeRuleExcludedSubtree = async (item: DiffItem) => {
     if (!canIncludeRuleExcludedSubtree(item)) return;
     const nodeId = item.src?.id || item.id;
@@ -1654,6 +1773,50 @@ export default function PathReviewListView({
     }
   };
 
+  const handleForceReplaceClick = async (item: DiffItem, mark: boolean) => {
+    if (!migrationId || !item.src?.id) return;
+    if (mark && item.type === "folder") {
+      setForceReplaceConfirm({ item });
+      return;
+    }
+    const nodeId = item.src.id;
+    if (!canStartMutation(mutationOps, nodeId)) {
+      onToast?.(
+        "An operation is already running on this path; try again once it finishes.",
+        "error"
+      );
+      return;
+    }
+    setMutationOps((prev) =>
+      withInFlightOp(prev, [nodeId, item.id], mark ? "Replace with source" : "Undo replace")
+    );
+    try {
+      const result = mark
+        ? await forceReplaceCopyNode(migrationId, nodeId)
+        : await unforceReplaceCopyNode(migrationId, nodeId);
+      await finishBulkResult(
+        mark ? "Replace with source" : "Keep destination (undo replace)",
+        result
+      );
+    } catch (err) {
+      onToast?.(
+        err instanceof Error
+          ? err.message
+          : mark
+            ? "Failed to replace with source"
+            : "Failed to undo replace",
+        "error"
+      );
+    } finally {
+      setMutationOps((prev) => {
+        const next = new Map(prev);
+        next.delete(nodeId);
+        next.delete(item.id);
+        return next;
+      });
+    }
+  };
+
   const buildListContextActions = (item: DiffItem): PathReviewContextAction[] => {
     const status = getItemStatus(item);
     const phase = getCurrentPhase();
@@ -1664,7 +1827,7 @@ export default function PathReviewListView({
     const isMarkedForRetry = isDelete
       ? isDeletePendingExplicit(deleteStatus)
       : isCopy
-        ? copyStatus === "pending"
+        ? copyStatus === "pending" && item.src?.copyRetryMarked === true
         : isTraversalRetryPending(item);
     const canExclude =
       (isCopyPlanView || (!isCopy && !isDelete)) &&
@@ -1674,11 +1837,15 @@ export default function PathReviewListView({
         item.type === "folder" &&
         (status.existsOnBoth || status.existsOnlyOnDst)
       );
+    const canForceReplace = canForceReplaceCopy(item, forceReplaceAllowed);
+    const canUnforceReplace = canUnforceReplaceCopy(item, forceReplaceAllowed);
+    const copyStep =
+      isCopy && !isRuleExcluded(item) ? copyCycleStep(item) : null;
     const canRetry =
       status.isFailed ||
       status.isTraversalSkipped ||
       isMarkedForRetry ||
-      (isCopy && copyStatus === "failed");
+      copyStep !== null;
     const canRename =
       showCompatUI &&
       !!(
@@ -1735,9 +1902,31 @@ export default function PathReviewListView({
     if (canRetry) {
       actions.push({
         key: "retry",
-        label: isMarkedForRetry ? "Unmark retry" : "Mark for retry",
+        label: copyStep
+          ? COPY_CYCLE_LABELS[copyStep]
+          : isMarkedForRetry
+            ? "Unmark retry"
+            : "Mark for retry",
         onClick: () => {
           void handleRetryClick(item);
+        },
+      });
+    }
+    if (canForceReplace) {
+      actions.push({
+        key: "force-replace",
+        label: "Replace with source",
+        onClick: () => {
+          void handleForceReplaceClick(item, true);
+        },
+      });
+    }
+    if (canUnforceReplace) {
+      actions.push({
+        key: "unforce-replace",
+        label: "Keep destination (undo replace)",
+        onClick: () => {
+          void handleForceReplaceClick(item, false);
         },
       });
     }
@@ -2937,7 +3126,7 @@ export default function PathReviewListView({
             <div className="path-review-list__apply-action" ref={applyMenuRef}>
               <button
                 type="button"
-                className="glass-button glass-button--small"
+                className="action-button action-button--small"
                 disabled={bulkLoading}
                 onClick={() => setApplyMenuOpen((open) => !open)}
                 aria-haspopup="menu"
@@ -2957,7 +3146,17 @@ export default function PathReviewListView({
                         type="button"
                         className="path-review-list__apply-action-option"
                         role="menuitem"
-                        disabled={bulkLoading}
+                        disabled={
+                          bulkLoading ||
+                          (!allMatchingSelected &&
+                            bulkPartitions.exclude.valid.length === 0)
+                        }
+                        title={
+                          !allMatchingSelected &&
+                          bulkPartitions.exclude.valid.length === 0
+                            ? "No selected items can be excluded"
+                            : undefined
+                        }
                         onClick={() => void handleApplyAction("exclude")}
                       >
                         {excludeApplyLabel(allMatchingSelected)}
@@ -2966,7 +3165,17 @@ export default function PathReviewListView({
                         type="button"
                         className="path-review-list__apply-action-option"
                         role="menuitem"
-                        disabled={bulkLoading}
+                        disabled={
+                          bulkLoading ||
+                          (!allMatchingSelected &&
+                            bulkPartitions.unexclude.valid.length === 0)
+                        }
+                        title={
+                          !allMatchingSelected &&
+                          bulkPartitions.unexclude.valid.length === 0
+                            ? "No selected items are excluded"
+                            : undefined
+                        }
                         onClick={() => void handleApplyAction("unexclude")}
                       >
                         {unexcludeApplyLabel(allMatchingSelected)}
@@ -2977,7 +3186,18 @@ export default function PathReviewListView({
                     type="button"
                     className="path-review-list__apply-action-option"
                     role="menuitem"
-                    disabled={bulkLoading}
+                    disabled={
+                      bulkLoading ||
+                      allMatchingSelected ||
+                      bulkPartitions.mark_retry.valid.length === 0
+                    }
+                    title={
+                      allMatchingSelected
+                        ? "Needs an explicit row selection"
+                        : bulkPartitions.mark_retry.valid.length === 0
+                          ? "No selected items can be marked for retry"
+                          : undefined
+                    }
                     onClick={() => void handleApplyAction("mark_retry")}
                   >
                     Mark for retry
@@ -2986,11 +3206,66 @@ export default function PathReviewListView({
                     type="button"
                     className="path-review-list__apply-action-option"
                     role="menuitem"
-                    disabled={bulkLoading}
+                    disabled={
+                      bulkLoading ||
+                      allMatchingSelected ||
+                      bulkPartitions.mark_failed.valid.length === 0
+                    }
+                    title={
+                      allMatchingSelected
+                        ? "Needs an explicit row selection"
+                        : bulkPartitions.mark_failed.valid.length === 0
+                          ? "No selected items are marked for retry"
+                          : undefined
+                    }
                     onClick={() => void handleApplyAction("mark_failed")}
                   >
                     Mark failed
                   </button>
+                  {forceReplaceAllowed ? (
+                    <>
+                      <button
+                        type="button"
+                        className="path-review-list__apply-action-option"
+                        role="menuitem"
+                        disabled={
+                          bulkLoading ||
+                          allMatchingSelected ||
+                          bulkPartitions.force_replace.valid.length === 0
+                        }
+                        title={
+                          allMatchingSelected
+                            ? "Needs an explicit row selection"
+                            : bulkPartitions.force_replace.valid.length === 0
+                              ? "No selected items exist on both sides"
+                              : undefined
+                        }
+                        onClick={() => void handleApplyAction("force_replace")}
+                      >
+                        Replace with source
+                      </button>
+                      <button
+                        type="button"
+                        className="path-review-list__apply-action-option"
+                        role="menuitem"
+                        disabled={
+                          bulkLoading ||
+                          allMatchingSelected ||
+                          bulkPartitions.unforce_replace.valid.length === 0
+                        }
+                        title={
+                          allMatchingSelected
+                            ? "Needs an explicit row selection"
+                            : bulkPartitions.unforce_replace.valid.length === 0
+                              ? "No selected items are marked to replace with source"
+                              : undefined
+                        }
+                        onClick={() => void handleApplyAction("unforce_replace")}
+                      >
+                        Keep destination (undo replace)
+                      </button>
+                    </>
+                  ) : null}
                 </div>
               ) : null}
             </div>
@@ -3120,7 +3395,7 @@ export default function PathReviewListView({
         ) : (
           <div
             ref={listItemsRef}
-            className="path-review-list__items"
+            className={`path-review-list__items${altTextSelect ? " path-review-list__items--text-select" : ""}`}
           >
             <PathReviewSizeColumnHeader variant="list" />
             {items.map((item, index) => {
@@ -3164,7 +3439,10 @@ export default function PathReviewListView({
                       ? "path-review__item--path-issue"
                       : ""
                   }`}
-                  onClick={() => onInspectorSelect?.(item)}
+                  onClick={() => {
+                    if (altTextSelect) return;
+                    onInspectorSelect?.(item);
+                  }}
                   onContextMenu={(e) => {
                     const actions = buildListContextActions(item);
                     if (actions.length === 0) return;
@@ -3214,11 +3492,11 @@ export default function PathReviewListView({
 
                   {/* File/Folder Icon */}
                   <div className="path-review__item-icon path-review-list__item-icon">
-                    {isFolder ? (
-                      <Folder size={16} />
-                    ) : (
-                      <File size={16} />
-                    )}
+                    <FileTypeIcon
+                      name={item.name}
+                      type={isFolder ? "folder" : "file"}
+                      size={16}
+                    />
                   </div>
 
                   {/* Name Column */}
@@ -3312,6 +3590,77 @@ export default function PathReviewListView({
           y={contextMenu.y}
           actions={buildListContextActions(contextMenu.item)}
           onClose={() => setContextMenu(null)}
+        />
+      )}
+
+      {pendingBulk && (
+        <BulkActionConfirmDialog
+          actionLabel={BULK_ACTION_LABELS[pendingBulk.action]}
+          validCount={pendingBulk.partition.valid.length}
+          invalid={pendingBulk.partition.invalid}
+          onConfirm={() => {
+            const { action, partition } = pendingBulk;
+            setPendingBulk(null);
+            if (
+              action === "force_replace" &&
+              partition.valid.some((item) => item.type === "folder")
+            ) {
+              setForceReplaceConfirm({ items: partition.valid });
+              return;
+            }
+            void runBulkAction(action, partition.valid);
+          }}
+          onCancel={() => setPendingBulk(null)}
+        />
+      )}
+
+      {forceReplaceConfirm && (
+        <ConfirmDialog
+          title="Replace with source"
+          message={
+            forceReplaceConfirm.items
+              ? FORCE_REPLACE_BULK_FOLDER_CONFIRM
+              : FORCE_REPLACE_FOLDER_CONFIRM
+          }
+          confirmLabel="Yes"
+          cancelLabel="No"
+          onConfirm={() => {
+            const pending = forceReplaceConfirm;
+            setForceReplaceConfirm(null);
+            if (pending.items) {
+              void runBulkAction("force_replace", pending.items);
+              return;
+            }
+            if (pending.item) {
+              void (async () => {
+                const item = pending.item!;
+                if (!item.src?.id) return;
+                const nodeId = item.src.id;
+                setMutationOps((prev) =>
+                  withInFlightOp(prev, [nodeId, item.id], "Replace with source")
+                );
+                try {
+                  const result = await forceReplaceCopyNode(migrationId, nodeId);
+                  await finishBulkResult("Replace with source", result);
+                } catch (err) {
+                  onToast?.(
+                    err instanceof Error
+                      ? err.message
+                      : "Failed to replace with source",
+                    "error"
+                  );
+                } finally {
+                  setMutationOps((prev) => {
+                    const next = new Map(prev);
+                    next.delete(nodeId);
+                    next.delete(item.id);
+                    return next;
+                  });
+                }
+              })();
+            }
+          }}
+          onCancel={() => setForceReplaceConfirm(null)}
         />
       )}
 

@@ -55,6 +55,30 @@ export const TIP_GROUPS: TipGroup[] = [
     description: "Legend and footer tips on the path review screen.",
     categories: [
       {
+        id: "path-review-status-exclude",
+        name: "Leave out of plan",
+        description:
+          "First visible pending icon (clock / trash): click to leave the item out of the plan.",
+      },
+      {
+        id: "path-review-status-include",
+        name: "Put back in plan",
+        description:
+          "First visible excluded icon: click to put the item back in the plan.",
+      },
+      {
+        id: "path-review-status-mark-retry",
+        name: "Mark for retry",
+        description:
+          "First visible failed or skipped icon: click to mark for retry.",
+      },
+      {
+        id: "path-review-status-undo-retry",
+        name: "Undo retry mark",
+        description:
+          "First visible retry spinner: click to undo the retry mark.",
+      },
+      {
         id: "path-review-pending",
         name: "Pending",
         description: "Pending item icons in the path review legend.",

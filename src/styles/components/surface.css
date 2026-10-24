@@ -1,0 +1,60 @@
+/* Surface: frosted panels and the plain page shell */
+
+.page-shell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  box-sizing: border-box;
+  background: transparent;
+}
+
+.surface {
+  background: var(--surface-glass-bg);
+  border: 1px solid var(--surface-rim);
+  border-radius: var(--surface-radius);
+  box-shadow: var(--surface-panel-shadow);
+  backdrop-filter: blur(var(--surface-blur));
+  -webkit-backdrop-filter: blur(var(--surface-blur));
+}
+
+.surface--secondary {
+  background: rgba(
+    var(--surface-base-r),
+    var(--surface-base-g),
+    var(--surface-base-b),
+    var(--surface-opacity-secondary)
+  );
+  border: 1px solid var(--border);
+  border-radius: var(--surface-radius);
+  box-shadow: var(--elevation-contact-rest);
+  backdrop-filter: blur(var(--surface-blur));
+  -webkit-backdrop-filter: blur(var(--surface-blur));
+}
+
+.surface--tertiary {
+  background: rgba(
+    var(--surface-base-r),
+    var(--surface-base-g),
+    var(--surface-base-b),
+    var(--surface-opacity-tertiary)
+  );
+  border: 1px solid var(--border);
+  border-radius: calc(var(--surface-radius) - 2px);
+  box-shadow: none;
+  backdrop-filter: blur(calc(var(--surface-blur) * 0.6));
+  -webkit-backdrop-filter: blur(calc(var(--surface-blur) * 0.6));
+}
+
+.surface:hover {
+  border-color: var(--border-strong);
+  box-shadow: var(--surface-hover-shadow);
+}
+
+.surface:focus-within {
+  border-color: var(--accent);
+  box-shadow: var(--surface-focus-ring), var(--surface-panel-shadow);
+}

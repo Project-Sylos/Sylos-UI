@@ -1,6 +1,6 @@
 import { ReactNode } from "react";
-import { Cloud, Database, FolderOpen, Server } from "lucide-react";
 
+import DerivedServiceIcon from "../components/DerivedServiceIcon";
 import googleDriveLogo from "../assets/external/Google_Drive_Logo.svg";
 import dropboxLogo from "../assets/external/dropbox-1-logo-png-transparent.png";
 import oneDriveLogo from "../assets/external/onedrive.webp";
@@ -17,7 +17,7 @@ export type ServiceSelectionVisual = {
 };
 
 export const defaultServiceSelectionOption: ServiceSelectionVisual = {
-  icon: <Server size={40} />,
+  icon: <DerivedServiceIcon kind="default" size={40} strokeWidth={2.25} />,
 };
 
 const googleDriveSelectionIcon = (
@@ -72,17 +72,24 @@ const boxSelectionIcon = (
 
 export const serviceSelectionOptions: Record<string, ServiceSelectionVisual> = {
   local: {
-    icon: <FolderOpen size={40} />,
+    icon: (
+      <DerivedServiceIcon
+        kind="local"
+        size={40}
+        strokeWidth={2.25}
+        localIcon="folder"
+      />
+    ),
     description:
       "Browse a directory on this machine. We need read access to this folder and its subcontents to scan metadata.",
     iconAccent: "a",
   },
   spectra: {
-    icon: <Database size={40} />,
+    icon: <DerivedServiceIcon kind="spectra" size={40} strokeWidth={2.25} />,
     iconAccent: "b",
   },
   cloud: {
-    icon: <Cloud size={40} />,
+    icon: <DerivedServiceIcon kind="cloud" size={40} strokeWidth={2.25} />,
     description:
       "Connect a cloud account and browse folders to choose a migration root.",
     iconAccent: "b",
@@ -113,7 +120,7 @@ export const serviceSelectionOptions: Record<string, ServiceSelectionVisual> = {
       "Sign in with Box to browse All Files and choose a migration root.",
   },
   sftp: {
-    icon: <Server size={40} />,
+    icon: <DerivedServiceIcon kind="sftp" size={40} strokeWidth={2.25} />,
     description:
       "Connect to a remote SFTP server with host and credentials, then browse folders to choose a root.",
     iconAccent: "b",

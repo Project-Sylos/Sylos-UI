@@ -70,7 +70,7 @@
 .stop-progress-popover__spinner {
   width: 0.85rem;
   height: 0.85rem;
-  border: 2px solid rgba(255, 255, 255, 0.2);
+  border: 2px solid var(--border-strong);
   border-top-color: var(--accent, #6cb6ff);
   border-radius: 50%;
   animation: stop-progress-spin 0.7s linear infinite;
@@ -90,11 +90,12 @@
 }
 
 .stop-progress-popover__btn {
-  border: none;
-  border-radius: 0.4rem;
+  border-radius: 0.5rem;
   padding: 0.4rem 0.75rem;
   font-size: 0.8rem;
+  font-weight: 600;
   cursor: pointer;
+  border: 1px solid transparent;
 }
 
 .stop-progress-popover__btn:disabled {
@@ -103,12 +104,15 @@
 }
 
 .stop-progress-popover__btn--hard {
-  background: #8b2e2e;
-  color: #fff;
+  background: var(--ui-button-danger-bg);
+  border-color: transparent;
+  color: #ffffff;
 }
 
 .stop-progress-popover__btn--hard:hover:not(:disabled) {
-  background: #a33838;
+  background: var(--ui-button-danger-bg-hover);
+  border-color: transparent;
+  color: #ffffff;
 }
 
 .stop-progress-popover__btn--dismiss {

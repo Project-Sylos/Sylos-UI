@@ -23,13 +23,22 @@
     var(--surface-base-b),
     var(--surface-opacity-secondary)
   );
-  color: var(--text-secondary);
+  color: var(--text-primary);
   cursor: pointer;
   transition: all 0.2s ease;
 }
 
+.list-density-control__aa {
+  font-family: "Nunito", "Segoe UI", system-ui, sans-serif;
+  font-weight: 500;
+  font-size: 1.15rem;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  font-feature-settings: "kern" 1;
+}
+
 .list-density-control__button:hover {
-  color: var(--text-primary);
+  color: var(--text-hover, var(--text-primary));
   border-color: rgba(148, 163, 184, 0.45);
 }
 

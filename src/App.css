@@ -64,7 +64,7 @@
 }
 
 .App-logo {
-  width: clamp(360px, 28vw, 520px);
+  width: clamp(280px, 42vw, 480px);
   height: auto;
 }
 

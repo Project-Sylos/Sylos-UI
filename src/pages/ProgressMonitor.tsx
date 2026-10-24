@@ -1504,8 +1504,8 @@ export default function ProgressMonitor() {
     <section className="progress-monitor">
       <PageShell className="progress-monitor__content">
         <PageBackButton
-          onClick={() => navigate("/")}
-          title="Back to home"
+          onClick={() => navigate("/choose")}
+          title="Back to start or resume"
           className="progress-monitor__back"
         />
         <div className="progress-monitor__scroll">

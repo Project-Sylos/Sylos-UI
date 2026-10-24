@@ -15,22 +15,24 @@
 .interaction-hint--active > .path-review__item-status-icon,
 .interaction-hint--active > [class*="path-review__item-status-icon"],
 .interaction-hint--active > [class*="path-review-list__item-status-icon"] {
-  outline: 2px solid var(--brand-ink, #0b0c0e);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--brand-cyan, #28dcfd) 28%, transparent);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--brand-cyan, #28dcfd) 55%, transparent);
+  border-radius: 8px;
+  background: var(--accent-opacity-20);
+  box-shadow: 0 0 0 1px var(--accent-opacity-20);
 }
 
 .interaction-hint__bubble {
   min-width: 220px;
   max-width: min(320px, calc(100vw - 2rem));
   padding: 0.75rem 1.65rem 0.75rem 0.85rem;
-  background: var(--surface-bg, #1a1d24);
-  border: var(--brand-outline-width, 2.5px) solid var(--brand-ink, #0b0c0e);
-  border-radius: 8px;
+  background: var(--surface-glass-bg, var(--surface-bg, #1a1d24));
+  border: 1px solid var(--surface-rim, var(--border));
+  border-radius: 12px;
   color: var(--text-primary);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--surface-panel-shadow, 0 12px 32px rgba(0, 0, 0, 0.28));
+  backdrop-filter: blur(var(--surface-blur, 16px));
+  -webkit-backdrop-filter: blur(var(--surface-blur, 16px));
   font-size: 0.85rem;
   line-height: 1.35;
   animation: interactionHintIn 0.18s ease-out;
@@ -58,7 +60,7 @@
   height: 22px;
   padding: 0;
   border: none;
-  border-radius: 4px;
+  border-radius: 6px;
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;

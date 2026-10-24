@@ -1135,10 +1135,11 @@ function BrowseFolderPage() {
           </h1>
           {includeMode ? (
             <p className="browse-folder__include-hint">
-              Browse freely to the folder you want; Confirm uses this folder as
-              the source root. Leave items unchecked to include everything under
-              it, or click to narrow the selection (double-click opens a folder).
-              After you start checking, unselected branches show as skipped.
+              Browse freely to the folder you want; Confirm uses this folder (or
+              drive) as the source root. You can check folders and files. Leave
+              items unchecked to include everything under it, or narrow the
+              selection (double-click opens a folder). After you start checking,
+              unselected branches show as skipped.
             </p>
           ) : !isDriveView && role === "destination" ? (
             <p className="browse-folder__include-hint">

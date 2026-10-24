@@ -1,7 +1,7 @@
 import { FormEvent, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 
-import logo from "../assets/logos/main-app-logo-transparent.png";
+import SylosLogo from "../components/SylosLogo";
 import { recoverPassword } from "../api/auth";
 import { useAuth } from "../contexts/AuthContext";
 import "../App.css";
@@ -72,7 +72,7 @@ export default function Login() {
   return (
     <div className="App-root">
       <div className="App-card">
-        <img src={logo} alt="Sylos Logo" className="App-logo" />
+        <SylosLogo className="App-logo" />
         {recoveryMode ? (
           <form onSubmit={handleRecoverySubmit} className="auth-form">
             <h1 className="auth-form__heading">Reset password</h1>

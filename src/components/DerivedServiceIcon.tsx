@@ -43,32 +43,23 @@ export function derivedServiceKind(
   return "default";
 }
 
-/**
- * Brand-cartoon Lucide glyph: neon stroke over brand-ink outline.
- * Provider logos stay as plain images elsewhere.
- */
+/** Single-stroke Lucide glyph for derived (non-logo) service kinds. */
 export default function DerivedServiceIcon({
   kind,
   size = 16,
   className = "",
-  strokeWidth = 2,
+  strokeWidth = 1.75,
   localIcon = "folder",
 }: DerivedServiceIconProps) {
   const Icon =
     kind === "local" && localIcon === "drive" ? HardDrive : KIND_ICONS[kind];
-  const inkStroke = strokeWidth + 1.25;
 
   return (
     <span
-      className={`derived-service-icon-stack ${className}`.trim()}
+      className={`derived-service-icon-wrap ${className}`.trim()}
       style={{ width: size, height: size }}
       aria-hidden="true"
     >
-      <Icon
-        size={size}
-        strokeWidth={inkStroke}
-        className="derived-service-icon derived-service-icon--ink"
-      />
       <Icon
         size={size}
         strokeWidth={strokeWidth}

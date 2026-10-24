@@ -73,8 +73,9 @@
 }
 
 .recovery-code-dialog__close {
-  border: var(--brand-outline-width) solid var(--ui-button-primary-border);
+  border: 1px solid transparent;
   background: var(--ui-button-primary-bg);
   color: var(--ui-button-primary-fg);
-  font-weight: 700;
+  font-weight: 600;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.16);
 }

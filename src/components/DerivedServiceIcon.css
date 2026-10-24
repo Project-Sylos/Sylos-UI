@@ -1,7 +1,4 @@
-/* Cartoon brand look for derived (non-logo) service glyphs only. */
-
-.derived-service-icon-stack {
-  position: relative;
+.derived-service-icon-wrap {
   display: inline-flex;
   flex-shrink: 0;
   align-items: center;
@@ -9,38 +6,26 @@
   vertical-align: middle;
 }
 
-.derived-service-icon-stack > .derived-service-icon {
-  position: absolute;
-  inset: 0;
+svg.derived-service-icon {
   display: block;
 }
 
-svg.derived-service-icon.derived-service-icon--ink {
-  color: var(--brand-ink, #0b0c0e);
-  z-index: 0;
-}
-
 svg.derived-service-icon.derived-service-icon--local {
-  color: var(--brand-cyan, #28dcfd);
-  z-index: 1;
+  color: var(--brand-cyan);
 }
 
 svg.derived-service-icon.derived-service-icon--spectra {
-  color: var(--brand-magenta, #f20ff2);
-  z-index: 1;
+  color: var(--brand-magenta);
 }
 
 svg.derived-service-icon.derived-service-icon--sftp {
-  color: #ffb347;
-  z-index: 1;
+  color: #d4a574;
 }
 
 svg.derived-service-icon.derived-service-icon--cloud {
-  color: #7ec8ff;
-  z-index: 1;
+  color: #8aa3c7;
 }
 
 svg.derived-service-icon.derived-service-icon--default {
-  color: #c8d0dc;
-  z-index: 1;
+  color: var(--text-secondary);
 }

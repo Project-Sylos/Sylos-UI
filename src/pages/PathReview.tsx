@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import {
   ArrowLeft,
@@ -107,6 +108,8 @@ import {
 } from "../utils/pathReviewDeletePlan";
 import {
   getPathReviewDisplayPhase,
+  getPathReviewPageBackPath,
+  getPathReviewPageBackTitle,
   getPathReviewUIPhase,
   isSourceCleanupPlanPhase,
   showsPathReviewPendingColumn,
@@ -398,7 +401,9 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
   const [treeCurrentPage, setTreeCurrentPage] = useState(0);
   const [treeItemsPerPage, setTreeItemsPerPage] = useState(100);
   const [showTreeItemsPerPageDropdown, setShowTreeItemsPerPageDropdown] = useState(false);
+  const [treeItemsPerPageDropdownStyle, setTreeItemsPerPageDropdownStyle] = useState<React.CSSProperties>({});
   const treeItemsPerPageDropdownRef = useRef<HTMLDivElement>(null);
+  const treeItemsPerPageButtonRef = useRef<HTMLButtonElement>(null);
   // Map of locationPath -> page number to remember pagination per folder
   const [folderPageMap, setFolderPageMap] = useState<Map<string, number>>(new Map());
   const currentTreePathRef = useRef<string>("/");
@@ -738,12 +743,26 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [treeCurrentPage, treeItemsPerPage, includeDestinationOnly]);
 
+  useLayoutEffect(() => {
+    if (!showTreeItemsPerPageDropdown || !treeItemsPerPageButtonRef.current) return;
+    const rect = treeItemsPerPageButtonRef.current.getBoundingClientRect();
+    setTreeItemsPerPageDropdownStyle({
+      position: "fixed",
+      top: rect.bottom + 4,
+      left: rect.left,
+      zIndex: 100050,
+    });
+  }, [showTreeItemsPerPageDropdown]);
+
   // Handle click outside items per page dropdown
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
       if (
         treeItemsPerPageDropdownRef.current &&
-        !treeItemsPerPageDropdownRef.current.contains(event.target as Node)
+        !treeItemsPerPageDropdownRef.current.contains(target) &&
+        treeItemsPerPageButtonRef.current &&
+        !treeItemsPerPageButtonRef.current.contains(target)
       ) {
         setShowTreeItemsPerPageDropdown(false);
       }
@@ -2572,20 +2591,22 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
                 setListFiltersPageOpen(false);
                 return;
               }
-              if ((isCopyPlanView || isSourceCleanupView) && migrationId) {
-                navigate(`/path-review/${migrationId}`);
+              if (!migrationId) {
+                navigate("/choose");
                 return;
               }
-              navigate(-1);
+              navigate(
+                getPathReviewPageBackPath(
+                  migrationId,
+                  migrationStatus,
+                  reviewView
+                )
+              );
             }}
             title={
               listFiltersPageOpen
                 ? "Back to list search"
-                : isCopyPlanView
-                  ? "Back to discovery review"
-                  : isSourceCleanupView
-                    ? "Back to copy review"
-                    : "Go back to previous page"
+                : getPathReviewPageBackTitle(migrationStatus, reviewView)
             }
             className="path-review__back"
           />
@@ -2746,37 +2767,48 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
               </div>
               {pagination && (
               <div className="path-review-list__page-nav">
-                <div className="path-review-list__items-per-page-compact" ref={treeItemsPerPageDropdownRef}>
+                <div className="path-review-list__items-per-page-compact">
                   <button
+                    ref={treeItemsPerPageButtonRef}
                     type="button"
                     className="path-review-list__items-per-page-button"
                     onClick={() => setShowTreeItemsPerPageDropdown(!showTreeItemsPerPageDropdown)}
                     title="Items per page"
                     aria-label="Items per page"
+                    aria-expanded={showTreeItemsPerPageDropdown}
                   >
                     {treeItemsPerPage}
                     <ChevronDown size={14} />
                   </button>
-                  {showTreeItemsPerPageDropdown && (
-                    <div className="path-review-list__items-per-page-dropdown">
-                      {[50, 100, 500, 1000].map((value) => (
-                        <button
-                          key={value}
-                          type="button"
-                          className={`path-review-list__items-per-page-option ${
-                            treeItemsPerPage === value ? "path-review-list__items-per-page-option--selected" : ""
-                          }`}
-                          onClick={() => {
-                            setTreeItemsPerPage(value);
-                            setTreeCurrentPage(0);
-                            setShowTreeItemsPerPageDropdown(false);
-                          }}
-                        >
-                          {value}
-                        </button>
-                      ))}
-                    </div>
-                  )}
+                  {showTreeItemsPerPageDropdown &&
+                    typeof document !== "undefined" &&
+                    createPortal(
+                      <div
+                        ref={treeItemsPerPageDropdownRef}
+                        className="path-review-list__items-per-page-dropdown path-review-list__items-per-page-dropdown--portal"
+                        style={treeItemsPerPageDropdownStyle}
+                      >
+                        {[50, 100, 500, 1000].map((value) => (
+                          <button
+                            key={value}
+                            type="button"
+                            className={`path-review-list__items-per-page-option ${
+                              treeItemsPerPage === value
+                                ? "path-review-list__items-per-page-option--selected"
+                                : ""
+                            }`}
+                            onClick={() => {
+                              setTreeItemsPerPage(value);
+                              setTreeCurrentPage(0);
+                              setShowTreeItemsPerPageDropdown(false);
+                            }}
+                          >
+                            {value}
+                          </button>
+                        ))}
+                      </div>,
+                      document.body
+                    )}
                 </div>
                 <button
                   type="button"

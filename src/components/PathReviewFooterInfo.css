@@ -112,11 +112,11 @@
   gap: 0.45rem;
   margin: 0;
   padding: 0.2rem 0.55rem;
-  border-radius: 6px;
-  border: var(--brand-outline-width) solid var(--brand-ink);
+  border-radius: 8px;
+  border: 1px solid var(--border-strong);
   background: var(--surface-bg-hover);
   color: var(--text-primary);
-  font-weight: 700;
+  font-weight: 600;
   cursor: pointer;
   font: inherit;
   line-height: 1.2;
@@ -143,7 +143,7 @@
 .path-review-footer-info__selected-trigger--open,
 .path-review-footer-info__selected-trigger:focus-visible {
   background: var(--surface-bg);
-  border-color: var(--brand-ink);
+  border-color: var(--accent);
   color: var(--text-primary);
   outline: none;
 }

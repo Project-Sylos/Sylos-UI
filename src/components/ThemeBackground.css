@@ -9,10 +9,44 @@
   pointer-events: none;
 }
 
-.sylos-bg-container--obsidian {
-  background: var(--page-bg);
+.sylos-bg-container::before,
+.sylos-bg-container::after {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(100px);
+  opacity: 1;
+  pointer-events: none;
 }
 
+.sylos-bg-container::before {
+  width: min(78vw, 820px);
+  height: min(78vw, 820px);
+  top: -18%;
+  right: -12%;
+  background: var(--bg-orb-primary);
+}
+
+.sylos-bg-container::after {
+  width: min(68vw, 680px);
+  height: min(68vw, 680px);
+  bottom: -22%;
+  left: -14%;
+  background: var(--bg-orb-secondary);
+}
+
+/* Quiet navy glass; tiny sky/pink mist only */
+.sylos-bg-container--obsidian {
+  background:
+    radial-gradient(ellipse 90% 70% at 18% 8%, rgba(90, 140, 180, 0.16), transparent 58%),
+    radial-gradient(ellipse 75% 55% at 88% 78%, rgba(120, 80, 140, 0.1), transparent 52%),
+    var(--page-bg);
+}
+
+/* Soft sky fluff; faint pink only at the edge */
 .sylos-bg-container--quartz {
-  background: var(--page-bg);
+  background:
+    radial-gradient(ellipse 90% 65% at 12% 0%, rgba(190, 220, 245, 0.65), transparent 55%),
+    radial-gradient(ellipse 70% 55% at 95% 90%, rgba(235, 200, 245, 0.28), transparent 50%),
+    linear-gradient(165deg, #f4f8fc 0%, #eaf2f9 50%, #f2f4fa 100%);
 }

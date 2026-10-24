@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { useNavigate } from "react-router";
 import { PlayCircle, RotateCcw } from "lucide-react";
 
@@ -9,21 +9,25 @@ export default function ChooseMigrationType() {
   const navigate = useNavigate();
   const { clearSelections } = useSelection();
 
+  useEffect(() => {
+    clearSelections();
+  }, [clearSelections]);
+
   const options = useMemo(
     () => [
       {
         id: "new",
-        name: "Start New Migration",
+        name: "Start a new migration",
         description:
-          "Configure a source and destination, then run discovery to build a migration plan.",
+          "Pick a source and destination, then discover what to move.",
         icon: <PlayCircle size={40} strokeWidth={1.6} />,
         iconAccent: "a",
       },
       {
         id: "resume",
-        name: "Resume Existing Migration",
+        name: "Resume an existing one",
         description:
-          "Pick a saved migration from the list, or upload a database file to continue one.",
+          "Continue a saved migration, or import from a folder / upload a zip to pick back up.",
         icon: <RotateCcw size={40} strokeWidth={1.6} />,
         iconAccent: "b",
       },
@@ -45,14 +49,11 @@ export default function ChooseMigrationType() {
       variant="brand"
       title={
         <>
-          Choose your <span className="selection-page__highlight">migration</span>{" "}
-          type
+          Let's get <span className="selection-page__highlight">started</span>
         </>
       }
       options={options}
       onSelect={handleSelect}
-      onBack={() => navigate("/")}
-      backTitle="Back to home"
     />
   );
 }

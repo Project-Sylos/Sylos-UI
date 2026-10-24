@@ -28,10 +28,14 @@
   height: 24px;
 }
 
-.zoom-control__icon {
-  color: var(--text-secondary);
+.zoom-control__aa {
+  color: var(--text-primary);
+  font-family: "Nunito", "Segoe UI", system-ui, sans-serif;
+  font-weight: 500;
+  font-size: 1.05rem;
+  letter-spacing: -0.03em;
+  line-height: 1;
   flex-shrink: 0;
-  transition: all 0.2s ease;
 }
 
 .zoom-control__percentage {

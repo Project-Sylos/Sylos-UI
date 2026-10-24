@@ -516,7 +516,7 @@
 
 .path-review-list__calc-button:hover:not(:disabled) {
   background: var(--surface-bg-hover);
-  border-color: var(--brand-ink);
+  border-color: var(--border-strong);
   color: var(--text-primary);
 }
 
@@ -549,7 +549,7 @@
 .path-review-footer-info__calc:hover:not(:disabled) {
   background: var(--surface-bg-hover);
   color: var(--text-primary);
-  border-color: var(--brand-ink);
+  border-color: var(--border-strong);
 }
 
 .path-review-footer-info__calc:disabled {
@@ -648,11 +648,11 @@
 
 .path-review-list__items-per-page-dropdown {
   position: absolute;
-  /* Open upward so parent overflow:hidden panels do not clip the menu. */
-  bottom: calc(100% + calc(0.25rem * var(--zoom, 1)));
-  top: auto;
+  top: calc(100% + calc(0.25rem * var(--zoom, 1)));
+  bottom: auto;
   left: 0;
-  z-index: 1000;
+  /* Below confirm/filter modals (~110000), above page chrome. */
+  z-index: 100050;
   display: flex;
   flex-direction: column;
   min-width: calc(60px * var(--zoom, 1));
@@ -676,6 +676,10 @@
     var(--shadow-opacity-sm)
   );
   overflow: hidden;
+}
+
+.path-review-list__items-per-page-dropdown--portal {
+  position: fixed;
 }
 
 .path-review-list__items-per-page-option {
@@ -992,14 +996,14 @@
 /* At-a-glance cue that the status glyph is a toggle, not decoration. */
 .path-review__item-status-icon--interactive {
   padding: 2px;
-  outline: 1.5px solid color-mix(in srgb, var(--brand-ink, #0b0c0e) 55%, transparent);
+  outline: 1.5px solid color-mix(in srgb, var(--accent) 45%, transparent);
   outline-offset: 1px;
   background: color-mix(in srgb, var(--text-secondary) 10%, transparent);
 }
 
 .path-review__item-status-icon--interactive:hover {
-  background: color-mix(in srgb, var(--brand-cyan, #28dcfd) 22%, transparent);
-  outline-color: var(--brand-ink, #0b0c0e);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  outline-color: var(--accent);
 }
 
 .path-review__item-status-icon--pending {
@@ -1420,7 +1424,7 @@
 .path-review__tab--active {
   background: transparent;
   border: none;
-  border-top: var(--brand-outline-width) solid var(--brand-tab-line);
+  border-top: 2px solid var(--brand-tab-line);
   box-shadow: none;
   color: var(--brand-tab-fg-active);
   font-weight: 700;
@@ -2095,14 +2099,14 @@
 .path-review-list__filter-button--active {
   background: var(--surface-bg-hover);
   color: var(--text-primary);
-  border: var(--brand-outline-width) solid var(--brand-ink);
+  border: 1px solid var(--border-strong);
   font-weight: 700;
 }
 
 .path-review-list__filter-button--active:hover {
   background: var(--surface-bg-hover);
   color: var(--text-primary);
-  border-color: var(--brand-ink);
+  border-color: var(--border-strong);
 }
 
 .path-review-list__filter-indicator {
@@ -2342,7 +2346,7 @@
 
 .path-review-list__filter-menu-toggle-button--active {
   background: var(--surface-bg-hover);
-  border: var(--brand-outline-width) solid var(--brand-ink);
+  border: 1px solid var(--border-strong);
   color: var(--text-primary);
   font-weight: 700;
 }
@@ -2944,14 +2948,14 @@
 
 .path-review-list__item-status-icon--interactive {
   padding: 2px;
-  outline: 1.5px solid color-mix(in srgb, var(--brand-ink, #0b0c0e) 55%, transparent);
+  outline: 1.5px solid color-mix(in srgb, var(--accent) 45%, transparent);
   outline-offset: 1px;
   background: color-mix(in srgb, var(--text-secondary) 10%, transparent);
 }
 
 .path-review-list__item-status-icon--interactive:hover {
-  background: color-mix(in srgb, var(--brand-cyan, #28dcfd) 22%, transparent);
-  outline-color: var(--brand-ink, #0b0c0e);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  outline-color: var(--accent);
 }
 
 .path-review-list__item-status-icon--pending {
@@ -3068,7 +3072,7 @@
 
 .path-review-list__item-navigate-button:hover {
   background: var(--surface-bg-hover);
-  border-color: var(--brand-ink);
+  border-color: var(--border-strong);
   color: var(--text-primary);
 }
 

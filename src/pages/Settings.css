@@ -40,13 +40,15 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 6px;
+  border-radius: 10px;
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease;
   z-index: 10;
-  background: var(--surface-bg);
-  border: 1px solid var(--border);
+  background: var(--surface-glass-bg, var(--surface-bg));
+  border: 1px solid var(--surface-rim, var(--border));
   color: var(--text-secondary);
+  backdrop-filter: blur(var(--surface-blur, 16px));
+  -webkit-backdrop-filter: blur(var(--surface-blur, 16px));
 }
 
 .settings__close:hover {
@@ -63,8 +65,15 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
-  background: var(--surface-bg-subtle);
-  border-right: 1px solid var(--border);
+  background: rgba(
+    var(--surface-base-r),
+    var(--surface-base-g),
+    var(--surface-base-b),
+    var(--surface-opacity-secondary)
+  );
+  border-right: 1px solid var(--surface-rim, var(--border));
+  backdrop-filter: blur(var(--surface-blur, 16px));
+  -webkit-backdrop-filter: blur(var(--surface-blur, 16px));
 }
 
 .settings__sidebar-header {

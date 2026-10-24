@@ -9,45 +9,45 @@ svg.file-type-icon.file-type-icon--folder {
 }
 
 svg.file-type-icon.file-type-icon--file {
-  color: #c8d0dc;
+  color: var(--text-secondary);
 }
 
 svg.file-type-icon.file-type-icon--document {
-  color: #7ec8ff;
+  color: #7b9bc7;
 }
 
 svg.file-type-icon.file-type-icon--pdf {
-  color: #ff6b6b;
+  color: #e07070;
 }
 
 svg.file-type-icon.file-type-icon--spreadsheet {
-  color: #5dff9a;
+  color: #5cb87a;
 }
 
 svg.file-type-icon.file-type-icon--presentation {
-  color: #ffb347;
+  color: #d4a574;
 }
 
 svg.file-type-icon.file-type-icon--image {
-  color: var(--brand-magenta, #f20ff2);
+  color: var(--brand-magenta);
 }
 
 svg.file-type-icon.file-type-icon--video {
-  color: var(--brand-danger, #ff4d5e);
+  color: var(--brand-danger);
 }
 
 svg.file-type-icon.file-type-icon--audio {
-  color: #3de0ff;
+  color: #6ba8c9;
 }
 
 svg.file-type-icon.file-type-icon--archive {
-  color: #ffd166;
+  color: #c9b06a;
 }
 
 svg.file-type-icon.file-type-icon--code {
-  color: var(--brand-cyan, #28dcfd);
+  color: var(--brand-cyan);
 }
 
 svg.file-type-icon.file-type-icon--other {
-  color: #c8d0dc;
+  color: var(--text-secondary);
 }

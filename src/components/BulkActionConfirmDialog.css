@@ -94,15 +94,16 @@
 }
 
 .bulk-action-dialog__button--confirm {
-  background: var(--brand-cyan);
-  border-width: var(--brand-outline-width);
-  border-color: var(--brand-ink);
-  color: var(--brand-ink);
-  font-weight: 700;
+  background: var(--ui-button-primary-bg);
+  border-width: 1px;
+  border-color: transparent;
+  color: #ffffff;
+  font-weight: 600;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.16);
 }
 
 .bulk-action-dialog__button--confirm:hover {
-  background: var(--brand-cyan-hover);
-  border-color: var(--brand-ink);
-  color: var(--brand-ink);
+  background: var(--ui-button-primary-bg-hover);
+  border-color: transparent;
+  color: #ffffff;
 }

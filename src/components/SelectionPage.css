@@ -63,6 +63,18 @@
   margin: 0;
 }
 
+.selection-page__subtitle {
+  margin: 0.55rem 0 0;
+  color: var(--text-muted);
+  font-size: clamp(1rem, 2vw, 1.15rem);
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+:root[data-theme="quartz"] .selection-page__subtitle {
+  color: var(--text-secondary);
+}
+
 .selection-page__error {
   margin: 0.75rem auto 0;
   max-width: 520px;
@@ -104,8 +116,10 @@
   padding: 2.25rem 1.75rem;
   background: var(--selection-card-background);
   border: 1px solid var(--selection-card-border-color);
-  border-radius: 8px;
+  border-radius: var(--surface-radius, 14px);
   box-shadow: var(--selection-card-shadow);
+  backdrop-filter: blur(var(--surface-blur, 16px));
+  -webkit-backdrop-filter: blur(var(--surface-blur, 16px));
   color: inherit;
   cursor: pointer;
   text-align: center;
@@ -161,14 +175,15 @@
 }
 
 /*
- * Start / Resume: same card chrome as the rest of the app; neon only on
- * the Lucide glyph (not thick ink borders / pastel wells).
+ * Start / Resume: quiet glass cards; muted role color on Lucide glyphs only.
  */
 .selection-page--brand .selection-page__card {
-  border: 1px solid var(--selection-card-border-color);
-  border-radius: 8px;
-  background: var(--selection-card-background);
-  box-shadow: var(--selection-card-shadow);
+  border: 1px solid var(--selection-card-border-color, var(--surface-rim));
+  border-radius: var(--surface-radius, 14px);
+  background: var(--selection-card-background, var(--surface-glass-bg));
+  box-shadow: var(--selection-card-shadow, var(--surface-panel-shadow));
+  backdrop-filter: blur(var(--surface-blur, 16px));
+  -webkit-backdrop-filter: blur(var(--surface-blur, 16px));
 }
 
 @media (hover: hover) and (pointer: fine) {

@@ -15,14 +15,16 @@
 }
 
 .confirm-dialog__content {
-  border-radius: 8px;
+  border-radius: var(--surface-radius, 14px);
   padding: 1.5rem;
   max-width: 450px;
   width: 90%;
   font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
-  background: var(--surface-bg);
-  border: 1px solid var(--border);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+  background: var(--surface-glass-bg, var(--surface-bg));
+  border: 1px solid var(--surface-rim, var(--border));
+  box-shadow: var(--surface-panel-shadow, 0 12px 40px rgba(0, 0, 0, 0.28));
+  backdrop-filter: blur(var(--surface-blur, 18px));
+  -webkit-backdrop-filter: blur(var(--surface-blur, 18px));
   color: var(--text-primary);
 }
 
@@ -108,39 +110,40 @@
 }
 
 .confirm-dialog__button--confirm {
-  border-width: var(--brand-outline-width);
-  border-color: var(--brand-ink);
-  color: var(--brand-ink);
-  font-weight: 700;
+  border-width: 1px;
+  border-color: transparent;
+  color: #ffffff;
+  font-weight: 600;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.16);
 }
 
 .confirm-dialog__button--confirm-cyan {
-  background: var(--brand-cyan);
+  background: var(--ui-button-primary-bg);
 }
 
 .confirm-dialog__button--confirm-cyan:hover {
-  background: var(--brand-cyan-hover);
-  border-color: var(--brand-ink);
-  color: var(--brand-ink);
+  background: var(--ui-button-primary-bg-hover);
+  border-color: transparent;
+  color: #ffffff;
 }
 
 .confirm-dialog__button--confirm-magenta {
-  background: var(--brand-magenta);
+  background: var(--ui-button-magenta-bg);
 }
 
 .confirm-dialog__button--confirm-magenta:hover {
-  background: var(--brand-magenta-hover);
-  border-color: var(--brand-ink);
-  color: var(--brand-ink);
+  background: var(--ui-button-magenta-bg-hover);
+  border-color: transparent;
+  color: #ffffff;
 }
 
 .confirm-dialog__button--confirm-danger {
-  background: var(--brand-danger);
+  background: var(--ui-button-danger-bg);
 }
 
 .confirm-dialog__button--confirm-danger:hover {
-  background: var(--brand-danger-hover);
-  border-color: var(--brand-ink);
-  color: var(--brand-ink);
+  background: var(--ui-button-danger-bg-hover);
+  border-color: transparent;
+  color: #ffffff;
 }
 

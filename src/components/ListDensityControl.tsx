@@ -1,7 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ALargeSmall } from "lucide-react";
-
 import InteractionHint from "./InteractionHint";
 import { useListDensity } from "../contexts/ListDensityContext";
 import {
@@ -132,7 +130,9 @@ export default function ListDensityControl() {
           aria-expanded={isOpen}
           title="Row size"
         >
-          <ALargeSmall size={18} strokeWidth={1.75} aria-hidden="true" />
+          <span className="list-density-control__aa" aria-hidden="true">
+            Aa
+          </span>
         </button>
       </InteractionHint>
       {popover}

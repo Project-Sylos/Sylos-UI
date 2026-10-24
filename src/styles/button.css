@@ -7,13 +7,13 @@
   padding: 0.6rem 1.25rem;
   background: var(--surface-bg);
   border: 1px solid var(--border-strong);
-  border-radius: 6px;
+  border-radius: 10px;
   color: var(--text-primary);
   font-size: 0.95rem;
   font-weight: 600;
   font-family: inherit;
   cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
   box-shadow: none;
   white-space: nowrap;
 }
@@ -39,7 +39,7 @@
 }
 
 .action-button--pill {
-  border-radius: 6px;
+  border-radius: 999px;
   padding: 0.65rem 1.75rem;
   font-size: 1rem;
 }
@@ -48,7 +48,7 @@
   padding: 0.45rem 0.85rem;
   font-size: 0.85rem;
   font-weight: 500;
-  border-radius: 6px;
+  border-radius: 10px;
   flex-shrink: 0;
 }
 
@@ -56,7 +56,7 @@
   padding: 0.4rem 0.75rem;
   font-size: 0.85rem;
   font-weight: 500;
-  border-radius: 6px;
+  border-radius: 10px;
   flex-shrink: 0;
 }
 
@@ -81,86 +81,88 @@
   hyphens: none;
 }
 
-/* Shared cartoon outline: neon fill + ink border + ink label */
+/* Soft solid fills: sky primary / pink source / danger, light label */
 .action-button--brand,
 .action-button--primary,
 .action-button--magenta,
 .action-button--danger {
-  border-width: var(--brand-outline-width);
+  border-width: 1px;
   border-style: solid;
-  border-color: var(--brand-ink);
-  color: var(--brand-ink);
-  font-weight: 700;
+  border-color: transparent;
+  color: #ffffff;
+  font-weight: 600;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.18);
 }
 
 .action-button--brand,
 .action-button--primary {
-  background: var(--brand-cyan);
+  background: var(--ui-button-primary-bg);
 }
 
 .action-button--brand:hover:not(:disabled),
 .action-button--primary:hover:not(:disabled) {
-  background: var(--brand-cyan-hover);
-  border-color: var(--brand-ink);
-  color: var(--brand-ink);
+  background: var(--ui-button-primary-bg-hover);
+  border-color: transparent;
+  color: #ffffff;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
 }
 
 .action-button--brand:active:not(:disabled),
 .action-button--primary:active:not(:disabled) {
-  background: var(--brand-cyan);
-  border-color: var(--brand-ink);
-  color: var(--brand-ink);
+  background: var(--ui-button-primary-bg);
+  border-color: transparent;
+  color: #ffffff;
 }
 
 .action-button--brand:focus-visible,
 .action-button--primary:focus-visible {
-  border-color: var(--brand-ink);
-  color: var(--brand-ink);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-cyan) 55%, transparent);
+  border-color: transparent;
+  color: #ffffff;
+  box-shadow: 0 0 0 3px var(--accent-opacity-20);
 }
 
 .action-button--magenta {
-  background: var(--brand-magenta);
+  background: var(--ui-button-magenta-bg);
 }
 
 .action-button--magenta:hover:not(:disabled) {
-  background: var(--brand-magenta-hover);
-  border-color: var(--brand-ink);
-  color: var(--brand-ink);
+  background: var(--ui-button-magenta-bg-hover);
+  border-color: transparent;
+  color: #ffffff;
 }
 
 .action-button--magenta:active:not(:disabled) {
-  background: var(--brand-magenta);
-  border-color: var(--brand-ink);
-  color: var(--brand-ink);
+  background: var(--ui-button-magenta-bg);
+  border-color: transparent;
+  color: #ffffff;
 }
 
 .action-button--magenta:focus-visible {
-  border-color: var(--brand-ink);
-  color: var(--brand-ink);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-magenta) 45%, transparent);
+  border-color: transparent;
+  color: #ffffff;
+  box-shadow: 0 0 0 3px var(--accent-secondary-opacity-20);
 }
 
 .action-button--danger {
-  background: var(--brand-danger);
+  background: var(--ui-button-danger-bg);
 }
 
 .action-button--danger:hover:not(:disabled) {
-  background: var(--brand-danger-hover);
-  border-color: var(--brand-ink);
-  color: var(--brand-ink);
+  background: var(--ui-button-danger-bg-hover);
+  border-color: transparent;
+  color: #ffffff;
 }
 
 .action-button--danger:active:not(:disabled) {
-  background: var(--brand-danger);
-  border-color: var(--brand-ink);
-  color: var(--brand-ink);
+  background: var(--ui-button-danger-bg);
+  border-color: transparent;
+  color: #ffffff;
 }
 
 .action-button--danger:focus-visible {
-  border-color: var(--brand-ink);
-  color: var(--brand-ink);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-danger) 45%, transparent);
+  border-color: transparent;
+  color: #ffffff;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-danger) 40%, transparent);
 }
 
 .action-button--brand:disabled,
@@ -170,5 +172,6 @@
   background: var(--surface-bg-hover);
   border-color: var(--border);
   color: var(--text-disabled);
+  box-shadow: none;
   opacity: 1;
 }

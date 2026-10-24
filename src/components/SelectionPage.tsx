@@ -17,6 +17,7 @@ export type SelectionOption = {
 
 export type SelectionPageProps = {
   title: ReactNode;
+  subtitle?: ReactNode;
   options: SelectionOption[];
   onSelect: (id: string) => void;
   onBack?: () => void;
@@ -33,6 +34,7 @@ export type SelectionPageProps = {
 
 export default function SelectionPage({
   title,
+  subtitle,
   options,
   onSelect,
   onBack,
@@ -59,6 +61,9 @@ export default function SelectionPage({
         <div className="selection-page__scroll scroll-region">
           <header className="selection-page__header">
             <h1>{title}</h1>
+            {subtitle ? (
+              <p className="selection-page__subtitle">{subtitle}</p>
+            ) : null}
             {error ? (
               <div className="selection-page__error">{error}</div>
             ) : null}

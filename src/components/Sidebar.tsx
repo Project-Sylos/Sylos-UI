@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useLocation } from "react-router";
 import "./Sidebar.css";
-import logo from "../assets/logos/main-app-logo-transparent.png";
+import SylosLogo from "./SylosLogo";
 import { useAuth } from "../contexts/AuthContext";
 import { usePreferences } from "../contexts/PreferencesContext";
 import { useSelection } from "../context/SelectionContext";
@@ -48,6 +48,7 @@ import {
   defaultHelpModalBody,
   useHelpModal,
 } from "../contexts/HelpModalContext";
+import { useSettingsModal } from "../contexts/SettingsModalContext";
 import DerivedServiceIcon, {
   derivedServiceKind,
 } from "./DerivedServiceIcon";
@@ -121,7 +122,6 @@ function MigrationRouteGlyphs({
 /** Settings and root-selection flows; login refresh is handled separately via user. */
 function isOAuthHealthRefreshPath(pathname: string): boolean {
   return (
-    pathname.startsWith("/settings") ||
     pathname === "/connect" ||
     pathname === "/destination" ||
     pathname === "/browse" ||
@@ -277,6 +277,7 @@ export default function Sidebar() {
   const navigate = useNavigate();
   const location = useLocation();
   const { openHelp } = useHelpModal();
+  const { openSettings, isOpen: settingsOpen } = useSettingsModal();
   const [oauthHealthIssues, setOauthHealthIssues] = useState(false);
   const { needsAttention: recoveryNeedsAttention } = useRecoveryCode();
 
@@ -293,7 +294,12 @@ export default function Sidebar() {
     return refreshOAuthHealthBadge(setOauthHealthIssues);
   }, [user, location.pathname]);
 
-  // Migration manager tree: poll the list while the sidebar is expanded.
+  useEffect(() => {
+    if (!user || !settingsOpen) return;
+    return refreshOAuthHealthBadge(setOauthHealthIssues);
+  }, [user, settingsOpen]);
+
+  // Migration manager tree: keep the list warm even when the rail is collapsed.
   const { updateMigration, applyServerRoots } = useSelection();
   const [migrations, setMigrations] = useState<MigrationListEntry[]>([]);
   const [expandedIds, setExpandedIds] = useState<ReadonlySet<string>>(() =>
@@ -327,7 +333,10 @@ export default function Sidebar() {
   }, [activeMigrationId]);
 
   useEffect(() => {
-    if (!user || isCollapsed) return;
+    if (!user) {
+      setMigrations([]);
+      return;
+    }
     let cancelled = false;
     const load = () => {
       if (document.hidden) return;
@@ -348,7 +357,7 @@ export default function Sidebar() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [user, isCollapsed]);
+  }, [user]);
 
   const liveIds = useMemo(
     () =>
@@ -426,7 +435,7 @@ export default function Sidebar() {
   };
 
   const handleMigrationsClick = () => {
-    navigate("/choose");
+    navigate("/");
   };
 
   const handleHelpClick = () => {
@@ -438,7 +447,7 @@ export default function Sidebar() {
   };
 
   const handleSettingsClick = () => {
-    navigate("/settings");
+    openSettings();
   };
 
   return (
@@ -451,7 +460,7 @@ export default function Sidebar() {
         >
           <Menu size={22} strokeWidth={1.8} aria-hidden="true" />
         </button>
-        <img src={logo} alt="Sylos" className="sidebar__logo" />
+        <SylosLogo className="sidebar__logo" />
       </div>
 
       <div className="sidebar__content">

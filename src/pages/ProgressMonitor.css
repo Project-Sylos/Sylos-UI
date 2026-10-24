@@ -430,12 +430,12 @@
 }
 
 .progress-monitor__progress--complete .progress-monitor__progress-fill--ok {
-  background: var(--brand-cyan);
+  background: var(--accent);
 }
 
 .progress-monitor__progress-complete-mark {
   font-size: 0.85rem;
-  color: var(--brand-cyan);
+  color: var(--accent);
   line-height: 1;
 }
 
@@ -501,14 +501,14 @@
   height: 100%;
   width: 100%;
   border-radius: inherit;
-  background: var(--brand-cyan);
+  background: var(--accent);
   clip-path: inset(0 100% 0 0);
   transition: clip-path 0.7s ease-out;
   will-change: clip-path;
 }
 
 .progress-monitor__progress--source .progress-monitor__progress-complete-mark {
-  color: var(--brand-cyan);
+  color: var(--accent);
 }
 
 .progress-monitor__progress-fill--ok {
@@ -565,7 +565,7 @@
 }
 
 .progress-monitor__progress-legend-swatch--ok {
-  background: var(--brand-cyan);
+  background: var(--accent);
 }
 
 .progress-monitor__progress-legend-swatch--already-exists {
@@ -992,7 +992,7 @@
 
 .progress-monitor__failure-tooltip-button--copy {
   background: var(--ui-button-primary-bg);
-  border-width: var(--brand-outline-width);
+  border-width: 1px;
   border-color: var(--ui-button-primary-border);
   color: var(--ui-button-primary-fg);
   font-weight: 700;
@@ -1083,7 +1083,7 @@
   width: 100%;
   padding: 0.55rem 0.85rem;
   border-radius: 8px;
-  border: var(--brand-outline-width) solid var(--ui-button-danger-border);
+  border: 1px solid transparent;
   background: var(--ui-button-danger-bg);
   color: var(--ui-button-danger-fg);
   font-size: 0.88rem;
@@ -1112,7 +1112,7 @@
   font-weight: 700;
   cursor: pointer;
   transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
-  border: var(--brand-outline-width) solid transparent;
+  border: 1px solid transparent;
 }
 
 .progress-monitor__control:disabled {

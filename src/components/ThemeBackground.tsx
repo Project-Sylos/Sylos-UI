@@ -1,7 +1,7 @@
 import "./ThemeBackground.css";
 import { useTheme } from "../contexts/ThemeContext";
 
-/** Flat page background for obsidian / quartz. */
+/** Soft wash + blurred orbs behind the app shell. */
 export default function ThemeBackground() {
   const { theme } = useTheme();
   return (

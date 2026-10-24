@@ -163,11 +163,12 @@
 .ui-button--danger,
 .ui-button--danger-solid {
   background: var(--ui-button-danger-bg);
-  border-width: var(--brand-outline-width);
+  border-width: 1px;
   border-style: solid;
   border-color: var(--ui-button-danger-border);
   color: var(--ui-button-danger-fg);
-  font-weight: 700;
+  font-weight: 600;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.16);
 }
 
 .ui-button--danger:hover:not(:disabled),
@@ -179,11 +180,12 @@
 
 .ui-button--primary {
   background: var(--ui-button-primary-bg);
-  border-width: var(--brand-outline-width);
+  border-width: 1px;
   border-style: solid;
   border-color: var(--ui-button-primary-border);
   color: var(--ui-button-primary-fg);
-  font-weight: 700;
+  font-weight: 600;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.16);
 }
 
 .ui-button--primary:hover:not(:disabled) {
@@ -194,11 +196,12 @@
 
 .ui-button--magenta {
   background: var(--ui-button-magenta-bg);
-  border-width: var(--brand-outline-width);
+  border-width: 1px;
   border-style: solid;
   border-color: var(--ui-button-magenta-border);
   color: var(--ui-button-magenta-fg);
-  font-weight: 700;
+  font-weight: 600;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.16);
 }
 
 .ui-button--magenta:hover:not(:disabled) {

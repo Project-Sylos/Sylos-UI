@@ -1,13 +1,12 @@
 /*
  * Brand emphasis helpers.
  *
- * Neon fill (cyan/magenta + ink) is reserved for primary action buttons
- * (--ui-button-primary-* / --ui-button-magenta-* in button.css). Do not use
+ * Primary CTAs use scarce sky fills (--ui-button-primary-*). Do not use
  * paint swatches on titles.
  *
- * Role words: neon text only (source = magenta, destination = cyan).
+ * Role words: logo-inspired (source = soft pink, destination = darker slider blue).
  * Other title emphasis: weight-only.
- * Selected chips: ink outline + surface tint (not solid neon).
+ * Selected chips: surface tint + hairline border.
  */
 
 /* Generic title emphasis: bold, no color. */
@@ -25,7 +24,7 @@
   border-radius: 0;
 }
 
-/* Destination / cyan role words: neon text. */
+/* Destination / darker blue role words (same as slider / primary CTAs). */
 .brand-mark--cyan,
 .browse-folder__highlight--cyan,
 .selection-page__highlight--cyan,
@@ -40,7 +39,7 @@
   border-radius: 0;
 }
 
-/* Source / magenta role words: neon text. */
+/* Source / soft pink role words. */
 .brand-mark--magenta,
 .browse-folder__highlight--magenta,
 .selection-page__highlight--magenta,
@@ -55,11 +54,11 @@
   border-radius: 0;
 }
 
-/* Selected / active chip: ink outline + quiet surface (not solid neon). */
+/* Selected / active chip: hairline rim + quiet surface. */
 .brand-chip--cyan,
 .brand-chip--magenta {
   color: var(--text-primary);
   background: var(--surface-bg-hover);
-  border: var(--brand-outline-width) solid var(--brand-ink);
-  font-weight: 700;
+  border: 1px solid var(--border-strong);
+  font-weight: 600;
 }

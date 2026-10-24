@@ -144,10 +144,12 @@
   flex-direction: column;
   gap: 0.7rem;
   padding: 0.95rem 1.05rem;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--surface-bg);
-  box-shadow: none;
+  border-radius: var(--surface-radius, 14px);
+  border: 1px solid var(--surface-rim, var(--border));
+  background: var(--surface-glass-bg, var(--surface-bg));
+  box-shadow: var(--surface-panel-shadow);
+  backdrop-filter: blur(var(--surface-blur, 16px));
+  -webkit-backdrop-filter: blur(var(--surface-blur, 16px));
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
@@ -173,7 +175,7 @@
   min-width: 0;
 }
 
-/* Neon label text only; no outline / paint swatches / card tint. */
+/* Muted role color on titles; no paint swatches / card tint. */
 .migration-summary__endpoint--source .migration-summary__endpoint-title {
   color: var(--brand-magenta);
 }

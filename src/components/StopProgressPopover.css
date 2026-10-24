@@ -90,12 +90,12 @@
 }
 
 .stop-progress-popover__btn {
-  border-radius: 0.4rem;
+  border-radius: 0.5rem;
   padding: 0.4rem 0.75rem;
   font-size: 0.8rem;
-  font-weight: 700;
+  font-weight: 600;
   cursor: pointer;
-  border: var(--brand-outline-width) solid transparent;
+  border: 1px solid transparent;
 }
 
 .stop-progress-popover__btn:disabled {
@@ -104,15 +104,15 @@
 }
 
 .stop-progress-popover__btn--hard {
-  background: var(--brand-danger);
-  border-color: var(--brand-ink);
-  color: var(--brand-ink);
+  background: var(--ui-button-danger-bg);
+  border-color: transparent;
+  color: #ffffff;
 }
 
 .stop-progress-popover__btn--hard:hover:not(:disabled) {
-  background: var(--brand-danger-hover);
-  border-color: var(--brand-ink);
-  color: var(--brand-ink);
+  background: var(--ui-button-danger-bg-hover);
+  border-color: transparent;
+  color: #ffffff;
 }
 
 .stop-progress-popover__btn--dismiss {

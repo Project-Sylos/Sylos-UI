@@ -262,8 +262,10 @@
   padding: 1.25rem 1.5rem;
   background: var(--selection-card-background);
   border: 1px solid var(--selection-card-border-color);
-  border-radius: 8px;
+  border-radius: var(--surface-radius, 14px);
   box-shadow: var(--selection-card-shadow);
+  backdrop-filter: blur(var(--surface-blur, 16px));
+  -webkit-backdrop-filter: blur(var(--surface-blur, 16px));
   color: inherit;
   cursor: pointer;
   transition: all 0.25s ease;
@@ -656,7 +658,8 @@
 
 .browse-folder__items-per-page-dropdown {
   position: absolute;
-  bottom: calc(100% + 0.35rem);
+  top: calc(100% + 0.35rem);
+  bottom: auto;
   right: 0;
   min-width: 4.5rem;
   border: 1px solid rgba(148, 163, 184, 0.28);
@@ -664,7 +667,7 @@
   background: var(--ui-overlay-95);
   box-shadow: 0 12px 32px rgba(8, 47, 73, 0.35);
   overflow: hidden;
-  z-index: 20;
+  z-index: 100050;
 }
 
 .browse-folder__items-per-page-option {
@@ -722,23 +725,23 @@
   flex: 1;
   min-width: 0;
 }
-.browse-folder__item--file {
-  opacity: 0.92;
-}
-
+/* Files are first-class include picks (root stays the current folder/drive). */
 .browse-folder__item--file.browse-folder__item--selectable {
   opacity: 1;
-  cursor: default;
+  cursor: pointer;
   pointer-events: auto;
 }
 
 .browse-folder__item--file .browse-folder__item-icon svg:not(.file-type-icon) {
-  color: var(--text-muted);
+  color: var(--text-primary);
 }
 
-.browse-folder__item--file .browse-folder__item-name,
+.browse-folder__item--file .browse-folder__item-name {
+  color: var(--text-primary);
+}
+
 .browse-folder__item--file .browse-folder__item-meta {
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 .browse-folder__drive-mount {
@@ -881,7 +884,7 @@
 }
 
 :root[data-theme="quartz"] .browse-folder__item {
-  background: var(--surface-bg);
+  background: var(--surface-glass-bg, var(--surface-bg));
   border-color: rgba(
     var(--color-base-slate-r),
     var(--color-base-slate-g),
@@ -896,7 +899,7 @@
 }
 
 :root[data-theme="quartz"] .browse-folder__item:hover:not(:disabled) {
-  background: var(--surface-bg);
+  background: var(--selection-card-hover-background, var(--surface-bg));
   border-color: rgba(
     var(--color-base-slate-r),
     var(--color-base-slate-g),
@@ -1238,8 +1241,8 @@
 }
 
 .browse-folder__presence--both {
-  color: var(--brand-ink, #0b0c0e);
-  background: color-mix(in srgb, var(--brand-cyan, #28dcfd) 28%, transparent);
+  color: var(--brand-cyan);
+  background: color-mix(in srgb, var(--brand-cyan) 22%, transparent);
 }
 
 .browse-folder__presence--sourceOnly {
@@ -1382,7 +1385,7 @@
   opacity: 0.45;
 }
 
-/* File rows set opacity: 1 with higher specificity; keep mute styles winning. */
+/* Unchecked / dest-only mute still applies to file rows. */
 .browse-folder__item--file.browse-folder__item--selectable.browse-folder__item--unchecked {
   opacity: 0.5;
 }

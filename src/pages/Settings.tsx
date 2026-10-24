@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState, startTransition, type ReactNode } from "react";
-import { useNavigate, useLocation } from "react-router";
 import { Palette, X, Code, Cloud, Users, AlertTriangle, ChevronDown, Filter } from "lucide-react";
 import "./Settings.css";
 import { PageShell } from "../components/PageShell";
@@ -28,7 +27,7 @@ import { ALL_TIP_CATEGORY_IDS, TIP_GROUPS, type TipGroup } from "./settingsTips"
 import { listPrepackagedRulesets, listRulesets } from "../api/services";
 import type { RulesetSummary } from "../types/rulesets";
 
-type SettingsSection =
+export type SettingsSection =
   | "appearance"
   | "filters"
   | "developer"
@@ -45,9 +44,16 @@ const SECTION_IDS: Record<SettingsSection, string> = {
   developer: "settings-developer",
 };
 
-export default function Settings() {
-  const navigate = useNavigate();
-  const location = useLocation();
+export function isSettingsSection(value: string): value is SettingsSection {
+  return Object.prototype.hasOwnProperty.call(SECTION_IDS, value);
+}
+
+type SettingsProps = {
+  onClose: () => void;
+  initialSection?: SettingsSection | null;
+};
+
+export default function Settings({ onClose, initialSection = null }: SettingsProps) {
   const contentRef = useRef<HTMLDivElement>(null);
   const { user, refresh } = useAuth();
   const { theme, setTheme } = useTheme();
@@ -72,10 +78,6 @@ export default function Settings() {
     { providerId: "sharepoint", displayName: "SharePoint" },
     { providerId: "box", displayName: "Box" },
   ] as const;
-
-  const handleClose = () => {
-    navigate(-1);
-  };
 
   const scrollToSection = useCallback((section: SettingsSection) => {
     setActiveSection(section);
@@ -123,17 +125,9 @@ export default function Settings() {
   const developerEnabled = preferences.developer?.enabled === true;
 
   useEffect(() => {
-    if (location.pathname.endsWith("/users")) {
-      navigate("/settings", { replace: true });
-      requestAnimationFrame(() => scrollToSection("users"));
-      return;
-    }
-
-    const hashSection = location.hash.replace("#", "") as SettingsSection;
-    if (hashSection && SECTION_IDS[hashSection]) {
-      requestAnimationFrame(() => scrollToSection(hashSection));
-    }
-  }, [location.pathname, location.hash, navigate, scrollToSection]);
+    if (!initialSection) return;
+    requestAnimationFrame(() => scrollToSection(initialSection));
+  }, [initialSection, scrollToSection]);
 
   useEffect(() => {
     if (!user) return;
@@ -339,7 +333,7 @@ export default function Settings() {
       <PageShell className="settings__container">
         <button
           className="settings__close"
-          onClick={handleClose}
+          onClick={onClose}
           aria-label="Close settings"
         >
           <X size={20} />

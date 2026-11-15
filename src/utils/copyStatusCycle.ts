@@ -8,9 +8,11 @@ import {
 import { isNoItemsChangedError } from "./bulkActionToast";
 import {
   EXCLUSION_OP_TITLE,
+  MUTATION_CONFIRM_MS,
   RETRY_OP_TITLE,
   canStartMutation,
   withInFlightOp,
+  type MutationOpState,
 } from "./pathReviewMutationGuard";
 
 /**
@@ -18,7 +20,8 @@ import {
  * status does not cycle. Failed items mark for retry; pending items exclude
  * (a retry-marked pending keeps its failed origin under the hood); excluded
  * items restore failed when they were excluded from a marked failure and
- * return to pending otherwise.
+ * return to pending otherwise. Ordinary include (post-copy review) becomes
+ * retry-marked pending so the retry CTA updates.
  */
 export type CopyCycleStep = "mark" | "exclude" | "restore-failed" | "include";
 
@@ -40,13 +43,13 @@ export const COPY_CYCLE_LABELS: Record<CopyCycleStep, string> = {
   mark: "Mark for retry",
   exclude: "Exclude",
   "restore-failed": "Restore as failed",
-  include: "Include",
+  include: "Include for retry",
 };
 
 export interface CopyCycleDeps {
   setItems: Dispatch<SetStateAction<DiffItem[]>>;
-  mutationOps: ReadonlyMap<string, string>;
-  setMutationOps: Dispatch<SetStateAction<Map<string, string>>>;
+  mutationOps: ReadonlyMap<string, MutationOpState>;
+  setMutationOps: Dispatch<SetStateAction<Map<string, MutationOpState>>>;
   notify: (message: string, type: "success" | "error") => void;
   applyDeltas?: (deltas: Record<string, number>) => void;
   afterSuccess?: () => void | Promise<void>;
@@ -77,13 +80,10 @@ export async function runCopyCycleClick(
   }
 
   const originalItem = { ...item };
-  deps.setMutationOps((prev) =>
-    withInFlightOp(
-      prev,
-      [srcNodeId, item.id],
-      step === "mark" ? RETRY_OP_TITLE : EXCLUSION_OP_TITLE
-    )
-  );
+  const opTitle =
+    step === "mark" || step === "include" ? RETRY_OP_TITLE : EXCLUSION_OP_TITLE;
+  const opIds: Array<string | null | undefined> = [srcNodeId, item.id];
+  deps.setMutationOps((prev) => withInFlightOp(prev, opIds, opTitle));
   const next =
     step === "mark"
       ? { copyStatus: "pending", copyRetryMarked: true, copyExcludedFromFailed: false }
@@ -95,7 +95,8 @@ export async function runCopyCycleClick(
           }
         : step === "restore-failed"
           ? { copyStatus: "failed", copyRetryMarked: false, copyExcludedFromFailed: false }
-          : { copyStatus: "pending", copyRetryMarked: false, copyExcludedFromFailed: false };
+          : // Post-copy include: engine marks retry_mark_copy (PhaseCopyReview).
+            { copyStatus: "pending", copyRetryMarked: true, copyExcludedFromFailed: false };
   deps.setItems((prevItems) =>
     prevItems.map((i) => {
       if (i.id !== item.id) {
@@ -109,6 +110,7 @@ export async function runCopyCycleClick(
     })
   );
 
+  let succeeded = false;
   try {
     const result =
       step === "mark"
@@ -128,12 +130,19 @@ export async function runCopyCycleClick(
       }
       return;
     }
+    succeeded = true;
     if (result.deltas && Object.keys(result.deltas).length > 0) {
       deps.applyDeltas?.(result.deltas);
     }
-    if (step === "mark") {
+    if (step === "mark" || step === "include") {
       deps.notify("Item marked for retry", "success");
     }
+    deps.setMutationOps((prev) =>
+      withInFlightOp(prev, opIds, opTitle, "confirmed")
+    );
+    window.setTimeout(() => {
+      deps.setMutationOps((prev) => withInFlightOp(prev, opIds, null));
+    }, MUTATION_CONFIRM_MS);
     await deps.afterSuccess?.();
   } catch (err) {
     deps.setItems((prevItems) =>
@@ -146,8 +155,8 @@ export async function runCopyCycleClick(
       "error"
     );
   } finally {
-    deps.setMutationOps((prev) =>
-      withInFlightOp(prev, [srcNodeId, item.id], null)
-    );
+    if (!succeeded) {
+      deps.setMutationOps((prev) => withInFlightOp(prev, opIds, null));
+    }
   }
 }

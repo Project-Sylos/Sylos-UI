@@ -57,6 +57,10 @@
   color: var(--text-secondary, #8b93a1);
 }
 
+.stop-progress-popover__item--done .stop-progress-popover__icon {
+  color: var(--ui-status-success, #3d9a5f);
+}
+
 .stop-progress-popover__icon {
   width: 1.1rem;
   height: 1.1rem;

@@ -63,11 +63,16 @@ export interface StartMigrationPayload {
     coordinatorLead?: number;
     logAddress?: string;
     logLevel?: string;
+    persistLogLevel?: string;
     enableLoggingTerminal?: boolean;
     /** Destination name rules: "none" | "auto" | provider id (e.g. "windows") */
     pathCheckTarget?: string;
     /** Soft-cloud Windows desktop-sync overlays (Dropbox/Box/Egnyte/ShareFile). */
     windowsCompat?: boolean;
+    /** newest_mtime | decide | source_wins */
+    overwritePolicy?: string;
+    /** Dual-stream SHA-256 compare for name-matched files during discovery. */
+    hashVerify?: boolean;
   };
 }
 
@@ -523,6 +528,25 @@ export interface MigrationLogsRequest {
     error?: string;
     critical?: string;
   };
+  textExact?: string;
+  action?: string;
+  nodeId?: string;
+  from?: string;
+  to?: string;
+  limit?: number;
+}
+
+export interface InFlightTask {
+  nodeId?: string;
+  path?: string;
+  workerId?: string;
+  taskType?: string;
+  itemKind?: string;
+  round?: number;
+  copyPass?: number;
+  leaseAgeMs?: number;
+  bytesDone?: number;
+  bytesTotal?: number;
 }
 
 export interface MigrationLogsResponse {
@@ -614,6 +638,8 @@ export interface QueueMetrics {
   rate_limited_remaining_ms_dst?: number;
   /** AIMD inter-op pacing delay in ms (workers slowed after throttle). */
   inter_op_delay_ms?: number;
+  /** Live leased tasks from queue observer (memory-only). */
+  activeTasks?: InFlightTask[];
   /** Engine-owned remaining seconds (0 = done). */
   eta_seconds?: number;
   /** Which clock the engine used: "items" | "bytes". */

@@ -1,7 +1,7 @@
 // Copyright 2025 Sylos contributors
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
-import { AlertTriangle, Eye, EyeOff, Info, FilterX, Pencil } from "lucide-react";
+import { AlertTriangle, Eye, EyeOff, Info, FilterX } from "lucide-react";
 import { DiffItem } from "../api/services";
 import FileTypeIcon from "./FileTypeIcon";
 import {
@@ -28,38 +28,23 @@ type PathReviewInspectorProps = {
   item: DiffItem;
   phase: PathReviewInspectorPhase;
   busy?: boolean;
-  /** Show Exclude control for this phase (may be disabled). */
-  showExclude?: boolean;
   canExclude?: boolean;
-  excludeLabel?: string;
-  excludeDisabledReason?: string | null;
-  /** Show Retry control for this phase (may be disabled). */
-  showRetry?: boolean;
   canRetry?: boolean;
   canForceReplace?: boolean;
   canUnforceReplace?: boolean;
-  canUniqueName?: boolean;
-  canUndoAcceptedRename?: boolean;
-  uniqueNameSuggestion?: string | null;
   /** Overrides the retry button label (copy status cycle steps). */
   retryLabel?: string;
-  retryDisabledReason?: string | null;
   isExcluded?: boolean;
   isMarkedForRetry?: boolean;
   canRename?: boolean;
   canToggleIgnoreWarning?: boolean;
-  /** Show a disabled ignore control for blocking (manual_review) issues. */
-  ignoreWarningBlocked?: boolean;
   onRename?: () => void;
   onToggleIgnoreWarning?: () => void;
   onExclude?: () => void;
   onRetry?: () => void;
   onForceReplace?: () => void;
   onUnforceReplace?: () => void;
-  onUniqueName?: () => void;
-  /** Opens rename editor prefilled with the unique suggestion. */
-  onEditUniqueName?: () => void;
-  onUndoAcceptedRename?: () => void;
+  onViewLogs?: () => void;
 };
 
 function formatDate(dateString?: string): string {
@@ -105,33 +90,22 @@ export default function PathReviewInspector({
   item,
   phase = "traversal",
   busy = false,
-  showExclude = false,
   canExclude = false,
-  excludeLabel,
-  excludeDisabledReason = null,
-  showRetry = false,
   canRetry = false,
   canForceReplace = false,
   canUnforceReplace = false,
-  canUniqueName = false,
-  canUndoAcceptedRename = false,
-  uniqueNameSuggestion = null,
   retryLabel,
-  retryDisabledReason = null,
   isExcluded = false,
   isMarkedForRetry = false,
   canRename = false,
   canToggleIgnoreWarning = false,
-  ignoreWarningBlocked = false,
   onRename,
   onToggleIgnoreWarning,
   onExclude,
   onRetry,
   onForceReplace,
   onUnforceReplace,
-  onUniqueName,
-  onEditUniqueName,
-  onUndoAcceptedRename,
+  onViewLogs,
 }: PathReviewInspectorProps) {
   const inSrc = !!item.src;
   const inDst = !!item.dst;
@@ -157,15 +131,6 @@ export default function PathReviewInspector({
     phase === "copy"
       ? PATH_REVIEW_COPY.renamedTo
       : PATH_REVIEW_COPY.willBeCreatedAs;
-  const pairedFileOverwrite =
-    !isFolder &&
-    inSrc &&
-    inDst &&
-    (phase === "copy-plan" || phase === "copy") &&
-    (canForceReplace ||
-      canUnforceReplace ||
-      item.src?.copyStatus === "already_existed" ||
-      item.copyStatus === "already_existed");
 
   return (
     <aside className="path-review-inspector" aria-label="Item details">
@@ -174,7 +139,7 @@ export default function PathReviewInspector({
           <FileTypeIcon
             name={item.name}
             type={isFolder ? "folder" : "file"}
-            size={20}
+            size={18}
           />
         </div>
         <div className="path-review-inspector__header-text">
@@ -188,39 +153,6 @@ export default function PathReviewInspector({
       </div>
 
       <div className="path-review-inspector__scroll">
-        {pairedFileOverwrite ? (
-          <section className="path-review-inspector__section path-review-inspector__section--overwrite">
-            <h3 className="path-review-inspector__section-title">
-              Exists on both sides
-            </h3>
-            <p className="path-review-inspector__muted">
-              {PATH_REVIEW_COPY.overwriteDefaultNote}
-            </p>
-            <div className="path-review-inspector__pair-cards">
-              <div className="path-review-inspector__pair-card">
-                <h4 className="path-review-inspector__pair-card-title">Source</h4>
-                <Detail label="Name" value={item.src!.name} />
-                <Detail label="Size" value={formatSize(item.src!.size)} />
-                <Detail
-                  label="Last modified"
-                  value={formatDate(item.src!.lastUpdated)}
-                />
-              </div>
-              <div className="path-review-inspector__pair-card">
-                <h4 className="path-review-inspector__pair-card-title">
-                  Destination
-                </h4>
-                <Detail label="Name" value={destName} />
-                <Detail label="Size" value={formatSize(item.dst!.size)} />
-                <Detail
-                  label="Last modified"
-                  value={formatDate(item.dst!.lastUpdated)}
-                />
-              </div>
-            </div>
-          </section>
-        ) : (
-          <>
         <section className="path-review-inspector__section">
           <h3 className="path-review-inspector__section-title">Source</h3>
           {inSrc && item.src ? (
@@ -285,8 +217,6 @@ export default function PathReviewInspector({
           </div>
         </section>
         ) : null}
-          </>
-        )}
 
         {ruleExcluded && ruleExclusionText ? (
           <section className="path-review-inspector__section path-review-inspector__section--rule-exclusion">
@@ -394,94 +324,37 @@ export default function PathReviewInspector({
       </div>
 
       <div className="path-review-inspector__actions">
-        {canUniqueName ? (
+        {(canRename || canToggleIgnoreWarning) && (
           <div className="path-review-inspector__action-row">
-            <button
-              type="button"
-              className="action-button action-button--small"
-              disabled={busy}
-              onClick={onUniqueName}
-              title={
-                uniqueNameSuggestion
-                  ? PATH_REVIEW_COPY.acceptUniqueName(uniqueNameSuggestion)
-                  : PATH_REVIEW_COPY.useUniqueName
-              }
-            >
-              {uniqueNameSuggestion
-                ? PATH_REVIEW_COPY.acceptUniqueName(uniqueNameSuggestion)
-                : PATH_REVIEW_COPY.useUniqueName}
-            </button>
-            {onEditUniqueName ? (
+            {canRename && (
+              <button
+                type="button"
+                className="action-button action-button--small"
+                disabled={busy}
+                onClick={onRename}
+              >
+                {PATH_REVIEW_COPY.renameDestination}
+              </button>
+            )}
+            {canToggleIgnoreWarning && (
               <button
                 type="button"
                 className="action-button action-button--small path-review-inspector__icon-toggle"
                 disabled={busy}
-                onClick={onEditUniqueName}
-                title={PATH_REVIEW_COPY.editUniqueNameTip}
-                aria-label={PATH_REVIEW_COPY.editUniqueName}
-              >
-                <Pencil size={14} aria-hidden />
-              </button>
-            ) : null}
-          </div>
-        ) : null}
-        {canUndoAcceptedRename && (
-          <button
-            type="button"
-            className="action-button action-button--small"
-            disabled={busy}
-            title={PATH_REVIEW_COPY.undoAcceptedRenameTip}
-            onClick={onUndoAcceptedRename}
-          >
-            {PATH_REVIEW_COPY.undoAcceptedRename}
-          </button>
-        )}
-        {canRename && (
-          <button
-            type="button"
-            className="action-button action-button--small"
-            disabled={busy}
-            onClick={onRename}
-          >
-            {PATH_REVIEW_COPY.renameDestination}
-          </button>
-        )}
-        {(showExclude || canExclude || canToggleIgnoreWarning || ignoreWarningBlocked) && (
-          <div className="path-review-inspector__action-row">
-            {(showExclude || canExclude) && (
-              <button
-                type="button"
-                className="action-button action-button--small"
-                disabled={busy || !canExclude}
-                title={!canExclude ? excludeDisabledReason || undefined : undefined}
-                onClick={onExclude}
-              >
-                {excludeLabel ?? (isExcluded ? "Unexclude" : "Exclude")}
-              </button>
-            )}
-            {(canToggleIgnoreWarning || ignoreWarningBlocked) && (
-              <button
-                type="button"
-                className="action-button action-button--small path-review-inspector__icon-toggle"
-                disabled={busy || ignoreWarningBlocked}
                 onClick={onToggleIgnoreWarning}
                 title={
-                  ignoreWarningBlocked
-                    ? PATH_REVIEW_COPY.ignoreBlockedTip
-                    : warningIgnored
-                      ? PATH_REVIEW_COPY.unignoreWarning
-                      : item.copyStatus === "already_existed"
-                        ? PATH_REVIEW_COPY.ignoreKeepExistingName
-                        : PATH_REVIEW_COPY.ignoreWarning
+                  warningIgnored
+                    ? PATH_REVIEW_COPY.unignoreWarning
+                    : item.copyStatus === "already_existed"
+                      ? PATH_REVIEW_COPY.ignoreKeepExistingName
+                      : PATH_REVIEW_COPY.ignoreWarning
                 }
                 aria-label={
-                  ignoreWarningBlocked
-                    ? PATH_REVIEW_COPY.ignoreBlockedTip
-                    : warningIgnored
-                      ? PATH_REVIEW_COPY.unignoreWarning
-                      : item.copyStatus === "already_existed"
-                        ? PATH_REVIEW_COPY.ignoreKeepExistingName
-                        : PATH_REVIEW_COPY.ignoreWarning
+                  warningIgnored
+                    ? PATH_REVIEW_COPY.unignoreWarning
+                    : item.copyStatus === "already_existed"
+                      ? PATH_REVIEW_COPY.ignoreKeepExistingName
+                      : PATH_REVIEW_COPY.ignoreWarning
                 }
                 aria-pressed={warningIgnored}
               >
@@ -494,12 +367,21 @@ export default function PathReviewInspector({
             )}
           </div>
         )}
-        {(showRetry || canRetry) && (
+        {canExclude && (
           <button
             type="button"
             className="action-button action-button--small"
-            disabled={busy || !canRetry}
-            title={!canRetry ? retryDisabledReason || undefined : undefined}
+            disabled={busy}
+            onClick={onExclude}
+          >
+            {isExcluded ? "Unexclude" : "Exclude"}
+          </button>
+        )}
+        {canRetry && (
+          <button
+            type="button"
+            className="action-button action-button--small"
+            disabled={busy}
             onClick={onRetry}
           >
             {retryLabel ?? (isMarkedForRetry ? "Unmark retry" : "Mark for retry")}
@@ -512,9 +394,7 @@ export default function PathReviewInspector({
             disabled={busy}
             onClick={onForceReplace}
           >
-            {pairedFileOverwrite
-              ? PATH_REVIEW_COPY.useSourceInstead
-              : "Replace with source"}
+            Replace with source
           </button>
         )}
         {canUnforceReplace && (
@@ -524,9 +404,17 @@ export default function PathReviewInspector({
             disabled={busy}
             onClick={onUnforceReplace}
           >
-            {pairedFileOverwrite
-              ? PATH_REVIEW_COPY.keepDestination
-              : "Keep destination (undo replace)"}
+            Keep destination (undo replace)
+          </button>
+        )}
+        {onViewLogs && (
+          <button
+            type="button"
+            className="action-button action-button--small"
+            disabled={busy}
+            onClick={onViewLogs}
+          >
+            View logs
           </button>
         )}
       </div>

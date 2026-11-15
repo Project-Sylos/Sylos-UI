@@ -994,6 +994,14 @@
   height: var(--browse-icon-box, 20px);
 }
 
+.path-review-op-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
 .path-review-op-spinner {
   display: inline-block;
   box-sizing: border-box;
@@ -1004,6 +1012,29 @@
   animation: path-review-op-spin 0.7s linear infinite;
   flex-shrink: 0;
   cursor: default;
+}
+
+.path-review-op-spinner--overlay {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 0.55em;
+  height: 0.55em;
+  min-width: 8px;
+  min-height: 8px;
+  border-width: 1.5px;
+}
+
+.path-review-op-confirm {
+  position: absolute;
+  right: -3px;
+  bottom: -4px;
+  font-size: 0.65em;
+  line-height: 1;
+  font-weight: 700;
+  color: var(--ui-status-success, #3d9a5f);
+  text-shadow: 0 0 2px var(--surface-elevated, #fff);
+  pointer-events: none;
 }
 
 @keyframes path-review-op-spin {

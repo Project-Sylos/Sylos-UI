@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { useLocation, useNavigate } from "react-router";
-import { Search, ChevronRight, Pencil, RefreshCw, ArrowUpRight } from "lucide-react";
+import { useNavigate } from "react-router";
+import { Search, ChevronRight, Pencil } from "lucide-react";
 
 import PageContainer from "../components/PageContainer";
+import CloudConnectionIssues from "../components/CloudConnectionIssues";
 import HelpTooltip from "../components/HelpTooltip";
 import StorageMeter from "../components/StorageMeter";
 import { useSelection } from "../context/SelectionContext";
@@ -16,7 +17,6 @@ import {
 } from "../api/services";
 import { ServiceDescriptor, Folder } from "../types/services";
 import {
-  buildCloudConnectPath,
   CloudConnectionCheckResult,
   connectionIdForRole,
   formatCloudConnectionIssues,
@@ -27,7 +27,7 @@ import {
 import {
   accountLabelForRole,
 } from "../utils/cloudAccountLabel";
-import { isCloudServiceType, serviceIdToProviderId } from "../utils/cloudProviders";
+import { isCloudServiceType } from "../utils/cloudProviders";
 import {
   formatMigrationPath,
   formatServiceRootLabel,
@@ -43,12 +43,6 @@ import {
   resolvePathCheckTargetFromEndpoints,
   supportsWindowsCompatOverlay,
 } from "../utils/pathCheckTarget";
-import {
-  isPastSetupPhase,
-  navigationPathForStatus,
-  openLastPageLabel,
-} from "../utils/migrationNavigation";
-import type { MigrationStatusResponse } from "../types/migrations";
 import "./MigrationSummary.css";
 
 const LOCAL_OS_CHECKS_ON_NOTE =
@@ -103,18 +97,10 @@ function computeDefaultName(
 
 export default function MigrationSummary() {
   const navigate = useNavigate();
-  const location = useLocation();
   const { source, destination, migration, updateMigration } = useSelection();
   const [checkingConnections, setCheckingConnections] = useState(false);
   const [connectionIssues, setConnectionIssues] = useState<CloudConnectionCheckResult[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [importNeedsAttention, setImportNeedsAttention] = useState(
-    () =>
-      Boolean(
-        (location.state as { importNeedsAttention?: boolean } | null)
-          ?.importNeedsAttention
-      )
-  );
   const [nameInput, setNameInput] = useState("");
   const [nameDirty, setNameDirty] = useState(false);
   const [nameSaving, setNameSaving] = useState(false);
@@ -125,12 +111,13 @@ export default function MigrationSummary() {
   const [sourceOsDirty, setSourceOsDirty] = useState(false);
   const [destinationOsDirty, setDestinationOsDirty] = useState(false);
   const [windowsCompat, setWindowsCompat] = useState(false);
+  const [persistLogLevel, setPersistLogLevel] = useState("trace");
+  const [overwritePolicy, setOverwritePolicy] = useState("newest_mtime");
+  const [hashVerify, setHashVerify] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(true);
   const [destStorage, setDestStorage] = useState<StorageInfo | null>(null);
   const [srcStorage, setSrcStorage] = useState<StorageInfo | null>(null);
   const [starting, setStarting] = useState(false);
-  const [continuing, setContinuing] = useState(false);
-  const [migrationStatus, setMigrationStatus] =
-    useState<MigrationStatusResponse | null>(null);
 
   const sourceIsLocal = isLocalFilesystemService(source?.service);
   const destinationIsLocal = isLocalFilesystemService(destination?.service);
@@ -187,75 +174,15 @@ export default function MigrationSummary() {
   const spectraLockTitle =
     "Locked. Spectra sets the same root on both source and destination";
   const hasCloudConnectionIssues = invalidCloudResults(connectionIssues).length > 0;
-  const showContinue = isPastSetupPhase(migrationStatus);
-  const credentialsOk = !hasCloudConnectionIssues && !importNeedsAttention;
   const canStart =
-    !showContinue &&
     migration.ready &&
     sourceConfigured &&
     destinationConfigured &&
-    credentialsOk;
-  const canContinue =
-    showContinue &&
-    Boolean(migration.migrationId) &&
-    sourceConfigured &&
-    destinationConfigured &&
-    credentialsOk;
-
-  useEffect(() => {
-    const migrationId = migration.migrationId;
-    if (!migrationId) {
-      setMigrationStatus(null);
-      return;
-    }
-    let cancelled = false;
-    void (async () => {
-      try {
-        const status = await getMigrationStatus(migrationId);
-        if (cancelled) return;
-        setMigrationStatus(status);
-        if (status.needsAttention) {
-          setImportNeedsAttention(true);
-        } else {
-          setImportNeedsAttention(false);
-        }
-        // Keep client connection ids aligned with persisted bindings after reauth.
-        const srcConn = status.sourceRoot?.connectionId;
-        const dstConn = status.destinationRoot?.connectionId;
-        if (
-          (srcConn && srcConn !== migration.sourceConnectionId) ||
-          (dstConn && dstConn !== migration.destinationConnectionId)
-        ) {
-          updateMigration({
-            ...(srcConn ? { sourceConnectionId: srcConn } : {}),
-            ...(dstConn ? { destinationConnectionId: dstConn } : {}),
-          });
-        }
-      } catch {
-        // keep location-state hint if status cannot be loaded
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    migration.migrationId,
-    migration.sourceConnectionId,
-    migration.destinationConnectionId,
-    connectionIssues,
-    updateMigration,
-  ]);
+    !hasCloudConnectionIssues;
 
   useEffect(() => {
     if (!sourceConfigured || !source?.service?.id) {
       setSrcStorage(null);
-      return;
-    }
-    const connectionId =
-      migrationStatus?.sourceRoot?.connectionId ||
-      connectionIdForRole("source", migration);
-    if (isCloudServiceType(source.service.type) && !connectionId) {
-      setSrcStorage({ available: false });
       return;
     }
     let cancelled = false;
@@ -270,8 +197,7 @@ export default function MigrationSummary() {
               type: source.root?.type,
               parentId: source.root?.parentId,
             },
-            connectionId,
-            migration.migrationId || migrationStatus?.id
+            connectionIdForRole("source", migration)
           )
         );
         if (!cancelled) setSrcStorage(info);
@@ -285,25 +211,17 @@ export default function MigrationSummary() {
   }, [
     sourceConfigured,
     source?.service?.id,
-    source?.service?.type,
     source?.root?.locationPath,
     source?.root?.ServiceID,
     source?.root?.type,
     source?.root?.parentId,
     migration.sourceConnectionId,
     migration.migrationId,
-    migrationStatus?.sourceRoot?.connectionId,
   ]);
+
   useEffect(() => {
     if (!destinationConfigured || !destination?.service?.id) {
       setDestStorage(null);
-      return;
-    }
-    const connectionId =
-      migrationStatus?.destinationRoot?.connectionId ||
-      connectionIdForRole("destination", migration);
-    if (isCloudServiceType(destination.service.type) && !connectionId) {
-      setDestStorage({ available: false });
       return;
     }
     let cancelled = false;
@@ -318,8 +236,7 @@ export default function MigrationSummary() {
               type: destination.root?.type,
               parentId: destination.root?.parentId,
             },
-            connectionId,
-            migration.migrationId || migrationStatus?.id
+            connectionIdForRole("destination", migration)
           )
         );
         if (!cancelled) setDestStorage(info);
@@ -333,26 +250,19 @@ export default function MigrationSummary() {
   }, [
     destinationConfigured,
     destination?.service?.id,
-    destination?.service?.type,
     destination?.root?.locationPath,
     destination?.root?.ServiceID,
     destination?.root?.type,
     destination?.root?.parentId,
     migration.destinationConnectionId,
     migration.migrationId,
-    migrationStatus?.destinationRoot?.connectionId,
   ]);
 
-  const continueLabel = openLastPageLabel(migrationStatus);
-  const primaryTitle = !credentialsOk
-    ? "Reconnect source and destination before continuing."
-    : showContinue
-      ? canContinue
-        ? "Opens the last page for this migration. Does not start discovery, copy, or delete."
-        : "Configure source and destination to continue."
-      : canStart
-        ? "Start discovery to build a migration plan. Filters are applied later in path review."
-        : "Configure source and destination to continue.";
+  const startTitle = hasCloudConnectionIssues
+    ? "Reconnect cloud accounts before starting discovery."
+    : canStart
+      ? "Start discovery to build a migration plan. Filters are applied later in path review."
+      : "Configure source and destination to continue.";
 
   useEffect(() => {
     if (!sourceConfigured && !destinationConfigured) {
@@ -489,6 +399,9 @@ export default function MigrationSummary() {
         options: {
           pathCheckTarget,
           windowsCompat: showWindowsCompat ? windowsCompat : false,
+          persistLogLevel,
+          overwritePolicy,
+          hashVerify,
         },
       });
       navigate(`/progress-monitor/${run.id}`);
@@ -499,107 +412,19 @@ export default function MigrationSummary() {
     }
   };
 
-  const handleContinueWhereLeftOff = async () => {
-    if (!migration.migrationId) {
-      setError("Migration ID is missing.");
-      return;
-    }
-    setContinuing(true);
-    setError(null);
-    try {
-      const results = await verifyConfiguredMigrationCloudConnections(
-        source,
-        destination,
-        migration
-      );
-      const invalid = invalidCloudResults(results);
-      if (invalid.length > 0) {
-        setConnectionIssues(results);
-        setError(formatCloudConnectionIssues(invalid));
-        return;
-      }
-      const statusData = await getMigrationStatus(migration.migrationId);
-      setMigrationStatus(statusData);
-      if (statusData.needsAttention) {
-        setImportNeedsAttention(true);
-        setError("Reconnect source and destination before continuing.");
-        return;
-      }
-      navigate(navigationPathForStatus(statusData));
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Unable to open where you left off."
-      );
-    } finally {
-      setContinuing(false);
-    }
-  };
-
   const navigateToEndpoint = async (
     role: "source" | "destination",
-    selected?: { service: ServiceDescriptor; root?: Folder },
-    opts?: { reconnect?: boolean }
+    selected?: { service: ServiceDescriptor; root?: Folder }
   ) => {
-    const forceReconnect = Boolean(opts?.reconnect) || importNeedsAttention;
-    // Imported migrations that need attention may only re-auth the same provider.
-    if (importNeedsAttention && selected?.service) {
-      if (selected.service.type === "cloud") {
-        const connectionId = connectionIdForRole(role, migration);
-        navigate(
-          buildCloudConnectPath({
-            role,
-            serviceId: selected.service.id,
-            providerId: serviceIdToProviderId(selected.service.id),
-            connectionId,
-            reconnect: true,
-            returnTo: "/summary",
-            reauthRoot: true,
-          })
-        );
-        return;
-      }
-      if (selected.service.type === "spectra") {
-        navigate("/spectra-config", {
-          state: { serviceId: selected.service.id, returnTo: "/summary" },
-        });
-        return;
-      }
-      const params = new URLSearchParams({
-        serviceId: selected.service.id,
-        role,
-        reauthRoot: "1",
-      });
-      navigate(`/browse?${params.toString()}`, {
-        state: selected.root ? { resumeFolder: selected.root } : undefined,
-      });
-      return;
-    }
-
     if (selected?.service.type === "cloud") {
       const connectionId = connectionIdForRole(role, migration);
-      if (forceReconnect) {
-        navigate(
-          buildCloudConnectPath({
-            role,
-            serviceId: selected.service.id,
-            providerId: serviceIdToProviderId(selected.service.id),
-            connectionId,
-            reconnect: true,
-            returnTo: "/summary",
-          })
-        );
-        return;
-      }
       const navigation = await resolveCloudNavigation({
         role,
         serviceId: selected.service.id,
         connectionId,
       });
-      const path = navigation.path.includes("?")
-        ? `${navigation.path}&returnTo=${encodeURIComponent("/summary")}`
-        : `${navigation.path}?returnTo=${encodeURIComponent("/summary")}`;
       navigate(
-        path,
+        navigation.path,
         selected.root ? { state: { resumeFolder: selected.root } } : undefined
       );
       return;
@@ -621,9 +446,9 @@ export default function MigrationSummary() {
           Set up your <span className="migration-summary__highlight">migration</span>
         </h1>
         <p className="migration-summary__summary">
-          {importNeedsAttention
-            ? "Reconnect the same source and destination providers used for this imported migration. Discovery stays blocked until credentials are fixed."
-            : "Choose your source and destination. When both are configured, start discovery to build a migration plan. Exclusion filters are applied later during path review."}
+          Choose your source and destination. When both are configured,
+          start discovery to build a migration plan. Exclusion filters are
+          applied later during path review.
         </p>
       </header>
 
@@ -658,172 +483,246 @@ export default function MigrationSummary() {
         </div>
       )}
 
-      <div className="migration-summary__checklist">
-        <SetupEndpointCard
-          label="Source"
-          tone="source"
-          configured={sourceConfigured}
-          locked={spectraLocked && spectraPrimaryRole !== "source"}
-          lockTitle={spectraLocked && spectraPrimaryRole !== "source" ? spectraLockTitle : undefined}
-          providerLocked={importNeedsAttention}
-          needsReconnect={endpointNeedsReconnect(
-            "source",
-            importNeedsAttention,
-            source?.service,
-            connectionIssues
-          )}
-          serviceName={source?.service.displayName}
-          accountLabel={
-            isCloudServiceType(source?.service.type)
-              ? accountLabelForRole("source", migration)
-              : undefined
-          }
-          rootPath={formatMigrationPath(source?.root)}
-          showLocalOs={sourceConfigured && sourceIsLocal}
-          localOs={sourceLocalOs}
-          onLocalOsChange={(next) => {
-            setSourceOsDirty(true);
-            setSourceLocalOs(next);
-          }}
-          localOsSelectId="source-local-os"
-          localOsHelpTipId="migration-source-local-os"
-          localOsHelp={LOCAL_OS_SOURCE_HELP}
-          storage={srcStorage}
-          storageTipId="migration-summary-src-storage"
-          onSelect={() => void navigateToEndpoint("source", source)}
-          onReconnect={() =>
-            void navigateToEndpoint("source", source, { reconnect: true })
-          }
-        />
+      <div className="migration-summary__panel">
+        <div className="migration-summary__checklist">
+          <SetupEndpointCard
+            label="Source"
+            tone="source"
+            configured={sourceConfigured}
+            locked={spectraLocked && spectraPrimaryRole !== "source"}
+            lockTitle={spectraLocked && spectraPrimaryRole !== "source" ? spectraLockTitle : undefined}
+            serviceName={source?.service.displayName}
+            accountLabel={
+              isCloudServiceType(source?.service.type)
+                ? accountLabelForRole("source", migration)
+                : undefined
+            }
+            rootPath={formatMigrationPath(source?.root)}
+            showLocalOs={sourceConfigured && sourceIsLocal}
+            localOs={sourceLocalOs}
+            onLocalOsChange={(next) => {
+              setSourceOsDirty(true);
+              setSourceLocalOs(next);
+            }}
+            localOsSelectId="source-local-os"
+            localOsHelpTipId="migration-source-local-os"
+            localOsHelp={LOCAL_OS_SOURCE_HELP}
+            storage={srcStorage}
+            storageTipId="migration-summary-src-storage"
+            onSelect={() => void navigateToEndpoint("source", source)}
+          />
 
-        <div className="migration-summary__checklist-arrow" aria-hidden="true">
-          →
+          <div className="migration-summary__checklist-arrow" aria-hidden="true">
+            →
+          </div>
+
+          <SetupEndpointCard
+            label="Destination"
+            tone="destination"
+            configured={destinationConfigured}
+            locked={spectraLocked && spectraPrimaryRole !== "destination"}
+            lockTitle={
+              spectraLocked && spectraPrimaryRole !== "destination"
+                ? spectraLockTitle
+                : undefined
+            }
+            serviceName={destination?.service.displayName}
+            accountLabel={
+              isCloudServiceType(destination?.service.type)
+                ? accountLabelForRole("destination", migration)
+                : undefined
+            }
+            rootPath={formatMigrationPath(destination?.root)}
+            showLocalOs={destinationConfigured && destinationIsLocal}
+            localOs={destinationLocalOs}
+            onLocalOsChange={(next) => {
+              setDestinationOsDirty(true);
+              setDestinationLocalOs(next);
+            }}
+            localOsSelectId="destination-local-os"
+            localOsNote={
+              sameLocalOsDisablesChecks
+                ? LOCAL_OS_CHECKS_OFF_NOTE
+                : destinationIsLocal
+                  ? LOCAL_OS_CHECKS_ON_NOTE
+                  : undefined
+            }
+            localOsHelpTipId="migration-destination-local-os"
+            localOsHelp={
+              sameLocalOsDisablesChecks
+                ? LOCAL_OS_CHECKS_OFF_HELP
+                : LOCAL_OS_CHECKS_ON_HELP
+            }
+            storage={destStorage}
+            storageTipId="migration-summary-dst-storage"
+            storageWarning={
+              destStorage?.available &&
+              !destStorage.unlimited &&
+              typeof destStorage.freeBytes === "number" &&
+              destStorage.freeBytes < 100 * 1024 * 1024
+                ? "Very little room; discovery can still run, but copy may fail later."
+                : null
+            }
+            onSelect={() => void navigateToEndpoint("destination", destination)}
+          />
         </div>
 
-        <SetupEndpointCard
-          label="Destination"
-          tone="destination"
-          configured={destinationConfigured}
-          locked={spectraLocked && spectraPrimaryRole !== "destination"}
-          lockTitle={
-            spectraLocked && spectraPrimaryRole !== "destination"
-              ? spectraLockTitle
-              : undefined
-          }
-          providerLocked={importNeedsAttention}
-          needsReconnect={endpointNeedsReconnect(
-            "destination",
-            importNeedsAttention,
-            destination?.service,
-            connectionIssues
-          )}
-          serviceName={destination?.service.displayName}
-          accountLabel={
-            isCloudServiceType(destination?.service.type)
-              ? accountLabelForRole("destination", migration)
-              : undefined
-          }
-          rootPath={formatMigrationPath(destination?.root)}
-          showLocalOs={destinationConfigured && destinationIsLocal}
-          localOs={destinationLocalOs}
-          onLocalOsChange={(next) => {
-            setDestinationOsDirty(true);
-            setDestinationLocalOs(next);
-          }}
-          localOsSelectId="destination-local-os"
-          localOsNote={
-            sameLocalOsDisablesChecks
-              ? LOCAL_OS_CHECKS_OFF_NOTE
-              : destinationIsLocal
-                ? LOCAL_OS_CHECKS_ON_NOTE
-                : undefined
-          }
-          localOsHelpTipId="migration-destination-local-os"
-          localOsHelp={
-            sameLocalOsDisablesChecks
-              ? LOCAL_OS_CHECKS_OFF_HELP
-              : LOCAL_OS_CHECKS_ON_HELP
-          }
-          storage={destStorage}
-          storageTipId="migration-summary-dst-storage"
-          storageWarning={
-            destStorage?.available &&
-            !destStorage.unlimited &&
-            typeof destStorage.freeBytes === "number" &&
-            destStorage.freeBytes < 100 * 1024 * 1024
-              ? "Very little room; discovery can still run, but copy may fail later."
-              : null
-          }
-          onSelect={() => void navigateToEndpoint("destination", destination)}
-          onReconnect={() =>
-            void navigateToEndpoint("destination", destination, {
-              reconnect: true,
-            })
-          }
-        />
+        <details
+          className="migration-summary__advanced"
+          open={advancedOpen}
+          onToggle={(e) => setAdvancedOpen((e.target as HTMLDetailsElement).open)}
+        >
+          <summary className="migration-summary__advanced-summary">Advanced</summary>
+          <div className="migration-summary__advanced-body">
+            <div className="migration-summary__advanced-fields">
+              <div className="migration-summary__advanced-row">
+                <div className="migration-summary__advanced-label-row">
+                  <label
+                    className="migration-summary__advanced-label"
+                    htmlFor="migration-persist-log-level"
+                  >
+                    Persist log level
+                  </label>
+                  <HelpTooltip
+                    tipId="migration-setup-persist-log-level"
+                    category="migration-setup"
+                    position="above"
+                    content={
+                      <p>
+                        Adjusts the threshold for which logs are saved to disk. Saving
+                        more detail keeps a fuller historical record, but can slow
+                        discovery and copy as more lines are written. The live log
+                        window still shows all emitted levels.
+                      </p>
+                    }
+                  />
+                </div>
+                <select
+                  id="migration-persist-log-level"
+                  className="migration-summary__advanced-select"
+                  value={persistLogLevel}
+                  onChange={(e) => setPersistLogLevel(e.target.value)}
+                >
+                  {["trace", "debug", "info", "warning", "error", "critical"].map(
+                    (lvl) => (
+                      <option key={lvl} value={lvl}>
+                        {lvl === "trace" ? "trace (default)" : lvl}
+                      </option>
+                    )
+                  )}
+                </select>
+              </div>
+
+              <div className="migration-summary__advanced-row">
+                <div className="migration-summary__advanced-label-row">
+                  <label
+                    className="migration-summary__advanced-label"
+                    htmlFor="migration-overwrite-policy"
+                  >
+                    Overwrite policy
+                  </label>
+                  <HelpTooltip
+                    tipId="migration-setup-overwrite-policy"
+                    category="migration-setup"
+                    position="above"
+                    content={
+                      <p>
+                        This can still be overridden on a per-item basis during
+                        review of your copy plan.
+                      </p>
+                    }
+                  />
+                </div>
+                <select
+                  id="migration-overwrite-policy"
+                  className="migration-summary__advanced-select"
+                  value={overwritePolicy}
+                  onChange={(e) => setOverwritePolicy(e.target.value)}
+                >
+                  <option value="newest_mtime">
+                    Keep most recently modified (default)
+                  </option>
+                  <option value="decide">Let me decide (mark all for review)</option>
+                  <option value="source_wins">Always bring from source</option>
+                </select>
+              </div>
+            </div>
+
+            <label className="migration-summary__advanced-check">
+              <input
+                type="checkbox"
+                checked={hashVerify}
+                onChange={(e) => setHashVerify(e.target.checked)}
+              />
+              <span className="migration-summary__advanced-check-text">
+                <span className="migration-summary__advanced-label-row">
+                  <span className="migration-summary__advanced-label">
+                    Double-read content verification
+                  </span>
+                  <HelpTooltip
+                    tipId="migration-setup-hash-verify"
+                    category="migration-setup"
+                    position="above"
+                    content={
+                      <p>
+                        During discovery, Sylos already pairs files by name and
+                        modified time. Turn this on to also read both source and
+                        destination contents and compare SHA-256 hashes for an
+                        extra identical-content check (bytes are discarded, not
+                        saved to disk).
+                      </p>
+                    }
+                  />
+                </span>
+                <span className="migration-summary__advanced-hint">
+                  Warning: reading file contents is much heavier and slower than 
+                  listing items from folders. For every paired file Sylos reads 
+                  both the source and destination, so discovery can take far longer.
+                </span>
+              </span>
+            </label>
+
+            {showWindowsCompat && (
+              <label className="migration-summary__advanced-check">
+                <input
+                  type="checkbox"
+                  checked={windowsCompat}
+                  onChange={(e) => setWindowsCompat(e.target.checked)}
+                />
+                <span className="migration-summary__advanced-check-text">
+                  <span className="migration-summary__advanced-label">
+                    Windows desktop sync path checks
+                  </span>
+                  <span className="migration-summary__advanced-hint">
+                    Flag trailing dots/spaces and similar Windows sync issues. Off
+                    by default; does not rename anything unless you accept
+                    suggestions later in review.
+                  </span>
+                </span>
+              </label>
+            )}
+          </div>
+        </details>
       </div>
 
-      {showWindowsCompat && (
-        <label className="migration-summary__windows-compat">
-          <input
-            type="checkbox"
-            checked={windowsCompat}
-            onChange={(e) => setWindowsCompat(e.target.checked)}
-          />
-          <span>
-            Also check Windows desktop sync compatibility (trailing dots/spaces
-            and similar). Off by default; does not rename anything unless you
-            accept suggestions later in review.
-          </span>
-        </label>
-      )}
+      <CloudConnectionIssues issues={connectionIssues} />
 
       {error && <div className="migration-summary__error">{error}</div>}
 
       <div className="migration-summary__footer">
-        {showContinue ? (
-          <button
-            type="button"
-            className="action-button action-button--primary"
-            onClick={() => void handleContinueWhereLeftOff()}
-            disabled={checkingConnections || continuing || !canContinue}
-            title={primaryTitle}
-          >
-            <ArrowUpRight size={20} style={{ marginRight: "0.5rem" }} />
-            {continuing ? "Opening…" : continueLabel}
-          </button>
-        ) : (
-          <button
-            type="button"
-            className="action-button action-button--primary"
-            onClick={() => void handleStartDiscovery()}
-            disabled={checkingConnections || starting || !canStart}
-            title={primaryTitle}
-          >
-            <Search size={20} style={{ marginRight: "0.5rem" }} />
-            {starting ? "Starting…" : "Start Discovery"}
-          </button>
-        )}
+        <button
+          type="button"
+          className="action-button action-button--primary"
+          onClick={() => void handleStartDiscovery()}
+          disabled={checkingConnections || starting || !canStart}
+          title={startTitle}
+        >
+          <Search size={20} style={{ marginRight: "0.5rem" }} />
+          {starting ? "Starting…" : "Start Discovery"}
+        </button>
       </div>
     </PageContainer>
   );
-}
-
-function endpointNeedsReconnect(
-  role: "source" | "destination",
-  importNeedsAttention: boolean,
-  service: ServiceDescriptor | undefined,
-  connectionIssues: CloudConnectionCheckResult[]
-): boolean {
-  if (!service || !isCloudServiceType(service.type)) {
-    return false;
-  }
-  const issue = connectionIssues.find((r) => r.role === role);
-  if (issue && !issue.valid) {
-    return true;
-  }
-  // Import attention: keep the strip until this side's connection checks out.
-  return importNeedsAttention && (!issue || !issue.valid);
 }
 
 type SetupEndpointCardProps = {
@@ -832,10 +731,6 @@ type SetupEndpointCardProps = {
   configured: boolean;
   locked: boolean;
   lockTitle?: string;
-  /** When true, edit only re-auths the same provider (import attention). */
-  providerLocked?: boolean;
-  /** Sticky reconnect strip until credentials for this endpoint are fixed. */
-  needsReconnect?: boolean;
   serviceName?: string;
   accountLabel?: string;
   rootPath: string;
@@ -850,7 +745,6 @@ type SetupEndpointCardProps = {
   storageTipId?: string;
   storageWarning?: string | null;
   onSelect: () => void;
-  onReconnect: () => void;
 };
 
 const FS_STORAGE_TIP = (
@@ -867,8 +761,6 @@ function SetupEndpointCard({
   configured,
   locked,
   lockTitle,
-  providerLocked,
-  needsReconnect,
   serviceName,
   accountLabel,
   rootPath,
@@ -883,27 +775,22 @@ function SetupEndpointCard({
   storageTipId,
   storageWarning,
   onSelect,
-  onReconnect,
 }: SetupEndpointCardProps) {
-  const editTitle = providerLocked
-    ? `Reconnect ${label.toLowerCase()} (same provider)`
-    : configured
-      ? `Change ${label.toLowerCase()}`
-      : `Select ${label.toLowerCase()}`;
+  const editTitle = configured
+    ? `Change ${label.toLowerCase()}`
+    : `Select ${label.toLowerCase()}`;
   const showStorage = Boolean(configured && storage?.available);
 
   return (
     <div
       className={`migration-summary__endpoint migration-summary__endpoint--${tone}${
         configured ? " migration-summary__endpoint--configured" : ""
-      }${locked ? " migration-summary__endpoint--locked" : ""}${
-        needsReconnect ? " migration-summary__endpoint--attention" : ""
-      }`}
+      }${locked ? " migration-summary__endpoint--locked" : ""}`}
       title={locked ? lockTitle : undefined}
     >
       <div className="migration-summary__endpoint-header">
         <h2 className="migration-summary__endpoint-title">{label}</h2>
-        {!locked && configured && !needsReconnect && (
+        {!locked && configured && (
           <button
             type="button"
             className="migration-summary__endpoint-edit"
@@ -911,116 +798,97 @@ function SetupEndpointCard({
             title={editTitle}
             aria-label={editTitle}
           >
-            {providerLocked ? <RefreshCw size={16} /> : <Pencil size={16} />}
+            <Pencil size={16} />
           </button>
         )}
       </div>
 
-      {configured && (
-        <div className="migration-summary__info-card">
-          <div className="migration-summary__info-row">
-            <span className="migration-summary__info-label">Service</span>
-            <span className="migration-summary__info-value">{serviceName}</span>
-          </div>
-          {accountLabel ? (
+      <div className="migration-summary__endpoint-body">
+        {configured && (
+          <div className="migration-summary__info-card">
             <div className="migration-summary__info-row">
-              <span className="migration-summary__info-label">Account</span>
-              <span className="migration-summary__info-value">{accountLabel}</span>
+              <span className="migration-summary__info-label">Service</span>
+              <span className="migration-summary__info-value">{serviceName}</span>
             </div>
-          ) : null}
-          <div className="migration-summary__info-row">
-            <span className="migration-summary__info-label">Root Path</span>
-            <span className="migration-summary__info-value">{rootPath}</span>
+            {accountLabel ? (
+              <div className="migration-summary__info-row">
+                <span className="migration-summary__info-label">Account</span>
+                <span className="migration-summary__info-value">{accountLabel}</span>
+              </div>
+            ) : null}
+            <div className="migration-summary__info-row">
+              <span className="migration-summary__info-label">Root Path</span>
+              <span className="migration-summary__info-value">{rootPath}</span>
+            </div>
+            {showLocalOs && localOs && onLocalOsChange && localOsSelectId ? (
+              <div className="migration-summary__info-row migration-summary__info-row--os">
+                <div className="migration-summary__os-label-row">
+                  <label className="migration-summary__info-label" htmlFor={localOsSelectId}>
+                    OS
+                  </label>
+                  {localOsHelp && localOsHelpTipId ? (
+                    <HelpTooltip
+                      tipId={localOsHelpTipId}
+                      category="migration-setup"
+                      position="above"
+                      content={localOsHelp}
+                    />
+                  ) : null}
+                </div>
+                <select
+                  id={localOsSelectId}
+                  className="migration-summary__os-select"
+                  value={localOs}
+                  onChange={(event) =>
+                    onLocalOsChange(event.target.value as LocalOsSubtype)
+                  }
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  {LOCAL_OS_SUBTYPE_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+                {localOsNote ? (
+                  <p className="migration-summary__os-note">{localOsNote}</p>
+                ) : null}
+              </div>
+            ) : null}
+            {showStorage && storage ? (
+              <div className="migration-summary__storage">
+                <div className="migration-summary__storage-label-row">
+                  <span className="migration-summary__info-label">Storage</span>
+                  {storageTipId ? (
+                    <HelpTooltip
+                      tipId={storageTipId}
+                      category="migration-setup-storage"
+                      position="above"
+                      content={FS_STORAGE_TIP}
+                    />
+                  ) : null}
+                </div>
+                <StorageMeter
+                  className="storage-meter--endpoint"
+                  {...storage}
+                  note={storageWarning}
+                />
+              </div>
+            ) : null}
           </div>
-          {showLocalOs && localOs && onLocalOsChange && localOsSelectId ? (
-            <div className="migration-summary__info-row migration-summary__info-row--os">
-              <div className="migration-summary__os-label-row">
-                <label className="migration-summary__info-label" htmlFor={localOsSelectId}>
-                  OS
-                </label>
-                {localOsHelp && localOsHelpTipId ? (
-                  <HelpTooltip
-                    tipId={localOsHelpTipId}
-                    category="migration-setup"
-                    position="above"
-                    content={localOsHelp}
-                  />
-                ) : null}
-              </div>
-              <select
-                id={localOsSelectId}
-                className="migration-summary__os-select"
-                value={localOs}
-                onChange={(event) =>
-                  onLocalOsChange(event.target.value as LocalOsSubtype)
-                }
-                onClick={(event) => event.stopPropagation()}
-              >
-                {LOCAL_OS_SUBTYPE_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-              {localOsNote ? (
-                <p className="migration-summary__os-note">{localOsNote}</p>
-              ) : null}
-            </div>
-          ) : null}
-          {showStorage && storage ? (
-            <div className="migration-summary__storage">
-              <div className="migration-summary__storage-label-row">
-                <span className="migration-summary__info-label">Storage</span>
-                {storageTipId ? (
-                  <HelpTooltip
-                    tipId={storageTipId}
-                    category="migration-setup-storage"
-                    position="above"
-                    content={FS_STORAGE_TIP}
-                  />
-                ) : null}
-              </div>
-              <StorageMeter
-                className="storage-meter--endpoint"
-                {...storage}
-                note={storageWarning}
-              />
-            </div>
-          ) : null}
-        </div>
-      )}
+        )}
 
-      {!locked && !configured && !providerLocked && (
-        <button
-          type="button"
-          className="migration-summary__endpoint-action"
-          onClick={onSelect}
-        >
-          {`Select ${label.toLowerCase()}`}
-          <ChevronRight size={18} />
-        </button>
-      )}
-      {!locked && !configured && providerLocked && (
-        <p className="migration-summary__endpoint-locked-note">
-          Provider is fixed for this import. Root metadata was missing; reopen
-          the migration from Resume after re-exporting if needed.
-        </p>
-      )}
-      {needsReconnect && !locked && (
-        <div className="migration-summary__reconnect" role="status">
-          <p className="migration-summary__reconnect-text">
-            Needs reconnecting before this side can be used.
-          </p>
+        {!locked && !configured && (
           <button
             type="button"
-            className="migration-summary__reconnect-btn"
-            onClick={onReconnect}
+            className="migration-summary__endpoint-action"
+            onClick={onSelect}
           >
-            <RefreshCw size={14} aria-hidden="true" />
-            Reconnect
+            {`Select ${label.toLowerCase()}`}
+            <ChevronRight size={18} />
           </button>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

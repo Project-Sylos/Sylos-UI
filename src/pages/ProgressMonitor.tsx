@@ -18,6 +18,7 @@ import {
   ClipboardCopy,
   ChevronDown,
   ChevronRight,
+  Pencil,
 } from "lucide-react";
 
 import {
@@ -30,7 +31,19 @@ import {
   resumeMigration,
   retryFinalize,
 } from "../api/services";
+import {
+  fetchScalingDefaults,
+  getMigrationScaling,
+  putMigrationScaling,
+  deleteProviderScalingOverrides,
+} from "../api/scaling";
 import AutoscalerPanel from "../components/AutoscalerPanel";
+import WorkerCapOverridesDialog from "../components/WorkerCapOverridesDialog";
+import type {
+  ModeWorkerCaps,
+  ProviderWorkerCaps,
+  WorkerCapMode,
+} from "../types/scaling";
 import {
   getMigrationPhase,
   isCopyReviewPhase,
@@ -41,15 +54,17 @@ import {
   isMigrationAborted,
   isMigrationFinalizing,
   isMigrationFinalizeFailed,
+  type InFlightTask,
   type LogLevel,
   type MigrationLog,
+  type QueueMetrics,
   type StopProgressPayload,
 } from "../types/migrations";
 import { useSelection } from "../context/SelectionContext";
 import { formatMigrationPath } from "../utils/migrationRoots";
 import { formatEtaSeconds } from "../utils/formatBytes";
-import type { QueueMetrics } from "../types/migrations";
 import HelpTooltip from "../components/HelpTooltip";
+import FileTypeIcon from "../components/FileTypeIcon";
 import { useScreenWakeLock } from "../hooks/useScreenWakeLock";
 import ConfirmDialog from "../components/ConfirmDialog";
 import FinalizeRetryDialog from "../components/FinalizeRetryDialog";
@@ -101,6 +116,57 @@ function bytesPerSec(m?: QueueMetrics | null): number {
   );
 }
 
+function inflightItemType(task: InFlightTask): "folder" | "file" | null {
+  if (task.itemKind === "folder" || task.taskType === "copy-folder" || task.taskType === "delete-folder") {
+    return "folder";
+  }
+  if (task.itemKind === "file" || task.taskType === "copy-file" || task.taskType === "delete-file") {
+    return "file";
+  }
+  return null;
+}
+
+function inflightBaseName(path?: string): string {
+  if (!path) return "";
+  const trimmed = path.replace(/\/+$/, "");
+  const slash = trimmed.lastIndexOf("/");
+  return slash >= 0 ? trimmed.slice(slash + 1) : trimmed;
+}
+
+function InFlightTaskList({
+  tasks,
+  showKindIcons = false,
+}: {
+  tasks: InFlightTask[];
+  showKindIcons?: boolean;
+}) {
+  if (tasks.length === 0) {
+    return <p className="progress-monitor__inflight-empty">Idle</p>;
+  }
+  return (
+    <ul className="progress-monitor__inflight-list">
+      {tasks.map((t, i) => {
+        const kind = showKindIcons ? inflightItemType(t) : null;
+        return (
+          <li key={`${t.nodeId ?? t.path ?? i}-${t.workerId ?? ""}`}>
+            {kind ? (
+              <FileTypeIcon
+                name={inflightBaseName(t.path) || t.path || "item"}
+                type={kind}
+                size={14}
+                className="progress-monitor__inflight-icon"
+              />
+            ) : null}
+            <span className="progress-monitor__inflight-path" title={t.path}>
+              {t.path || t.nodeId || "…"}
+            </span>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 /** True when a queue-metrics side is more than a blank live-startup snapshot. */
 function queueSideHasData(m?: QueueMetrics | null): boolean {
   if (!m) return false;
@@ -114,7 +180,8 @@ function queueSideHasData(m?: QueueMetrics | null): boolean {
     queueMetricNumber(m.items_total) > 0 ||
     queueMetricNumber(m.pending) > 0 ||
     queueMetricNumber(m.inProgress) > 0 ||
-    queueMetricNumber(m.in_progress) > 0
+    queueMetricNumber(m.in_progress) > 0 ||
+    (Array.isArray(m.activeTasks) && m.activeTasks.length > 0)
   );
 }
 
@@ -123,7 +190,13 @@ function keepQueueSide(
   prev: QueueMetrics | null | undefined
 ): QueueMetrics | null {
   if (queueSideHasData(incoming)) return incoming ?? null;
-  if (prev) return prev;
+  if (prev) {
+    // Parked totals stay, but refresh the live lease snapshot when the API sends one.
+    if (incoming && incoming.activeTasks !== undefined) {
+      return { ...prev, activeTasks: incoming.activeTasks };
+    }
+    return prev;
+  }
   return incoming ?? null;
 }
 
@@ -399,54 +472,50 @@ function DiscoveryBatchProgressBar({
     !done && metrics.eta_basis != null && metrics.eta_basis !== "";
   return (
     <div
-      className={`progress-monitor__progress progress-monitor__progress--${tone}${
+      className={`progress-monitor__progress-bar-block progress-monitor__progress--${tone}${
         done ? " progress-monitor__progress--complete" : ""
       }`}
     >
-      <div className="progress-monitor__progress-stack">
-        <div className="progress-monitor__progress-bar-block">
-          <div className="progress-monitor__progress-header">
-            <span className="progress-monitor__progress-label">
-              {batchProgressCaption(metrics, done)}
+      <div className="progress-monitor__progress-header">
+        <span className="progress-monitor__progress-label">
+          {batchProgressCaption(metrics, done)}
+        </span>
+        <div className="progress-monitor__progress-header-end">
+          {showEta && (
+            <span
+              className="progress-monitor__progress-eta"
+              title="Estimated time remaining for this batch"
+            >
+              ETA {formatEtaSeconds(etaSeconds)}
             </span>
-            <div className="progress-monitor__progress-header-end">
-              {showEta && (
-                <span
-                  className="progress-monitor__progress-eta"
-                  title="Estimated time remaining for this batch"
-                >
-                  ETA {formatEtaSeconds(etaSeconds)}
-                </span>
-              )}
-              {done ? (
-                <span
-                  className="progress-monitor__progress-complete-mark"
-                  aria-hidden="true"
-                >
-                  ✓
-                </span>
-              ) : null}
-              <span className="progress-monitor__progress-value">
-                {Math.round(pct)}%
-              </span>
-            </div>
-          </div>
-          <div
-            className="progress-monitor__progress-track"
-            role="progressbar"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={Math.round(pct)}
-            aria-label={done ? "Discovery complete" : "Current batch progress"}
-          >
-            <div
-              className="progress-monitor__progress-fill"
-              style={{
-                clipPath: `inset(0 ${100 - pct}% 0 0)`,
-              }}
-            />
-          </div>
+          )}
+          {done ? (
+            <span
+              className="progress-monitor__progress-complete-mark"
+              aria-hidden="true"
+            >
+              ✓
+            </span>
+          ) : null}
+          <span className="progress-monitor__progress-value">
+            {Math.round(pct)}%
+          </span>
         </div>
+      </div>
+      <div
+        className="progress-monitor__progress-track"
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Math.round(pct)}
+        aria-label={done ? "Discovery complete" : "Current batch progress"}
+      >
+        <div
+          className="progress-monitor__progress-fill"
+          style={{
+            clipPath: `inset(0 ${100 - pct}% 0 0)`,
+          }}
+        />
       </div>
     </div>
   );
@@ -463,12 +532,11 @@ function SizeFoldProgress({ metrics }: { metrics?: QueueMetrics | null }) {
       ? metrics.eta_seconds
       : null;
   const depth = metrics.round;
-  const scanning = depth === -1;
   return (
     <p>
-      {scanning ? "Scanning folders" : "Updating folder sizes"}
+      Updating folder sizes
       {total > 0 ? `: ${done.toLocaleString()} / ${total.toLocaleString()} folders` : ""}
-      {!scanning && typeof depth === "number" ? ` (depth ${depth})` : ""}.
+      {typeof depth === "number" ? ` (depth ${depth})` : ""}.
       {rate > 0 ? ` ${rate.toFixed(1)} folders/s.` : ""}
       {eta != null && eta > 0 ? ` ETA ${formatEtaSeconds(eta)}.` : ""}
     </p>
@@ -559,9 +627,20 @@ export default function ProgressMonitor() {
   /** Local tick so rate-limit countdowns update between 1s metrics polls. */
   const [, setRateLimitTick] = useState(0);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [inflightOpen, setInflightOpen] = useState(false);
+  const [logsOpen, setLogsOpen] = useState(true);
   const [logFilter, setLogFilter] = useState<LogLevel | "all">("all");
   const [logLines, setLogLines] = useState<MigrationLog[]>([]);
   const [logsPaused, setLogsPaused] = useState(false);
+  const [workerCapDialogOpen, setWorkerCapDialogOpen] = useState(false);
+  const [workerCapBusy, setWorkerCapBusy] = useState(false);
+  const [workerCapError, setWorkerCapError] = useState<string | null>(null);
+  const [workerCapDefaults, setWorkerCapDefaults] = useState<
+    Partial<Record<WorkerCapMode, ModeWorkerCaps>>
+  >({});
+  const [workerCapModes, setWorkerCapModes] = useState<
+    Partial<Record<WorkerCapMode, number>>
+  >({});
   const logIdsRef = useRef<Set<string>>(new Set());
   const logTerminalRef = useRef<HTMLDivElement | null>(null);
   /** Auto-follow the log tail only while the user is at (or near) the bottom. */
@@ -637,8 +716,7 @@ export default function ProgressMonitor() {
     try {
       const statusData = await getMigrationStatus(migrationId);
       setStatus(statusData);
-      // Rehydrate roots from the server when opening directly in a fresh session
-      // (e.g. after sign-out / sign-in). Do not stop the migration on unmount.
+      // Rehydrate roots from the server when opening directly in a fresh session.
       applyServerRoots(statusData.sourceRoot, statusData.destinationRoot);
       const phase = getMigrationPhase(statusData);
       const hadRunBefore = hasSeenActiveRunRef.current;
@@ -884,8 +962,6 @@ export default function ProgressMonitor() {
   // results are ready (View results) or the migration is waiting in review.
   useScreenWakeLock(live && (inRunPhase || isFinalizing) && !showResultsButton);
   const stoppedMidRun = inRunPhase && !live;
-  // Finalize only offers Stop while the run is still live; dead *-finalizing
-  // is normalized to *-finalize-failed on status poll / Stop.
   const showStopButton = Boolean(
     status &&
       !isFailed &&
@@ -893,18 +969,18 @@ export default function ProgressMonitor() {
       !isAborted &&
       !isSuspended &&
       !inAwaitingReview &&
-      ((isFinalizing && live) || (!isFinalizing && (live || stopPopoverOpen)))
+      !isFinalizing &&
+      (live || stopPopoverOpen)
   );
   const showResumeButton = Boolean(
     status &&
       !isAborted &&
       !inAwaitingReview &&
-      !(isFinalizing && live) &&
+      !isFinalizing &&
       (isFailed ||
         isFinalizeFailed ||
         isSuspended ||
         stoppedMidRun ||
-        (isFinalizing && explicitlyNotLive) ||
         (inRunPhase && explicitlyNotLive))
   );
 
@@ -972,6 +1048,20 @@ export default function ProgressMonitor() {
     ? "Opted out of source removal during cleanup planning"
     : "Already on the destination; counted without re-transfer";
   const copyPass = phaseMetrics?.copy_pass ?? 0;
+  const workerCapHighlightMode: WorkerCapMode = showDeleteUI
+    ? "delete"
+    : showCopyUI
+      ? copyPass === 1
+        ? "copy_folders"
+        : "copy_files"
+      : "traversal";
+  const persistProviderId = String(
+    status?.destinationRoot?.serviceId ||
+      status?.destinationId ||
+      status?.sourceRoot?.serviceId ||
+      status?.sourceId ||
+      "generic"
+  );
   // Engine-owned ETA: UI only renders eta_seconds / eta_basis from queue-metrics.
   const etaSeconds =
     typeof phaseMetrics?.eta_seconds === "number" && Number.isFinite(phaseMetrics.eta_seconds)
@@ -1086,15 +1176,44 @@ export default function ProgressMonitor() {
 
   const filteredLogLines = useMemo(() => {
     if (logFilter === "all") return logLines;
-    return logLines.filter((l) => l.level === logFilter);
+    const minIx = LOG_LEVELS.indexOf(logFilter);
+    if (minIx < 0) return logLines;
+    return logLines.filter((l) => {
+      const ix = LOG_LEVELS.indexOf(l.level);
+      return ix >= minIx;
+    });
   }, [logLines, logFilter]);
+
+  const inflightSides = useMemo(() => {
+    const take = (list?: InFlightTask[] | null, limit = 8) =>
+      Array.isArray(list) ? list.slice(0, limit) : [];
+    if (showDeleteUI) {
+      return {
+        source: take(queueMetrics?.delete?.activeTasks),
+        destination: [] as InFlightTask[],
+      };
+    }
+    if (showCopyUI) {
+      return {
+        source: [] as InFlightTask[],
+        destination: take(queueMetrics?.copy?.activeTasks, 12),
+      };
+    }
+    return {
+      source: take(queueMetrics?.srcTraversal?.activeTasks),
+      destination: take(queueMetrics?.dstTraversal?.activeTasks),
+    };
+  }, [queueMetrics, showCopyUI, showDeleteUI]);
+
+  const inflightTaskCount =
+    inflightSides.source.length + inflightSides.destination.length;
 
   // Follow the live tail only while the user is at the bottom. Layout effect so the
   // jump happens before paint (a post-paint scroll shows the old position for a frame).
   useLayoutEffect(() => {
-    if (!advancedOpen || logsPaused || !logsStickToBottomRef.current) return;
+    if (!logsOpen || logsPaused || !logsStickToBottomRef.current) return;
     scrollLogTerminalToBottom();
-  }, [filteredLogLines, advancedOpen, logsPaused, scrollLogTerminalToBottom]);
+  }, [filteredLogLines, logsOpen, logsPaused, scrollLogTerminalToBottom]);
 
   const failureErrorText =
     (status?.error && String(status.error).trim()) || "Unknown error";
@@ -1229,29 +1348,18 @@ export default function ProgressMonitor() {
         const fresh = await getMigrationStatus(migrationId);
         setStatus(fresh);
         setStallTooltipOpen(false);
-        // Dead finalize was normalized server-side; Resume should appear after refresh.
-        if (isMigrationFinalizeFailed(fresh) || isMigrationFinalizing(fresh)) {
-          restartPollingIfStopped();
-          return;
-        }
         setToast({ message: "Migration is already stopped.", type: "info" });
         return;
       }
 
       setStatus(next);
-      setStallTooltipOpen(false);
-      if (isFinalizing) {
-        // Finalize abort has no queue drain; wait for *-finalize-failed then Resume.
-        await fetchStatus();
-        restartPollingIfStopped();
-        return;
-      }
       const progress =
         next.stopProgress ??
         (next as { StopProgress?: StopProgressPayload }).StopProgress ??
         null;
       setStopProgress(progress);
       setStopPopoverOpen(true);
+      setStallTooltipOpen(false);
       // Soft stop accepted: unlock Hard stop while we poll drain progress.
       setActionBusy(false);
 
@@ -1349,15 +1457,16 @@ export default function ProgressMonitor() {
     }
   };
 
-  const handleConfirmRetryFinalize = async (mode: "resume" | "refold") => {
+  const handleConfirmRetryFinalize = async (overrides: {
+    memoryLimitGB: number;
+    threads: number;
+  }) => {
     if (!migrationId) return;
     setConfirmKind(null);
     setActionBusy(true);
     setActionError(null);
     try {
-      const result = await retryFinalize(migrationId, {
-        refold: mode === "refold",
-      });
+      const result = await retryFinalize(migrationId, overrides);
       if (!result.success) {
         setActionError(result.error || "Failed to retry finalize.");
         return;
@@ -1541,7 +1650,7 @@ export default function ProgressMonitor() {
                 {(status?.dbActivity || status?.DbActivity || "").trim() ||
                   (queueMetrics?.sizeFold
                     ? "Calculating folder size totals."
-                    : "Sealing and checkpointing so review can open safely.")}
+                    : "Rebuilding indexes and checkpointing so review can open safely.")}
               </p>
               <SizeFoldProgress metrics={queueMetrics?.sizeFold} />
             </div>
@@ -1550,7 +1659,7 @@ export default function ProgressMonitor() {
         {isFinalizeFailed && (
           <div className="progress-monitor__error" role="status">
             Database finalize failed after the queues finished. Use Resume to
-            retry sealing, folder-size totals, and checkpoint.
+            retry indexes and checkpoint with optional memory/thread overrides.
             {(status?.error && String(status.error).trim()) ? (
               <p className="progress-monitor__error-detail">
                 {String(status.error).trim()}
@@ -1559,9 +1668,20 @@ export default function ProgressMonitor() {
           </div>
         )}
 
-        {/* Metrics Section */}
-        <div className="progress-monitor__metrics">
-            <div className={`progress-monitor__metric-card ${showCopyUI ? 'progress-monitor__metric-card--split' : ''}`}>
+        {/* Metrics + live activity in one panel */}
+        <div className="progress-monitor__panel">
+          <div
+            className={`progress-monitor__metrics${
+              showDiscoveryUI ? " progress-monitor__metrics--discovery" : ""
+            }`}
+          >
+            <div
+              className={`progress-monitor__metric-card${
+                showCopyUI || showDiscoveryUI
+                  ? " progress-monitor__metric-card--split"
+                  : ""
+              }`}
+            >
               {showCopyUI ? (
                 // Copy phase: split header with Source (left) and Destination (right)
                 <>
@@ -1627,29 +1747,79 @@ export default function ProgressMonitor() {
                     </div>
                   </div>
                 </>
+              ) : showDiscoveryUI ? (
+                <div className="progress-monitor__metric-header-split">
+                  <div className="progress-monitor__metric-header-half progress-monitor__metric-header-half--source">
+                    <div className="progress-monitor__metric-header-top">
+                      <div className="progress-monitor__metric-service">
+                        {getServiceIcon(getSourceServiceType())}
+                        <span>{source?.service?.displayName || status?.sourceId || "Unknown"}</span>
+                        <RateLimitBadge
+                          untilIso={queueMetrics?.srcTraversal?.rate_limited_until_src}
+                          remainingMs={queueMetrics?.srcTraversal?.rate_limited_remaining_ms_src}
+                          interOpDelayMs={queueMetrics?.srcTraversal?.inter_op_delay_ms}
+                        />
+                      </div>
+                      <h3 className="progress-monitor__metric-title progress-monitor__metric-title--source">
+                        Source
+                      </h3>
+                    </div>
+                    {source?.root ? (
+                      <div className="progress-monitor__metric-context">
+                        <div className="progress-monitor__metric-context-row">
+                          <span className="progress-monitor__metric-context-label">Root Path:</span>
+                          <span className="progress-monitor__metric-context-value" title={formatMigrationPath(source?.root)}>
+                            {formatMigrationPath(source?.root)}
+                          </span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="progress-monitor__metric-context progress-monitor__metric-context--empty" />
+                    )}
+                  </div>
+                  <div className="progress-monitor__metric-header-arrow">
+                    <ArrowRight size={24} />
+                  </div>
+                  <div className="progress-monitor__metric-header-half progress-monitor__metric-header-half--destination">
+                    <div className="progress-monitor__metric-header-top">
+                      <div className="progress-monitor__metric-service">
+                        {getServiceIcon(getDestinationServiceType())}
+                        <span>{destination?.service?.displayName || status?.destinationId || "Unknown"}</span>
+                        <RateLimitBadge
+                          untilIso={queueMetrics?.dstTraversal?.rate_limited_until_dst}
+                          remainingMs={queueMetrics?.dstTraversal?.rate_limited_remaining_ms_dst}
+                          interOpDelayMs={queueMetrics?.dstTraversal?.inter_op_delay_ms}
+                        />
+                      </div>
+                      <h3 className="progress-monitor__metric-title progress-monitor__metric-title--destination">
+                        Destination
+                      </h3>
+                    </div>
+                    {destination?.root ? (
+                      <div className="progress-monitor__metric-context">
+                        <div className="progress-monitor__metric-context-row">
+                          <span className="progress-monitor__metric-context-label">Root Path:</span>
+                          <span className="progress-monitor__metric-context-value" title={formatMigrationPath(destination?.root)}>
+                            {formatMigrationPath(destination?.root)}
+                          </span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="progress-monitor__metric-context progress-monitor__metric-context--empty" />
+                    )}
+                  </div>
+                </div>
               ) : (
-                // Traversal / delete: source header
+                // Delete: source header only
                 <>
                   <div className="progress-monitor__metric-header">
                     <div className="progress-monitor__metric-service">
                       {getServiceIcon(getSourceServiceType())}
                       <span>{source?.service?.displayName || status?.sourceId || "Unknown"}</span>
                       <RateLimitBadge
-                        untilIso={
-                          showDeleteUI
-                            ? queueMetrics?.delete?.rate_limited_until_src
-                            : queueMetrics?.srcTraversal?.rate_limited_until_src
-                        }
-                        remainingMs={
-                          showDeleteUI
-                            ? queueMetrics?.delete?.rate_limited_remaining_ms_src
-                            : queueMetrics?.srcTraversal?.rate_limited_remaining_ms_src
-                        }
-                        interOpDelayMs={
-                          showDeleteUI
-                            ? queueMetrics?.delete?.inter_op_delay_ms
-                            : queueMetrics?.srcTraversal?.inter_op_delay_ms
-                        }
+                        untilIso={queueMetrics?.delete?.rate_limited_until_src}
+                        remainingMs={queueMetrics?.delete?.rate_limited_remaining_ms_src}
+                        interOpDelayMs={queueMetrics?.delete?.inter_op_delay_ms}
                       />
                     </div>
                     <h3 className="progress-monitor__metric-title progress-monitor__metric-title--source">
@@ -1744,245 +1914,351 @@ export default function ProgressMonitor() {
                   <div className="progress-monitor__metric-empty">Not started</div>
                 )
               ) : (
-                // Traversal phase: show discovery metrics from srcTraversal
-                queueMetrics?.srcTraversal ? (
-                  <div className="progress-monitor__metric-details">
-                    <div className="progress-monitor__metric-row">
-                      <span>
-                        Items/sec:
-                        <HelpTooltip
-                          tipId="discovery-rate-explanation"
-                          category="discovery-rate-source"
-                          position="above"
-                          content={
-                            <p>
-                              How many files and folders are processed per second
-                              (windowed). During discovery this is newly found
-                              children, or list-task completions when those are
-                              faster (leaf folders).
-                            </p>
-                          }
-                        />
-                      </span>
-                      <span>{itemsPerSec(queueMetrics.srcTraversal).toFixed(1)}</span>
-                    </div>
-                    <div className="progress-monitor__metric-row">
-                      <span>
-                        Batch:
-                        <HelpTooltip
-                          tipId="discovery-batch-explanation"
-                          category="discovery-batch"
-                          position="above"
-                          content={
-                            <p>
-                              Current scan chunk. The bar and ETA reset when the next batch starts;
-                              totals keep growing.
-                            </p>
-                          }
-                        />
-                      </span>
-                      <span>{(queueMetrics.srcTraversal.round ?? 0).toLocaleString()}</span>
-                    </div>
-                    {queueMetrics.srcTraversal.folders_discovered_total !== undefined && (
-                      <div className="progress-monitor__metric-row">
-                        <span>Folders Discovered:</span>
-                        <span>{queueMetrics.srcTraversal.folders_discovered_total.toLocaleString()}</span>
-                      </div>
-                    )}
-                    {queueMetrics.srcTraversal.files_discovered_total !== undefined && (
-                      <div className="progress-monitor__metric-row">
-                        <span>Files Discovered:</span>
-                        <span>{queueMetrics.srcTraversal.files_discovered_total.toLocaleString()}</span>
-                      </div>
-                    )}
-                    {queueMetrics.srcTraversal.total_discovered !== undefined && (
-                      <div className="progress-monitor__metric-row">
-                        <span>Total Discovered:</span>
-                        <span>{queueMetrics.srcTraversal.total_discovered.toLocaleString()}</span>
-                      </div>
-                    )}
-                    <DiscoveryBatchProgressBar
-                      metrics={queueMetrics.srcTraversal}
-                      complete={discoveryPhaseDone}
-                      tone="source"
-                    />
-                  </div>
-                ) : (
-                  <div className="progress-monitor__metric-empty">Not started</div>
-                )
-              )}
-              {showPhaseProgressBar && (
-                <div
-                  className={
-                    phaseProgressComplete
-                      ? "progress-monitor__progress progress-monitor__progress--complete"
-                      : "progress-monitor__progress"
-                  }
-                >
-                  <div className="progress-monitor__progress-stack">
-                    <div className="progress-monitor__progress-bar-block">
-                      <div className="progress-monitor__progress-header">
-                        <span className="progress-monitor__progress-label">
-                          Items: {itemsFractionLabel}
-                        </span>
-                        <div className="progress-monitor__progress-header-end">
-                          <span
-                            className="progress-monitor__progress-eta"
-                            title={etaTitle}
-                          >
-                            {etaLabel} {formatEtaSeconds(etaSeconds)}
+                // Traversal phase: side-by-side discovery metrics + batch bars
+                <div className="progress-monitor__metric-details progress-monitor__metric-details--split">
+                  <div className="progress-monitor__metric-pane">
+                    {queueMetrics?.srcTraversal ? (
+                      <>
+                        <div className="progress-monitor__metric-row">
+                          <span>
+                            Items/sec:
+                            <HelpTooltip
+                              tipId="discovery-rate-explanation"
+                              category="discovery-rate-source"
+                              position="above"
+                              content={
+                                <p>
+                                  How many files and folders are processed per second
+                                  (windowed). During discovery this is newly found
+                                  children, or list-task completions when those are
+                                  faster (leaf folders).
+                                </p>
+                              }
+                            />
                           </span>
-                          {phaseProgressComplete && (
-                            <span className="progress-monitor__progress-complete-mark" aria-hidden="true">
-                              ✓
-                            </span>
-                          )}
-                          <span className="progress-monitor__progress-value">
-                            {Math.round(itemsProgressPercent)}%
-                          </span>
+                          <span>{itemsPerSec(queueMetrics.srcTraversal).toFixed(1)}</span>
                         </div>
-                      </div>
-                      <StackedProgressTrack
-                        okPercent={itemsOkPercent}
-                        alreadyExistsPercent={itemsAlreadyExistsPercent}
-                        failedPercent={itemsFailedPercent}
-                        totalPercent={itemsProgressPercent}
-                        ariaLabel="Items progress"
-                      />
+                        <div className="progress-monitor__metric-row">
+                          <span>
+                            Batch:
+                            <HelpTooltip
+                              tipId="discovery-batch-explanation"
+                              category="discovery-batch"
+                              position="above"
+                              content={
+                                <p>
+                                  Current scan chunk. The bar and ETA reset when the next batch starts;
+                                  totals keep growing.
+                                </p>
+                              }
+                            />
+                          </span>
+                          <span>{(queueMetrics.srcTraversal.round ?? 0).toLocaleString()}</span>
+                        </div>
+                        {queueMetrics.srcTraversal.folders_discovered_total !== undefined && (
+                          <div className="progress-monitor__metric-row">
+                            <span>Folders Discovered:</span>
+                            <span>{queueMetrics.srcTraversal.folders_discovered_total.toLocaleString()}</span>
+                          </div>
+                        )}
+                        {queueMetrics.srcTraversal.files_discovered_total !== undefined && (
+                          <div className="progress-monitor__metric-row">
+                            <span>Files Discovered:</span>
+                            <span>{queueMetrics.srcTraversal.files_discovered_total.toLocaleString()}</span>
+                          </div>
+                        )}
+                        {queueMetrics.srcTraversal.total_discovered !== undefined && (
+                          <div className="progress-monitor__metric-row">
+                            <span>Total Discovered:</span>
+                            <span>{queueMetrics.srcTraversal.total_discovered.toLocaleString()}</span>
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <div className="progress-monitor__metric-empty">Not started</div>
+                    )}
+                    <div className="progress-monitor__metric-pane-progress">
+                      {queueMetrics?.srcTraversal ? (
+                        <DiscoveryBatchProgressBar
+                          metrics={queueMetrics.srcTraversal}
+                          complete={discoveryPhaseDone}
+                          tone="source"
+                        />
+                      ) : null}
                     </div>
-                    <div className="progress-monitor__progress-bar-block">
-                      <div className="progress-monitor__progress-header">
-                        <span className="progress-monitor__progress-label">
-                          Data: {dataFractionLabel}
-                        </span>
-                        <span className="progress-monitor__progress-value">
-                          {Math.round(bytesProgressPercent)}%
-                        </span>
-                      </div>
-                      <StackedProgressTrack
-                        okPercent={bytesOkPercent}
-                        alreadyExistsPercent={bytesAlreadyExistsPercent}
-                        failedPercent={bytesFailedPercent}
-                        totalPercent={bytesProgressPercent}
-                        ariaLabel="Data progress"
-                      />
+                  </div>
+                  <div className="progress-monitor__metric-pane-gap" aria-hidden="true" />
+                  <div className="progress-monitor__metric-pane">
+                    {queueMetrics?.dstTraversal ? (
+                      <>
+                        <div className="progress-monitor__metric-row">
+                          <span>
+                            Items/sec:
+                            <HelpTooltip
+                              tipId="discovery-rate-explanation-dst"
+                              category="discovery-rate-destination"
+                              position="above"
+                              content={
+                                <p>
+                                  How many files and folders are processed per second
+                                  (windowed). During discovery this is newly found
+                                  children, or list-task completions when those are
+                                  faster (leaf folders).
+                                </p>
+                              }
+                            />
+                          </span>
+                          <span>{itemsPerSec(queueMetrics.dstTraversal).toFixed(1)}</span>
+                        </div>
+                        <div className="progress-monitor__metric-row">
+                          <span>
+                            Batch:
+                            <HelpTooltip
+                              tipId="discovery-batch-explanation-dst"
+                              category="discovery-batch"
+                              position="above"
+                              content={
+                                <p>
+                                  Current scan chunk. The bar and ETA reset when the next batch starts;
+                                  totals keep growing.
+                                </p>
+                              }
+                            />
+                          </span>
+                          <span>{(queueMetrics.dstTraversal.round ?? 0).toLocaleString()}</span>
+                        </div>
+                        {queueMetrics.dstTraversal.folders_discovered_total !== undefined && (
+                          <div className="progress-monitor__metric-row">
+                            <span>Folders Discovered:</span>
+                            <span>{queueMetrics.dstTraversal.folders_discovered_total.toLocaleString()}</span>
+                          </div>
+                        )}
+                        {queueMetrics.dstTraversal.files_discovered_total !== undefined && (
+                          <div className="progress-monitor__metric-row">
+                            <span>Files Discovered:</span>
+                            <span>{queueMetrics.dstTraversal.files_discovered_total.toLocaleString()}</span>
+                          </div>
+                        )}
+                        {queueMetrics.dstTraversal.total_discovered !== undefined && (
+                          <div className="progress-monitor__metric-row">
+                            <span>
+                              Total Discovered:
+                              <HelpTooltip
+                                tipId="destination-total-discovered-explanation"
+                                category="discovery-destination-total"
+                                position="above"
+                                content={
+                                  <p>This is specifically only the overlapping items explored, not the total items inside of your destination root folder.</p>
+                                }
+                              />
+                            </span>
+                            <span>{queueMetrics.dstTraversal.total_discovered.toLocaleString()}</span>
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <div className="progress-monitor__metric-empty">Not started</div>
+                    )}
+                    <div className="progress-monitor__metric-pane-progress">
+                      {queueMetrics?.dstTraversal ? (
+                        <DiscoveryBatchProgressBar
+                          metrics={queueMetrics.dstTraversal}
+                          complete={discoveryPhaseDone}
+                          tone="destination"
+                        />
+                      ) : null}
                     </div>
-                    <ProgressSegmentLegend
-                      middleLabel={progressMiddleLabel}
-                      middleTitle={progressMiddleTitle}
-                    />
                   </div>
                 </div>
               )}
             </div>
+          </div>
 
-            {/* Destination card - only show in discovery phase */}
-            {showDiscoveryUI && (
-              <div className="progress-monitor__metric-card">
-                <div className="progress-monitor__metric-header">
-                  <div className="progress-monitor__metric-service">
-                    {getServiceIcon(getDestinationServiceType())}
-                    <span>{destination?.service?.displayName || status?.destinationId || "Unknown"}</span>
-                    <RateLimitBadge
-                      untilIso={queueMetrics?.dstTraversal?.rate_limited_until_dst}
-                      remainingMs={queueMetrics?.dstTraversal?.rate_limited_remaining_ms_dst}
-                      interOpDelayMs={queueMetrics?.dstTraversal?.inter_op_delay_ms}
-                    />
-                  </div>
-                  <h3 className="progress-monitor__metric-title progress-monitor__metric-title--destination">
-                    Destination
-                  </h3>
-                </div>
-                {destination?.root ? (
-                  <div className="progress-monitor__metric-context">
-                    <div className="progress-monitor__metric-context-row">
-                      <span className="progress-monitor__metric-context-label">Root Path:</span>
-                      <span className="progress-monitor__metric-context-value" title={formatMigrationPath(destination?.root)}>
-                        {formatMigrationPath(destination?.root)}
+          {showPhaseProgressBar && (
+            <div
+              className={
+                phaseProgressComplete
+                  ? "progress-monitor__progress progress-monitor__progress--complete"
+                  : "progress-monitor__progress"
+              }
+            >
+              <div className="progress-monitor__progress-stack">
+                <div className="progress-monitor__progress-bar-block">
+                  <div className="progress-monitor__progress-header">
+                    <span className="progress-monitor__progress-label">
+                      Items: {itemsFractionLabel}
+                    </span>
+                    <div className="progress-monitor__progress-header-end">
+                      <span
+                        className="progress-monitor__progress-eta"
+                        title={etaTitle}
+                      >
+                        {etaLabel} {formatEtaSeconds(etaSeconds)}
                       </span>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="progress-monitor__metric-context progress-monitor__metric-context--empty" />
-                )}
-                {queueMetrics?.dstTraversal ? (
-                  <div className="progress-monitor__metric-details">
-                    <div className="progress-monitor__metric-row">
-                      <span>
-                        Items/sec:
-                        <HelpTooltip
-                          tipId="discovery-rate-explanation-dst"
-                          category="discovery-rate-destination"
-                          position="above"
-                          content={
-                            <p>
-                              How many files and folders are processed per second
-                              (windowed). During discovery this is newly found
-                              children, or list-task completions when those are
-                              faster (leaf folders).
-                            </p>
-                          }
-                        />
-                      </span>
-                      <span>{itemsPerSec(queueMetrics.dstTraversal).toFixed(1)}</span>
-                    </div>
-                    <div className="progress-monitor__metric-row">
-                      <span>
-                        Batch:
-                        <HelpTooltip
-                          tipId="discovery-batch-explanation-dst"
-                          category="discovery-batch"
-                          position="above"
-                          content={
-                            <p>
-                              Current scan chunk. The bar and ETA reset when the next batch starts;
-                              totals keep growing.
-                            </p>
-                          }
-                        />
-                      </span>
-                      <span>{(queueMetrics.dstTraversal.round ?? 0).toLocaleString()}</span>
-                    </div>
-                    {queueMetrics.dstTraversal.folders_discovered_total !== undefined && (
-                      <div className="progress-monitor__metric-row">
-                        <span>Folders Discovered:</span>
-                        <span>{queueMetrics.dstTraversal.folders_discovered_total.toLocaleString()}</span>
-                      </div>
-                    )}
-                    {queueMetrics.dstTraversal.files_discovered_total !== undefined && (
-                      <div className="progress-monitor__metric-row">
-                        <span>Files Discovered:</span>
-                        <span>{queueMetrics.dstTraversal.files_discovered_total.toLocaleString()}</span>
-                      </div>
-                    )}
-                    {queueMetrics.dstTraversal.total_discovered !== undefined && (
-                      <div className="progress-monitor__metric-row">
-                        <span>
-                          Total Discovered:
-                          <HelpTooltip
-                            tipId="destination-total-discovered-explanation"
-                            category="discovery-destination-total"
-                            position="above"
-                            content={
-                              <p>This is specifically only the overlapping items explored, not the total items inside of your destination root folder.</p>
-                            }
-                          />
+                      {phaseProgressComplete && (
+                        <span className="progress-monitor__progress-complete-mark" aria-hidden="true">
+                          ✓
                         </span>
-                        <span>{queueMetrics.dstTraversal.total_discovered.toLocaleString()}</span>
-                      </div>
-                    )}
-                    <DiscoveryBatchProgressBar
-                      metrics={queueMetrics.dstTraversal}
-                      complete={discoveryPhaseDone}
-                      tone="destination"
+                      )}
+                      <span className="progress-monitor__progress-value">
+                        {Math.round(itemsProgressPercent)}%
+                      </span>
+                    </div>
+                  </div>
+                  <StackedProgressTrack
+                    okPercent={itemsOkPercent}
+                    alreadyExistsPercent={itemsAlreadyExistsPercent}
+                    failedPercent={itemsFailedPercent}
+                    totalPercent={itemsProgressPercent}
+                    ariaLabel="Items progress"
+                  />
+                </div>
+                <div className="progress-monitor__progress-bar-block">
+                  <div className="progress-monitor__progress-header">
+                    <span className="progress-monitor__progress-label">
+                      Data: {dataFractionLabel}
+                    </span>
+                    <span className="progress-monitor__progress-value">
+                      {Math.round(bytesProgressPercent)}%
+                    </span>
+                  </div>
+                  <StackedProgressTrack
+                    okPercent={bytesOkPercent}
+                    alreadyExistsPercent={bytesAlreadyExistsPercent}
+                    failedPercent={bytesFailedPercent}
+                    totalPercent={bytesProgressPercent}
+                    ariaLabel="Data progress"
+                  />
+                </div>
+                <ProgressSegmentLegend
+                  middleLabel={progressMiddleLabel}
+                  middleTitle={progressMiddleTitle}
+                />
+              </div>
+            </div>
+          )}
+
+          {(live || inflightTaskCount > 0) && inRunPhase && (
+            <details
+              className="progress-monitor__inflight"
+              open={inflightOpen}
+              onToggle={(e) => setInflightOpen((e.target as HTMLDetailsElement).open)}
+            >
+              <summary className="progress-monitor__inflight-summary">
+                {inflightOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                Working on
+                {inflightTaskCount > 0 ? (
+                  <span className="progress-monitor__inflight-count">
+                    {inflightTaskCount}
+                  </span>
+                ) : null}
+              </summary>
+              <div className="progress-monitor__inflight-body">
+                {showDeleteUI ? (
+                  <div className="progress-monitor__inflight-pane">
+                    <div className="progress-monitor__inflight-pane-title progress-monitor__inflight-pane-title--source">
+                      Source
+                    </div>
+                    <InFlightTaskList tasks={inflightSides.source} />
+                  </div>
+                ) : showCopyUI ? (
+                  <div className="progress-monitor__inflight-pane">
+                    <div className="progress-monitor__inflight-pane-title">
+                      Active transfers
+                    </div>
+                    <InFlightTaskList
+                      tasks={inflightSides.destination}
+                      showKindIcons
                     />
                   </div>
                 ) : (
-                  <div className="progress-monitor__metric-empty">Not started</div>
+                  <div className="progress-monitor__inflight-split">
+                    <div className="progress-monitor__inflight-pane">
+                      <div className="progress-monitor__inflight-pane-title progress-monitor__inflight-pane-title--source">
+                        Source
+                      </div>
+                      <InFlightTaskList tasks={inflightSides.source} />
+                    </div>
+                    <div className="progress-monitor__inflight-pane-gap" aria-hidden="true" />
+                    <div className="progress-monitor__inflight-pane">
+                      <div className="progress-monitor__inflight-pane-title progress-monitor__inflight-pane-title--destination">
+                        Destination
+                      </div>
+                      <InFlightTaskList tasks={inflightSides.destination} />
+                    </div>
+                  </div>
                 )}
               </div>
-            )}
-          </div>
+            </details>
+          )}
+
+          <details
+            className="progress-monitor__logs-panel"
+            open={logsOpen}
+            onToggle={(e) => setLogsOpen((e.target as HTMLDetailsElement).open)}
+          >
+            <summary className="progress-monitor__logs-panel-summary">
+              {logsOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+              Live logs
+            </summary>
+            <div className="progress-monitor__logs-panel-body">
+              <div className="progress-monitor__logs-toolbar">
+                <label className="progress-monitor__logs-filter">
+                  Level
+                  <select
+                    value={logFilter}
+                    onChange={(e) => setLogFilter(e.target.value as LogLevel | "all")}
+                  >
+                    <option value="all">all</option>
+                    {LOG_LEVELS.map((lvl) => (
+                      <option key={lvl} value={lvl}>
+                        {lvl}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  className="progress-monitor__logs-pause"
+                  onClick={toggleLogsPaused}
+                >
+                  {logsPaused ? "Resume logs" : "Pause logs"}
+                </button>
+                <span className="progress-monitor__logs-count">
+                  {filteredLogLines.length.toLocaleString()} lines
+                </span>
+              </div>
+              <div
+                ref={logTerminalRef}
+                className="progress-monitor__logs-terminal"
+                onScroll={syncLogsStickToBottom}
+              >
+                {filteredLogLines.length === 0 ? (
+                  <div className="progress-monitor__logs-empty">
+                    Waiting for log entries…
+                  </div>
+                ) : (
+                  filteredLogLines.map((line) => (
+                    <div
+                      key={line.id}
+                      className={`progress-monitor__log-line progress-monitor__log-line--${line.level}`}
+                    >
+                      <span className="progress-monitor__log-level">{line.level}</span>
+                      <span className="progress-monitor__log-time">
+                        {line.data?.timestamp
+                          ? new Date(line.data.timestamp).toLocaleTimeString()
+                          : ""}
+                      </span>
+                      <span className="progress-monitor__log-msg">
+                        {line.data?.message ?? JSON.stringify(line.data)}
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </details>
+        </div>
 
         <details
           className="progress-monitor__advanced"
@@ -2015,69 +2291,60 @@ export default function ProgressMonitor() {
             ) : null}
             <details className="progress-monitor__subsection">
               <summary className="progress-monitor__subsection-summary">
-                <span className="progress-monitor__subsection-title">Logs</span>
-                <span className="progress-monitor__subsection-badge">
-                  {filteredLogLines.length.toLocaleString()} lines
-                </span>
+                <span className="progress-monitor__subsection-title">Workers</span>
               </summary>
               <div className="progress-monitor__subsection-body">
-                <div className="progress-monitor__logs-toolbar">
-                  <label className="progress-monitor__logs-filter">
-                    Level
-                    <select
-                      value={logFilter}
-                      onChange={(e) =>
-                        setLogFilter(e.target.value as LogLevel | "all")
-                      }
+                <div className="progress-monitor__worker-caps">
+                  <div className="progress-monitor__workers-row">
+                    <span className="progress-monitor__workers-label">Workers:</span>
+                    <span className="progress-monitor__workers-value">
+                      {(
+                        (showDeleteUI
+                          ? queueMetrics?.delete?.workers
+                          : showCopyUI
+                            ? queueMetrics?.copy?.workers
+                            : queueMetrics?.srcTraversal?.workers) ?? 0
+                      ).toLocaleString()}
+                    </span>
+                    <button
+                      type="button"
+                      className="progress-monitor__workers-edit"
+                      disabled={workerCapBusy || !migrationId}
+                      title="Override worker limits"
+                      aria-label="Override worker limits"
+                      onClick={async () => {
+                        if (!migrationId) return;
+                        setWorkerCapError(null);
+                        try {
+                          setWorkerCapBusy(true);
+                          const [defaultsMap, scaling] = await Promise.all([
+                            fetchScalingDefaults(),
+                            getMigrationScaling(migrationId),
+                          ]);
+                          const providerDefaults =
+                            (defaultsMap[persistProviderId] as ProviderWorkerCaps | undefined) ||
+                            defaultsMap.generic ||
+                            defaultsMap.local;
+                          setWorkerCapDefaults(providerDefaults?.modes || {});
+                          setWorkerCapModes(scaling.modes || {});
+                          setWorkerCapDialogOpen(true);
+                        } catch (err) {
+                          setWorkerCapError(
+                            err instanceof Error
+                              ? err.message
+                              : "Failed to load worker limits"
+                          );
+                        } finally {
+                          setWorkerCapBusy(false);
+                        }
+                      }}
                     >
-                      <option value="all">all</option>
-                      {LOG_LEVELS.map((lvl) => (
-                        <option key={lvl} value={lvl}>
-                          {lvl}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <button
-                    type="button"
-                    className="progress-monitor__logs-pause"
-                    onClick={toggleLogsPaused}
-                  >
-                    {logsPaused ? "Resume logs" : "Pause logs"}
-                  </button>
-                  <span className="progress-monitor__logs-count">
-                    {filteredLogLines.length.toLocaleString()} lines
-                  </span>
-                </div>
-                <div
-                  ref={logTerminalRef}
-                  className="progress-monitor__logs-terminal"
-                  onScroll={syncLogsStickToBottom}
-                >
-                  {filteredLogLines.length === 0 ? (
-                    <div className="progress-monitor__logs-empty">
-                      Waiting for log entries…
-                    </div>
-                  ) : (
-                    filteredLogLines.map((line) => (
-                      <div
-                        key={line.id}
-                        className={`progress-monitor__log-line progress-monitor__log-line--${line.level}`}
-                      >
-                        <span className="progress-monitor__log-level">
-                          {line.level}
-                        </span>
-                        <span className="progress-monitor__log-time">
-                          {line.data?.timestamp
-                            ? new Date(line.data.timestamp).toLocaleTimeString()
-                            : ""}
-                        </span>
-                        <span className="progress-monitor__log-msg">
-                          {line.data?.message ?? JSON.stringify(line.data)}
-                        </span>
-                      </div>
-                    ))
-                  )}
+                      <Pencil size={14} />
+                    </button>
+                  </div>
+                  {workerCapError && !workerCapDialogOpen ? (
+                    <p className="progress-monitor__worker-caps-error">{workerCapError}</p>
+                  ) : null}
                 </div>
               </div>
             </details>
@@ -2109,11 +2376,9 @@ export default function ProgressMonitor() {
                   disabled={actionBusy || stopPopoverOpen}
                   onClick={() => setConfirmKind("stop")}
                   title={
-                    isFinalizing
-                      ? "Stop finalize (folder sizes / checkpoint); Resume can retry"
-                      : possibleStall
-                        ? "Migration may have stalled. Click to stop"
-                        : "Stop the running migration"
+                    possibleStall
+                      ? "Migration may have stalled. Click to stop"
+                      : "Stop the running migration"
                   }
                   aria-describedby={
                     possibleStall && stallTooltipOpen
@@ -2226,7 +2491,7 @@ export default function ProgressMonitor() {
                   onClick={() => setConfirmKind("resume")}
                   title={
                     isFinalizeFailed
-                      ? "Retry database finalize (seal, folder sizes, checkpoint)"
+                      ? "Retry database finalize (indexes and checkpoint)"
                       : isFailed
                         ? "Run a retry sweep to try again"
                         : "Resume with a retry sweep for the current phase"
@@ -2258,15 +2523,85 @@ export default function ProgressMonitor() {
         </div>
 
 
+        {workerCapDialogOpen && (
+          <WorkerCapOverridesDialog
+            title="Override worker hard caps"
+            defaults={workerCapDefaults}
+            initialModes={workerCapModes}
+            highlightMode={workerCapHighlightMode}
+            busy={workerCapBusy}
+            error={workerCapError}
+            showPersist
+            onClose={() => {
+              setWorkerCapDialogOpen(false);
+              setWorkerCapError(null);
+            }}
+            onApply={async (modes) => {
+              if (!migrationId) return;
+              try {
+                setWorkerCapBusy(true);
+                setWorkerCapError(null);
+                const view = await putMigrationScaling(migrationId, { modes });
+                setWorkerCapModes(view.modes || {});
+                setToast({ message: "Worker limits applied to this migration.", type: "success" });
+                setWorkerCapDialogOpen(false);
+              } catch (err) {
+                setWorkerCapError(err instanceof Error ? err.message : "Apply failed");
+              } finally {
+                setWorkerCapBusy(false);
+              }
+            }}
+            onPersist={async (modes) => {
+              if (!migrationId) return;
+              try {
+                setWorkerCapBusy(true);
+                setWorkerCapError(null);
+                const view = await putMigrationScaling(migrationId, {
+                  modes,
+                  persist: true,
+                  persistTarget: "provider",
+                  persistKey: persistProviderId,
+                });
+                setWorkerCapModes(view.modes || {});
+                setToast({
+                  message: `Saved as default for ${persistProviderId} and applied live.`,
+                  type: "success",
+                });
+                setWorkerCapDialogOpen(false);
+              } catch (err) {
+                setWorkerCapError(err instanceof Error ? err.message : "Save failed");
+              } finally {
+                setWorkerCapBusy(false);
+              }
+            }}
+            onResetAll={async () => {
+              if (!migrationId) return;
+              try {
+                setWorkerCapBusy(true);
+                setWorkerCapError(null);
+                await putMigrationScaling(migrationId, { modes: {} });
+                try {
+                  await deleteProviderScalingOverrides(persistProviderId);
+                } catch {
+                  // Session clear still succeeded; persisted default may not exist.
+                }
+                setWorkerCapModes({});
+                setToast({ message: "Worker limits reset to shipped defaults.", type: "info" });
+                setWorkerCapDialogOpen(false);
+              } catch (err) {
+                setWorkerCapError(err instanceof Error ? err.message : "Reset failed");
+              } finally {
+                setWorkerCapBusy(false);
+              }
+            }}
+          />
+        )}
+
         {confirmKind === "stop" && (
           <ConfirmDialog
-            title={isFinalizing ? "Stop finalize?" : "Stop migration?"}
-            message={
-              isFinalizing
-                ? "This stops sealing, folder-size totals, and checkpointing. Use Resume afterward to retry from the last sealed depth. Continue?"
-                : "This pauses the running migration safely and saves progress so you can resume later. Continue?"
-            }
-            confirmLabel={isFinalizing ? "Stop finalize" : "Stop migration"}
+            title="Stop migration?"
+            message="This pauses the running migration safely and saves progress so you can resume later. Continue?"
+            confirmLabel="Stop migration"
             cancelLabel="Cancel"
             confirmTone="danger"
             onCancel={() => setConfirmKind(null)}
@@ -2291,7 +2626,7 @@ export default function ProgressMonitor() {
             }
             busy={actionBusy}
             onCancel={() => setConfirmKind(null)}
-            onConfirm={(mode) => void handleConfirmRetryFinalize(mode)}
+            onConfirm={(overrides) => void handleConfirmRetryFinalize(overrides)}
           />
         )}
         {confirmKind === "resume" && !isFinalizeFailed && (

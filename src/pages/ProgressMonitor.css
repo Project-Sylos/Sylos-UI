@@ -169,6 +169,190 @@
   margin-left: auto;
 }
 
+.progress-monitor__panel {
+  width: 100%;
+  max-width: 1180px;
+  margin-inline: auto;
+  margin-top: auto;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--surface-radius, 14px);
+  border: 1px solid var(--surface-rim, var(--border));
+  background: var(--surface-glass-bg, var(--surface-bg));
+  box-shadow: var(--surface-panel-shadow);
+  backdrop-filter: blur(var(--surface-blur, 16px));
+  -webkit-backdrop-filter: blur(var(--surface-blur, 16px));
+  overflow: visible;
+}
+
+.progress-monitor__inflight {
+  margin: 0 1rem 0.35rem;
+  padding: 0.15rem 0 0.35rem;
+  border-top: 1px solid rgba(
+    var(--color-base-slate-r),
+    var(--color-base-slate-g),
+    var(--color-base-slate-b),
+    var(--border-opacity-subtle)
+  );
+}
+
+.progress-monitor__inflight-summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.15rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  user-select: none;
+}
+
+.progress-monitor__inflight-summary::-webkit-details-marker {
+  display: none;
+}
+
+.progress-monitor__inflight-count {
+  margin-left: 0.15rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  background: rgba(
+    var(--surface-base-r),
+    var(--surface-base-g),
+    var(--surface-base-b),
+    0.35
+  );
+  border: 1px solid rgba(
+    var(--color-base-slate-r),
+    var(--color-base-slate-g),
+    var(--color-base-slate-b),
+    var(--border-opacity-subtle)
+  );
+}
+
+.progress-monitor__inflight-body {
+  padding: 0 0.15rem 0.45rem;
+}
+
+.progress-monitor__inflight-split {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 0.65rem 0;
+  align-items: start;
+}
+
+.progress-monitor__inflight-pane {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0 0.35rem;
+}
+
+.progress-monitor__inflight-pane-gap {
+  width: 1px;
+  align-self: stretch;
+  background: rgba(
+    var(--color-base-slate-r),
+    var(--color-base-slate-g),
+    var(--color-base-slate-b),
+    var(--border-opacity-subtle)
+  );
+}
+
+.progress-monitor__inflight-pane-title {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.progress-monitor__inflight-pane-title--source {
+  color: var(--brand-magenta);
+}
+
+.progress-monitor__inflight-pane-title--destination {
+  color: var(--brand-cyan);
+}
+
+.progress-monitor__inflight-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  max-height: 7.5rem;
+  overflow: auto;
+}
+
+.progress-monitor__inflight-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  min-width: 0;
+}
+
+.progress-monitor__inflight-icon {
+  flex-shrink: 0;
+  color: var(--text-tertiary);
+}
+
+.progress-monitor__inflight-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+
+.progress-monitor__inflight-empty {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.progress-monitor__logs-panel {
+  margin: 0 1rem;
+  padding: 0.35rem 0 0.15rem;
+  border-top: 1px solid rgba(
+    var(--color-base-slate-r),
+    var(--color-base-slate-g),
+    var(--color-base-slate-b),
+    var(--border-opacity-subtle)
+  );
+}
+
+.progress-monitor__logs-panel-summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.15rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  user-select: none;
+}
+
+.progress-monitor__logs-panel-summary::-webkit-details-marker {
+  display: none;
+}
+
+.progress-monitor__logs-panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 0 0 0.55rem;
+}
+
 .progress-monitor__advanced {
   margin-top: 0.35rem;
   border: 1px solid rgba(
@@ -451,7 +635,6 @@
 .progress-monitor__header,
 .progress-monitor__error,
 .progress-monitor__finalize-status,
-.progress-monitor__metrics,
 .progress-monitor__advanced {
   width: 100%;
   max-width: 1180px;
@@ -459,34 +642,22 @@
 }
 
 .progress-monitor__metrics {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 1rem;
+  display: block;
   flex-shrink: 0;
-  /* Auto top margin centers the boxes between the header and the pinned footer. */
-  margin-top: auto;
+  width: 100%;
+  margin: 0;
 }
 
 .progress-monitor__metric-card {
-  padding: 1rem;
-  background: var(--surface-bg);
-  border: 1px solid rgba(
-    var(--color-base-slate-r),
-    var(--color-base-slate-g),
-    var(--color-base-slate-b),
-    var(--border-opacity-default)
-  );
-  border-radius: 8px;
-  box-shadow: 0 var(--shadow-spread-md) var(--shadow-blur-md) rgba(
-    var(--surface-base-r),
-    var(--surface-base-g),
-    var(--surface-base-b),
-    var(--shadow-opacity-md)
-  );
+  padding: 1rem 1.05rem 0.85rem;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
 }
 
 .progress-monitor__progress {
-  margin-top: 1rem;
+  margin: 0 1rem 0.85rem;
   padding-top: 0.85rem;
   border-top: 1px solid rgba(
     var(--color-base-slate-r),
@@ -887,6 +1058,54 @@
   gap: 0.75rem;
 }
 
+.progress-monitor__metric-details--split {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 0.75rem 0;
+  align-items: stretch;
+}
+
+.progress-monitor__metric-pane {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0 0.5rem;
+  height: 100%;
+}
+
+.progress-monitor__metric-pane:first-child {
+  padding-left: 0;
+  padding-right: 1rem;
+}
+
+.progress-monitor__metric-pane:last-child {
+  padding-right: 0;
+  padding-left: 1rem;
+}
+
+.progress-monitor__metric-pane-progress {
+  margin-top: auto;
+  padding-top: 0.75rem;
+  border-top: 1px solid rgba(
+    var(--color-base-slate-r),
+    var(--color-base-slate-g),
+    var(--color-base-slate-b),
+    var(--border-opacity-subtle)
+  );
+}
+
+.progress-monitor__metric-pane-gap {
+  width: 1px;
+  align-self: stretch;
+  background: rgba(
+    var(--color-base-slate-r),
+    var(--color-base-slate-g),
+    var(--color-base-slate-b),
+    var(--border-opacity-subtle)
+  );
+}
+
 .progress-monitor__metric-row {
   display: flex;
   justify-content: space-between;
@@ -930,8 +1149,40 @@
     align-items: flex-start;
   }
 
-  .progress-monitor__metrics {
+  .progress-monitor__metric-details--split {
     grid-template-columns: 1fr;
+  }
+
+  .progress-monitor__metric-pane-gap {
+    display: none;
+  }
+
+  .progress-monitor__metric-pane,
+  .progress-monitor__metric-pane:first-child,
+  .progress-monitor__metric-pane:last-child {
+    padding: 0;
+  }
+
+  .progress-monitor__inflight-split {
+    grid-template-columns: 1fr;
+  }
+
+  .progress-monitor__inflight-pane-gap {
+    display: none;
+  }
+
+  .progress-monitor__metric-header-split {
+    flex-direction: column;
+  }
+
+  .progress-monitor__metric-header-split::after {
+    display: none;
+  }
+
+  .progress-monitor__metric-header-arrow {
+    position: static;
+    transform: none;
+    margin: 0.25rem auto;
   }
 }
 

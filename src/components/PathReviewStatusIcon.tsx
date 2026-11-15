@@ -12,12 +12,12 @@ import {
 } from "../utils/pathReviewRuleExclusion";
 import {
   hasTraversalFailure,
-  isTraversalAckFromFailed,
   isTraversalRetryPending,
   isTraversalSkipped,
 } from "../utils/pathReviewTraversalStatus";
 import { isCopyComplete } from "../utils/copyStatus";
 import { PATH_REVIEW_COPY } from "../utils/pathReviewCopy";
+import type { MutationOpState } from "../utils/pathReviewMutationGuard";
 
 export interface PathReviewStatusIconProps {
   item: DiffItem;
@@ -30,27 +30,14 @@ export interface PathReviewStatusIconProps {
   onRetryClick?: (item: DiffItem) => void;
   onExcludeClick?: (item: DiffItem, currentChecked: boolean) => void;
   onSkipDeleteClick?: (item: DiffItem) => void;
-  /** When set, replace the status glyph with a spinner until the backend op finishes. */
+  /** Optimistic glyph stays; overlay spinner then green check while this is set. */
+  opState?: MutationOpState;
+  /** @deprecated Prefer opState; treated as pending when set. */
   opInProgressTitle?: string;
 }
 
-function maybeHint(
-  tipId: string,
-  content: string,
-  canToggle: boolean,
-  icon: ReactElement
-): ReactElement {
-  if (!canToggle) return icon;
-  return (
-    <InteractionHint tipId={tipId} content={content} position="right">
-      {icon}
-    </InteractionHint>
-  );
-}
-
 function interactiveClass(baseClass: string, canToggle: boolean): string {
-  if (canToggle) return ` ${baseClass}--interactive`;
-  return ` ${baseClass}--inert`;
+  return canToggle ? ` ${baseClass}--interactive` : "";
 }
 
 export default function PathReviewStatusIcon({
@@ -64,39 +51,81 @@ export default function PathReviewStatusIcon({
   onRetryClick,
   onExcludeClick,
   onSkipDeleteClick,
+  opState,
   opInProgressTitle,
 }: PathReviewStatusIconProps) {
   const iconSize = size || 20 * zoomLevel;
-  if (opInProgressTitle) {
-    const spinner = Math.max(10, Math.round(iconSize * 0.72));
-    return (
-      <span
-        className={`path-review-op-spinner ${className}`.trim()}
-        style={{ width: spinner, height: spinner }}
-        title={opInProgressTitle}
-        aria-label={opInProgressTitle}
-        role="status"
-      />
-    );
-  }
+  const resolvedOp: MutationOpState | undefined =
+    opState ??
+    (opInProgressTitle
+      ? { title: opInProgressTitle, phase: "pending" }
+      : undefined);
   const isSourceCleanup = phase === "source-cleanup";
   const isDeleteReview = phase === "delete";
   const isCopyPlan = phase === "copy-plan";
   const isCopy = phase === "copy";
 
+  const srcTraversalStatus = item.src?.traversalStatus;
+  const dstTraversalStatus = item.dst?.traversalStatus;
   const copyStatus = item.src?.copyStatus || item.copyStatus || "";
   const existsOnlyOnDst = !item.src && !!item.dst;
 
   const baseClass = className || "path-review__item-status-icon";
 
+  const wrapWithOpOverlay = (glyph: ReactElement): ReactElement => {
+    if (!resolvedOp) return glyph;
+    const overlay =
+      resolvedOp.phase === "confirmed" ? (
+        <span
+          className="path-review-op-confirm"
+          title={resolvedOp.title}
+          aria-label="Update confirmed"
+          role="status"
+        >
+          ✓
+        </span>
+      ) : (
+        <span
+          className="path-review-op-spinner path-review-op-spinner--overlay"
+          title={resolvedOp.title}
+          aria-label={resolvedOp.title}
+          role="status"
+        />
+      );
+    return (
+      <span className="path-review-op-wrap">
+        {glyph}
+        {overlay}
+      </span>
+    );
+  };
+
+  const maybeHint = (
+    tipId: string,
+    content: string,
+    canToggle: boolean,
+    icon: ReactElement
+  ): ReactElement => {
+    const hinted = !canToggle ? (
+      icon
+    ) : (
+      <InteractionHint tipId={tipId} content={content} position="right">
+        {icon}
+      </InteractionHint>
+    );
+    return wrapWithOpOverlay(hinted);
+  };
+
+  const staticIcon = (icon: ReactElement): ReactElement =>
+    wrapWithOpOverlay(icon);
+
   if (isSourceCleanup) {
     if (existsOnlyOnDst && !item.src) {
-      return (
+      return staticIcon(
         <Check
           size={iconSize}
-          className={`${baseClass} ${baseClass}--exists${interactiveClass(baseClass, false)}`}
+          className={`${baseClass} ${baseClass}--exists-only-dst`}
           style={{ cursor: "default" }}
-          title="Destination only"
         />
       );
     }
@@ -120,10 +149,10 @@ export default function PathReviewStatusIcon({
       );
     }
     if (deleteStatus === "pending_inherited") {
-      return (
+      return staticIcon(
         <Trash2
           size={iconSize}
-          className={`${baseClass} ${baseClass}--pending${interactiveClass(baseClass, false)}`}
+          className={`${baseClass} ${baseClass}--pending`}
           style={{ cursor: "default" }}
           title="Scheduled for removal with parent folder"
         />
@@ -145,13 +174,18 @@ export default function PathReviewStatusIcon({
   }
 
   if (isDeleteReview) {
-    if (existsOnlyOnDst && !item.src) {
-      return (
+    if (
+      (!item.src &&
+        (!!item.dst ||
+          item.traversalStatus === "not_on_src" ||
+          item.dst?.traversalStatus === "not_on_src")) ||
+      (existsOnlyOnDst && !item.src)
+    ) {
+      return staticIcon(
         <Check
           size={iconSize}
-          className={`${baseClass} ${baseClass}--exists${interactiveClass(baseClass, false)}`}
+          className={`${baseClass} ${baseClass}--exists-only-dst`}
           style={{ cursor: "default" }}
-          title="Destination only"
         />
       );
     }
@@ -160,10 +194,10 @@ export default function PathReviewStatusIcon({
     }
     const deleteStatus = item.src?.deleteStatus || "";
     if (deleteStatus === "deleted") {
-      return (
+      return staticIcon(
         <Check
           size={iconSize}
-          className={`${baseClass} ${baseClass}--deleted${interactiveClass(baseClass, false)}`}
+          className={`${baseClass} ${baseClass}--deleted`}
           style={{ cursor: "default" }}
         />
       );
@@ -232,20 +266,19 @@ export default function PathReviewStatusIcon({
       );
     }
     if (existsOnlyOnDst) {
-      return (
+      return staticIcon(
         <Check
           size={iconSize}
-          className={`${baseClass} ${baseClass}--exists${interactiveClass(baseClass, false)}`}
+          className={`${baseClass} ${baseClass}--exists-only-dst`}
           style={{ cursor: "default" }}
-          title="Destination only"
         />
       );
     }
     if (isCopyComplete(copyStatus)) {
-      return (
+      return staticIcon(
         <Check
           size={iconSize}
-          className={`${baseClass} ${baseClass}--exists ${baseClass}--exists-on-both${interactiveClass(baseClass, false)}`}
+          className={`${baseClass} ${baseClass}--exists ${baseClass}--exists-on-both`}
           style={{ cursor: "default" }}
         />
       );
@@ -287,16 +320,31 @@ export default function PathReviewStatusIcon({
 
     if (copyStatus === "pending") {
       const canToggle = true;
+      const retryMarked = item.src?.copyRetryMarked === true;
+      if (retryMarked) {
+        return maybeHint(
+          STATUS_HINT.undoRetry,
+          STATUS_HINT_COPY.undoRetry,
+          canToggle,
+          <RotateCw
+            size={iconSize}
+            className={`${baseClass} ${baseClass}--retry${interactiveClass(baseClass, canToggle)}`}
+            onClick={() => onRetryClick?.(item)}
+            style={{ cursor: "pointer" }}
+            title="Marked for copy retry. Click to undo."
+          />
+        );
+      }
       return maybeHint(
-        STATUS_HINT.undoRetry,
-        STATUS_HINT_COPY.undoRetry,
+        STATUS_HINT.exclude,
+        STATUS_HINT_COPY.exclude,
         canToggle,
-        <RotateCw
+        <Clock
           size={iconSize}
-          className={`${baseClass} ${baseClass}--retry${interactiveClass(baseClass, canToggle)}`}
+          className={`${baseClass} ${baseClass}--pending${interactiveClass(baseClass, canToggle)}`}
           onClick={() => onRetryClick?.(item)}
           style={{ cursor: "pointer" }}
-          title="Marked for copy retry. Click to undo."
+          title="Pending copy. Click to exclude."
         />
       );
     }
@@ -318,7 +366,7 @@ export default function PathReviewStatusIcon({
           className={`${baseClass} ${baseClass}--excluded${
             ruleExcluded ? ` ${baseClass}--rule-excluded` : ""
           }${interactiveClass(baseClass, canToggle)}`}
-          onClick={() => canToggle && onExcludeClick?.(item, false)}
+          onClick={() => canToggle && onRetryClick?.(item)}
           style={{ cursor: canToggle ? "pointer" : "default" }}
           title={ruleTip || "Excluded from copy"}
         />
@@ -326,21 +374,20 @@ export default function PathReviewStatusIcon({
     }
 
     if (existsOnlyOnDst) {
-      return (
+      return staticIcon(
         <Check
           size={iconSize}
-          className={`${baseClass} ${baseClass}--exists${interactiveClass(baseClass, false)}`}
+          className={`${baseClass} ${baseClass}--exists-only-dst`}
           style={{ cursor: "default" }}
-          title="Destination only"
         />
       );
     }
 
     if (isCopyComplete(copyStatus)) {
-      return (
+      return staticIcon(
         <Check
           size={iconSize}
-          className={`${baseClass} ${baseClass}--exists ${baseClass}--exists-on-both${interactiveClass(baseClass, false)}`}
+          className={`${baseClass} ${baseClass}--exists ${baseClass}--exists-on-both`}
           style={{ cursor: "default" }}
         />
       );
@@ -352,23 +399,6 @@ export default function PathReviewStatusIcon({
   const hasFailedStatus = hasTraversalFailure(item);
   const hasPendingRetry = isTraversalRetryPending(item) || isMarkedForRetry;
   const skippedDiscovery = isTraversalSkipped(item);
-  const ackFromFailed = isTraversalAckFromFailed(item);
-
-  if (ackFromFailed) {
-    const canToggle = true;
-    return maybeHint(
-      STATUS_HINT.include,
-      STATUS_HINT_COPY.include,
-      canToggle,
-      <X
-        size={iconSize}
-        className={`${baseClass} ${baseClass}--excluded${interactiveClass(baseClass, canToggle)}`}
-        onClick={() => onExcludeClick?.(item, false)}
-        style={{ cursor: "pointer" }}
-        title="Acknowledged discovery failure. Click to restore as failed."
-      />
-    );
-  }
 
   if (skippedDiscovery) {
     const canToggle = true;
@@ -418,15 +448,30 @@ export default function PathReviewStatusIcon({
     );
   }
 
-  if (item.src || item.dst || existsOnlyOnDst) {
-    return (
-      <Check
+  const primaryTraversalStatus = item.traversalStatus;
+  if (
+    primaryTraversalStatus === "not_on_src" ||
+    srcTraversalStatus === "not_on_src" ||
+    dstTraversalStatus === "not_on_src"
+  ) {
+    return staticIcon(
+        <Check
         size={iconSize}
-        className={`${baseClass} ${baseClass}--exists${interactiveClass(baseClass, false)}`}
+        className={`${baseClass} ${baseClass}--exists-only-dst`}
         style={{ cursor: "default" }}
-        title={existsOnlyOnDst ? "Destination only" : "Discovered successfully"}
       />
-    );
+      );
+  }
+
+  if (item.src || item.dst) {
+    return staticIcon(
+        <Check
+        size={iconSize}
+        className={`${baseClass} ${baseClass}--exists`}
+        style={{ cursor: "default" }}
+        title="Discovered successfully"
+      />
+      );
   }
 
   return null;

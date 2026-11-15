@@ -766,12 +766,19 @@ export async function getMigrationLogs(
   request: MigrationLogsRequest = {}
 ): Promise<MigrationLogsResponse> {
 
-  // Don't send lastSeenIds - we filter duplicates on the frontend
+  const body: Record<string, unknown> = {};
+  if (request.textExact) body.textExact = request.textExact;
+  if (request.action) body.action = request.action;
+  if (request.nodeId) body.nodeId = request.nodeId;
+  if (request.from) body.from = request.from;
+  if (request.to) body.to = request.to;
+  if (request.limit) body.limit = request.limit;
+
   const response = await apiFetch(
     `/api/migrations/${migrationId}/logs`,
     {
       method: "POST",
-      body: JSON.stringify({}),
+      body: JSON.stringify(body),
     }
   );
 

@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { useNavigate } from "react-router";
-import { Search, ChevronRight, Pencil } from "lucide-react";
+import { useLocation, useNavigate } from "react-router";
+import { Search, ChevronRight, Pencil, RefreshCw, ArrowUpRight } from "lucide-react";
 
 import PageContainer from "../components/PageContainer";
-import CloudConnectionIssues from "../components/CloudConnectionIssues";
 import HelpTooltip from "../components/HelpTooltip";
 import StorageMeter from "../components/StorageMeter";
 import { useSelection } from "../context/SelectionContext";
@@ -17,6 +16,7 @@ import {
 } from "../api/services";
 import { ServiceDescriptor, Folder } from "../types/services";
 import {
+  buildCloudConnectPath,
   CloudConnectionCheckResult,
   connectionIdForRole,
   formatCloudConnectionIssues,
@@ -27,7 +27,7 @@ import {
 import {
   accountLabelForRole,
 } from "../utils/cloudAccountLabel";
-import { isCloudServiceType } from "../utils/cloudProviders";
+import { isCloudServiceType, serviceIdToProviderId } from "../utils/cloudProviders";
 import {
   formatMigrationPath,
   formatServiceRootLabel,
@@ -43,6 +43,12 @@ import {
   resolvePathCheckTargetFromEndpoints,
   supportsWindowsCompatOverlay,
 } from "../utils/pathCheckTarget";
+import {
+  isPastSetupPhase,
+  navigationPathForStatus,
+  openLastPageLabel,
+} from "../utils/migrationNavigation";
+import type { MigrationStatusResponse } from "../types/migrations";
 import "./MigrationSummary.css";
 
 const LOCAL_OS_CHECKS_ON_NOTE =
@@ -97,10 +103,18 @@ function computeDefaultName(
 
 export default function MigrationSummary() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { source, destination, migration, updateMigration } = useSelection();
   const [checkingConnections, setCheckingConnections] = useState(false);
   const [connectionIssues, setConnectionIssues] = useState<CloudConnectionCheckResult[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [importNeedsAttention, setImportNeedsAttention] = useState(
+    () =>
+      Boolean(
+        (location.state as { importNeedsAttention?: boolean } | null)
+          ?.importNeedsAttention
+      )
+  );
   const [nameInput, setNameInput] = useState("");
   const [nameDirty, setNameDirty] = useState(false);
   const [nameSaving, setNameSaving] = useState(false);
@@ -114,6 +128,9 @@ export default function MigrationSummary() {
   const [destStorage, setDestStorage] = useState<StorageInfo | null>(null);
   const [srcStorage, setSrcStorage] = useState<StorageInfo | null>(null);
   const [starting, setStarting] = useState(false);
+  const [continuing, setContinuing] = useState(false);
+  const [migrationStatus, setMigrationStatus] =
+    useState<MigrationStatusResponse | null>(null);
 
   const sourceIsLocal = isLocalFilesystemService(source?.service);
   const destinationIsLocal = isLocalFilesystemService(destination?.service);
@@ -170,15 +187,75 @@ export default function MigrationSummary() {
   const spectraLockTitle =
     "Locked. Spectra sets the same root on both source and destination";
   const hasCloudConnectionIssues = invalidCloudResults(connectionIssues).length > 0;
+  const showContinue = isPastSetupPhase(migrationStatus);
+  const credentialsOk = !hasCloudConnectionIssues && !importNeedsAttention;
   const canStart =
+    !showContinue &&
     migration.ready &&
     sourceConfigured &&
     destinationConfigured &&
-    !hasCloudConnectionIssues;
+    credentialsOk;
+  const canContinue =
+    showContinue &&
+    Boolean(migration.migrationId) &&
+    sourceConfigured &&
+    destinationConfigured &&
+    credentialsOk;
+
+  useEffect(() => {
+    const migrationId = migration.migrationId;
+    if (!migrationId) {
+      setMigrationStatus(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const status = await getMigrationStatus(migrationId);
+        if (cancelled) return;
+        setMigrationStatus(status);
+        if (status.needsAttention) {
+          setImportNeedsAttention(true);
+        } else {
+          setImportNeedsAttention(false);
+        }
+        // Keep client connection ids aligned with persisted bindings after reauth.
+        const srcConn = status.sourceRoot?.connectionId;
+        const dstConn = status.destinationRoot?.connectionId;
+        if (
+          (srcConn && srcConn !== migration.sourceConnectionId) ||
+          (dstConn && dstConn !== migration.destinationConnectionId)
+        ) {
+          updateMigration({
+            ...(srcConn ? { sourceConnectionId: srcConn } : {}),
+            ...(dstConn ? { destinationConnectionId: dstConn } : {}),
+          });
+        }
+      } catch {
+        // keep location-state hint if status cannot be loaded
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    migration.migrationId,
+    migration.sourceConnectionId,
+    migration.destinationConnectionId,
+    connectionIssues,
+    updateMigration,
+  ]);
 
   useEffect(() => {
     if (!sourceConfigured || !source?.service?.id) {
       setSrcStorage(null);
+      return;
+    }
+    const connectionId =
+      migrationStatus?.sourceRoot?.connectionId ||
+      connectionIdForRole("source", migration);
+    if (isCloudServiceType(source.service.type) && !connectionId) {
+      setSrcStorage({ available: false });
       return;
     }
     let cancelled = false;
@@ -193,7 +270,8 @@ export default function MigrationSummary() {
               type: source.root?.type,
               parentId: source.root?.parentId,
             },
-            connectionIdForRole("source", migration)
+            connectionId,
+            migration.migrationId || migrationStatus?.id
           )
         );
         if (!cancelled) setSrcStorage(info);
@@ -207,17 +285,25 @@ export default function MigrationSummary() {
   }, [
     sourceConfigured,
     source?.service?.id,
+    source?.service?.type,
     source?.root?.locationPath,
     source?.root?.ServiceID,
     source?.root?.type,
     source?.root?.parentId,
     migration.sourceConnectionId,
     migration.migrationId,
+    migrationStatus?.sourceRoot?.connectionId,
   ]);
-
   useEffect(() => {
     if (!destinationConfigured || !destination?.service?.id) {
       setDestStorage(null);
+      return;
+    }
+    const connectionId =
+      migrationStatus?.destinationRoot?.connectionId ||
+      connectionIdForRole("destination", migration);
+    if (isCloudServiceType(destination.service.type) && !connectionId) {
+      setDestStorage({ available: false });
       return;
     }
     let cancelled = false;
@@ -232,7 +318,8 @@ export default function MigrationSummary() {
               type: destination.root?.type,
               parentId: destination.root?.parentId,
             },
-            connectionIdForRole("destination", migration)
+            connectionId,
+            migration.migrationId || migrationStatus?.id
           )
         );
         if (!cancelled) setDestStorage(info);
@@ -246,19 +333,26 @@ export default function MigrationSummary() {
   }, [
     destinationConfigured,
     destination?.service?.id,
+    destination?.service?.type,
     destination?.root?.locationPath,
     destination?.root?.ServiceID,
     destination?.root?.type,
     destination?.root?.parentId,
     migration.destinationConnectionId,
     migration.migrationId,
+    migrationStatus?.destinationRoot?.connectionId,
   ]);
 
-  const startTitle = hasCloudConnectionIssues
-    ? "Reconnect cloud accounts before starting discovery."
-    : canStart
-      ? "Start discovery to build a migration plan. Filters are applied later in path review."
-      : "Configure source and destination to continue.";
+  const continueLabel = openLastPageLabel(migrationStatus);
+  const primaryTitle = !credentialsOk
+    ? "Reconnect source and destination before continuing."
+    : showContinue
+      ? canContinue
+        ? "Opens the last page for this migration. Does not start discovery, copy, or delete."
+        : "Configure source and destination to continue."
+      : canStart
+        ? "Start discovery to build a migration plan. Filters are applied later in path review."
+        : "Configure source and destination to continue.";
 
   useEffect(() => {
     if (!sourceConfigured && !destinationConfigured) {
@@ -405,19 +499,107 @@ export default function MigrationSummary() {
     }
   };
 
+  const handleContinueWhereLeftOff = async () => {
+    if (!migration.migrationId) {
+      setError("Migration ID is missing.");
+      return;
+    }
+    setContinuing(true);
+    setError(null);
+    try {
+      const results = await verifyConfiguredMigrationCloudConnections(
+        source,
+        destination,
+        migration
+      );
+      const invalid = invalidCloudResults(results);
+      if (invalid.length > 0) {
+        setConnectionIssues(results);
+        setError(formatCloudConnectionIssues(invalid));
+        return;
+      }
+      const statusData = await getMigrationStatus(migration.migrationId);
+      setMigrationStatus(statusData);
+      if (statusData.needsAttention) {
+        setImportNeedsAttention(true);
+        setError("Reconnect source and destination before continuing.");
+        return;
+      }
+      navigate(navigationPathForStatus(statusData));
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Unable to open where you left off."
+      );
+    } finally {
+      setContinuing(false);
+    }
+  };
+
   const navigateToEndpoint = async (
     role: "source" | "destination",
-    selected?: { service: ServiceDescriptor; root?: Folder }
+    selected?: { service: ServiceDescriptor; root?: Folder },
+    opts?: { reconnect?: boolean }
   ) => {
+    const forceReconnect = Boolean(opts?.reconnect) || importNeedsAttention;
+    // Imported migrations that need attention may only re-auth the same provider.
+    if (importNeedsAttention && selected?.service) {
+      if (selected.service.type === "cloud") {
+        const connectionId = connectionIdForRole(role, migration);
+        navigate(
+          buildCloudConnectPath({
+            role,
+            serviceId: selected.service.id,
+            providerId: serviceIdToProviderId(selected.service.id),
+            connectionId,
+            reconnect: true,
+            returnTo: "/summary",
+            reauthRoot: true,
+          })
+        );
+        return;
+      }
+      if (selected.service.type === "spectra") {
+        navigate("/spectra-config", {
+          state: { serviceId: selected.service.id, returnTo: "/summary" },
+        });
+        return;
+      }
+      const params = new URLSearchParams({
+        serviceId: selected.service.id,
+        role,
+        reauthRoot: "1",
+      });
+      navigate(`/browse?${params.toString()}`, {
+        state: selected.root ? { resumeFolder: selected.root } : undefined,
+      });
+      return;
+    }
+
     if (selected?.service.type === "cloud") {
       const connectionId = connectionIdForRole(role, migration);
+      if (forceReconnect) {
+        navigate(
+          buildCloudConnectPath({
+            role,
+            serviceId: selected.service.id,
+            providerId: serviceIdToProviderId(selected.service.id),
+            connectionId,
+            reconnect: true,
+            returnTo: "/summary",
+          })
+        );
+        return;
+      }
       const navigation = await resolveCloudNavigation({
         role,
         serviceId: selected.service.id,
         connectionId,
       });
+      const path = navigation.path.includes("?")
+        ? `${navigation.path}&returnTo=${encodeURIComponent("/summary")}`
+        : `${navigation.path}?returnTo=${encodeURIComponent("/summary")}`;
       navigate(
-        navigation.path,
+        path,
         selected.root ? { state: { resumeFolder: selected.root } } : undefined
       );
       return;
@@ -439,9 +621,9 @@ export default function MigrationSummary() {
           Set up your <span className="migration-summary__highlight">migration</span>
         </h1>
         <p className="migration-summary__summary">
-          Choose your source and destination. When both are configured,
-          start discovery to build a migration plan. Exclusion filters are
-          applied later during path review.
+          {importNeedsAttention
+            ? "Reconnect the same source and destination providers used for this imported migration. Discovery stays blocked until credentials are fixed."
+            : "Choose your source and destination. When both are configured, start discovery to build a migration plan. Exclusion filters are applied later during path review."}
         </p>
       </header>
 
@@ -483,6 +665,13 @@ export default function MigrationSummary() {
           configured={sourceConfigured}
           locked={spectraLocked && spectraPrimaryRole !== "source"}
           lockTitle={spectraLocked && spectraPrimaryRole !== "source" ? spectraLockTitle : undefined}
+          providerLocked={importNeedsAttention}
+          needsReconnect={endpointNeedsReconnect(
+            "source",
+            importNeedsAttention,
+            source?.service,
+            connectionIssues
+          )}
           serviceName={source?.service.displayName}
           accountLabel={
             isCloudServiceType(source?.service.type)
@@ -502,6 +691,9 @@ export default function MigrationSummary() {
           storage={srcStorage}
           storageTipId="migration-summary-src-storage"
           onSelect={() => void navigateToEndpoint("source", source)}
+          onReconnect={() =>
+            void navigateToEndpoint("source", source, { reconnect: true })
+          }
         />
 
         <div className="migration-summary__checklist-arrow" aria-hidden="true">
@@ -518,6 +710,13 @@ export default function MigrationSummary() {
               ? spectraLockTitle
               : undefined
           }
+          providerLocked={importNeedsAttention}
+          needsReconnect={endpointNeedsReconnect(
+            "destination",
+            importNeedsAttention,
+            destination?.service,
+            connectionIssues
+          )}
           serviceName={destination?.service.displayName}
           accountLabel={
             isCloudServiceType(destination?.service.type)
@@ -556,10 +755,13 @@ export default function MigrationSummary() {
               : null
           }
           onSelect={() => void navigateToEndpoint("destination", destination)}
+          onReconnect={() =>
+            void navigateToEndpoint("destination", destination, {
+              reconnect: true,
+            })
+          }
         />
       </div>
-
-      <CloudConnectionIssues issues={connectionIssues} />
 
       {showWindowsCompat && (
         <label className="migration-summary__windows-compat">
@@ -579,19 +781,49 @@ export default function MigrationSummary() {
       {error && <div className="migration-summary__error">{error}</div>}
 
       <div className="migration-summary__footer">
-        <button
-          type="button"
-          className="action-button action-button--primary"
-          onClick={() => void handleStartDiscovery()}
-          disabled={checkingConnections || starting || !canStart}
-          title={startTitle}
-        >
-          <Search size={20} style={{ marginRight: "0.5rem" }} />
-          {starting ? "Starting…" : "Start Discovery"}
-        </button>
+        {showContinue ? (
+          <button
+            type="button"
+            className="action-button action-button--primary"
+            onClick={() => void handleContinueWhereLeftOff()}
+            disabled={checkingConnections || continuing || !canContinue}
+            title={primaryTitle}
+          >
+            <ArrowUpRight size={20} style={{ marginRight: "0.5rem" }} />
+            {continuing ? "Opening…" : continueLabel}
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="action-button action-button--primary"
+            onClick={() => void handleStartDiscovery()}
+            disabled={checkingConnections || starting || !canStart}
+            title={primaryTitle}
+          >
+            <Search size={20} style={{ marginRight: "0.5rem" }} />
+            {starting ? "Starting…" : "Start Discovery"}
+          </button>
+        )}
       </div>
     </PageContainer>
   );
+}
+
+function endpointNeedsReconnect(
+  role: "source" | "destination",
+  importNeedsAttention: boolean,
+  service: ServiceDescriptor | undefined,
+  connectionIssues: CloudConnectionCheckResult[]
+): boolean {
+  if (!service || !isCloudServiceType(service.type)) {
+    return false;
+  }
+  const issue = connectionIssues.find((r) => r.role === role);
+  if (issue && !issue.valid) {
+    return true;
+  }
+  // Import attention: keep the strip until this side's connection checks out.
+  return importNeedsAttention && (!issue || !issue.valid);
 }
 
 type SetupEndpointCardProps = {
@@ -600,6 +832,10 @@ type SetupEndpointCardProps = {
   configured: boolean;
   locked: boolean;
   lockTitle?: string;
+  /** When true, edit only re-auths the same provider (import attention). */
+  providerLocked?: boolean;
+  /** Sticky reconnect strip until credentials for this endpoint are fixed. */
+  needsReconnect?: boolean;
   serviceName?: string;
   accountLabel?: string;
   rootPath: string;
@@ -614,6 +850,7 @@ type SetupEndpointCardProps = {
   storageTipId?: string;
   storageWarning?: string | null;
   onSelect: () => void;
+  onReconnect: () => void;
 };
 
 const FS_STORAGE_TIP = (
@@ -630,6 +867,8 @@ function SetupEndpointCard({
   configured,
   locked,
   lockTitle,
+  providerLocked,
+  needsReconnect,
   serviceName,
   accountLabel,
   rootPath,
@@ -644,22 +883,27 @@ function SetupEndpointCard({
   storageTipId,
   storageWarning,
   onSelect,
+  onReconnect,
 }: SetupEndpointCardProps) {
-  const editTitle = configured
-    ? `Change ${label.toLowerCase()}`
-    : `Select ${label.toLowerCase()}`;
+  const editTitle = providerLocked
+    ? `Reconnect ${label.toLowerCase()} (same provider)`
+    : configured
+      ? `Change ${label.toLowerCase()}`
+      : `Select ${label.toLowerCase()}`;
   const showStorage = Boolean(configured && storage?.available);
 
   return (
     <div
       className={`migration-summary__endpoint migration-summary__endpoint--${tone}${
         configured ? " migration-summary__endpoint--configured" : ""
-      }${locked ? " migration-summary__endpoint--locked" : ""}`}
+      }${locked ? " migration-summary__endpoint--locked" : ""}${
+        needsReconnect ? " migration-summary__endpoint--attention" : ""
+      }`}
       title={locked ? lockTitle : undefined}
     >
       <div className="migration-summary__endpoint-header">
         <h2 className="migration-summary__endpoint-title">{label}</h2>
-        {!locked && configured && (
+        {!locked && configured && !needsReconnect && (
           <button
             type="button"
             className="migration-summary__endpoint-edit"
@@ -667,7 +911,7 @@ function SetupEndpointCard({
             title={editTitle}
             aria-label={editTitle}
           >
-            <Pencil size={16} />
+            {providerLocked ? <RefreshCw size={16} /> : <Pencil size={16} />}
           </button>
         )}
       </div>
@@ -746,7 +990,7 @@ function SetupEndpointCard({
         </div>
       )}
 
-      {!locked && !configured && (
+      {!locked && !configured && !providerLocked && (
         <button
           type="button"
           className="migration-summary__endpoint-action"
@@ -755,6 +999,27 @@ function SetupEndpointCard({
           {`Select ${label.toLowerCase()}`}
           <ChevronRight size={18} />
         </button>
+      )}
+      {!locked && !configured && providerLocked && (
+        <p className="migration-summary__endpoint-locked-note">
+          Provider is fixed for this import. Root metadata was missing; reopen
+          the migration from Resume after re-exporting if needed.
+        </p>
+      )}
+      {needsReconnect && !locked && (
+        <div className="migration-summary__reconnect" role="status">
+          <p className="migration-summary__reconnect-text">
+            Needs reconnecting before this side can be used.
+          </p>
+          <button
+            type="button"
+            className="migration-summary__reconnect-btn"
+            onClick={onReconnect}
+          >
+            <RefreshCw size={14} aria-hidden="true" />
+            Reconnect
+          </button>
+        </div>
       )}
     </div>
   );

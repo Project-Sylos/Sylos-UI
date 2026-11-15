@@ -1,19 +1,87 @@
+import HelpTooltip from "./HelpTooltip";
+import { PATH_REVIEW_COPY } from "../utils/pathReviewCopy";
+
+export const PATH_REVIEW_SIDE_HELP = {
+  tipId: "path-review-side-column",
+  category: "path-review-side-column",
+  content: (
+    <>
+      <p>Marks whether an item exists on one side or both.</p>
+      <p>
+        <strong>{PATH_REVIEW_COPY.sideChipSrc}</strong>:{" "}
+        {PATH_REVIEW_COPY.sideChipSrcTip.toLowerCase()}.
+      </p>
+      <p>
+        <strong>{PATH_REVIEW_COPY.sideChipDst}</strong>:{" "}
+        {PATH_REVIEW_COPY.sideChipDstTip.toLowerCase()}.
+      </p>
+      <p>No label: exists on both source and destination.</p>
+    </>
+  ),
+} as const;
+
+/** Column header row aligned with Path Review tree/list item grids. */
 export default function PathReviewSizeColumnHeader({
   variant,
+  showSideColumn = false,
 }: {
   variant: "tree" | "list";
+  showSideColumn?: boolean;
 }) {
-  const lead = variant === "list" ? 5 : 4;
+  if (variant === "list") {
+    // List rows still use a combined meta cell (size · modified).
+    return (
+      <div className="path-review-cols path-review-cols--list" role="row">
+        <span aria-hidden="true" />
+        <span aria-hidden="true" />
+        <span aria-hidden="true" />
+        <span className="path-review-cols__label path-review-cols__label--name">
+          Name
+        </span>
+        <span className="path-review-cols__label path-review-cols__label--path">
+          Path
+        </span>
+        <span className="path-review-cols__label path-review-cols__label--size">
+          Size
+        </span>
+        <span aria-hidden="true" />
+      </div>
+    );
+  }
+
   return (
     <div
-      className={`path-review-cols path-review-cols--${variant}`}
+      className={`path-review-cols path-review-cols--tree${
+        showSideColumn ? " path-review-cols--tree-with-side" : ""
+      }`}
       role="row"
     >
-      {Array.from({ length: lead }, (_, i) => (
-        <span key={i} aria-hidden="true" />
-      ))}
-      <span className="path-review-cols__size">
-        <span>Size</span>
+      <span aria-hidden="true" />
+      <span aria-hidden="true" />
+      <span className="path-review-cols__label path-review-cols__label--name">
+        Name
+      </span>
+      {showSideColumn ? (
+        <>
+          <span className="path-review-cols__label path-review-cols__label--side">
+            <span className="path-review-cols__side">
+              {PATH_REVIEW_COPY.sideColumnHeader}
+              <HelpTooltip
+                tipId={PATH_REVIEW_SIDE_HELP.tipId}
+                category={PATH_REVIEW_SIDE_HELP.category}
+                content={PATH_REVIEW_SIDE_HELP.content}
+                position="below"
+              />
+            </span>
+          </span>
+          <span aria-hidden="true" />
+        </>
+      ) : null}
+      <span className="path-review-cols__label path-review-cols__label--modified">
+        Modified
+      </span>
+      <span className="path-review-cols__label path-review-cols__label--size">
+        Size
       </span>
       <span aria-hidden="true" />
     </div>

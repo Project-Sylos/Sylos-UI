@@ -6,19 +6,31 @@ import { useBrowseDensity } from "../contexts/BrowseDensityContext";
 import { PaginationInfo } from "../types/services";
 import "../pages/PathReview.css";
 
+export const BROWSE_SELECTION_HELP_CORE = (
+  <>
+    <p>Click to select; click again to deselect. Double-click a folder to open it.</p>
+    <p>Ctrl/Cmd+click or Shift+click to multi-select.</p>
+    <p>Hold Alt to select text in a row.</p>
+  </>
+);
+
 export const BROWSE_SELECTION_HELP = {
   tipId: "browse-folder-selection",
   category: "browse-folder-selection",
   content: (
     <>
-      <p>Click to select; click again to deselect. Double-click a folder to open it.</p>
-      <p>Ctrl/Cmd+click or Shift+click to multi-select.</p>
-      <p>Hold Alt to select text in a row.</p>
+      {BROWSE_SELECTION_HELP_CORE}
       <p>
         Right-click to delete selected items, or the clicked item if none are selected.
       </p>
     </>
   ),
+} as const;
+
+export const PATH_REVIEW_SELECTION_HELP = {
+  tipId: "path-review-selection",
+  category: "path-review-selection",
+  content: BROWSE_SELECTION_HELP_CORE,
 } as const;
 
 interface FileBrowserPaneProps {

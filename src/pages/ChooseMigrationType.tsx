@@ -1,17 +1,41 @@
-import { useEffect, useMemo } from "react";
-import { useNavigate } from "react-router";
-import { PlayCircle, RotateCcw } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate } from "react-router";
+import { PlayCircle, RotateCcw, X } from "lucide-react";
 
 import SelectionPage from "../components/SelectionPage";
 import { useSelection } from "../context/SelectionContext";
+import {
+  fetchLiveMigrations,
+  postLoginPathForLiveMigrations,
+  type LiveMigrationSummary,
+} from "../utils/liveMigrations";
+import "./ChooseMigrationType.css";
 
 export default function ChooseMigrationType() {
   const navigate = useNavigate();
   const { clearSelections } = useSelection();
+  const [liveMigrations, setLiveMigrations] = useState<LiveMigrationSummary[]>(
+    []
+  );
+  const [bannerDismissed, setBannerDismissed] = useState(false);
 
   useEffect(() => {
     clearSelections();
   }, [clearSelections]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchLiveMigrations()
+      .then((live) => {
+        if (!cancelled) setLiveMigrations(live);
+      })
+      .catch(() => {
+        if (!cancelled) setLiveMigrations([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const options = useMemo(
     () => [
@@ -44,16 +68,48 @@ export default function ChooseMigrationType() {
     }
   };
 
+  const liveHref = postLoginPathForLiveMigrations(liveMigrations);
+  const showLiveBanner =
+    !bannerDismissed && liveMigrations.length > 0;
+
   return (
-    <SelectionPage
-      variant="brand"
-      title={
-        <>
-          Let's get <span className="selection-page__highlight">started</span>
-        </>
-      }
-      options={options}
-      onSelect={handleSelect}
-    />
+    <div className="choose-migration-type">
+      {showLiveBanner ? (
+        <div className="choose-migration-type__live-banner" role="status">
+          <p className="choose-migration-type__live-banner-text">
+            {liveMigrations.length === 1 ? (
+              <>
+                1 migration is still running.{" "}
+                <Link to={liveHref}>Open Progress Monitor</Link>
+              </>
+            ) : (
+              <>
+                {liveMigrations.length} migrations are still running.{" "}
+                <Link to={liveHref}>View them</Link>
+              </>
+            )}
+          </p>
+          <button
+            type="button"
+            className="choose-migration-type__live-banner-dismiss"
+            onClick={() => setBannerDismissed(true)}
+            aria-label="Dismiss"
+            title="Dismiss"
+          >
+            <X size={16} />
+          </button>
+        </div>
+      ) : null}
+      <SelectionPage
+        variant="brand"
+        title={
+          <>
+            Let's get <span className="selection-page__highlight">started</span>
+          </>
+        }
+        options={options}
+        onSelect={handleSelect}
+      />
+    </div>
   );
 }

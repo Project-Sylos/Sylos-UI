@@ -56,11 +56,13 @@ export default function OAuthCallback() {
             code,
             redirect_uri: getOAuthRedirectUri(),
             scopes: pending.scopes,
+            migrationId: pending.migrationId,
           })
         );
 
-        if (cancelled) return;
-
+        // Always finish session cleanup after a successful exchange, even if this
+        // effect instance was cancelled by Strict Mode remount. The remount reuses
+        // the cached exchange and navigates.
         const accountPatch = accountFieldsFromStatus(pending.role, status);
         updateMigration({
           ...(pending.role === "source"
@@ -77,12 +79,17 @@ export default function OAuthCallback() {
 
         clearOAuthPendingSession();
 
+        if (cancelled) return;
+
         const browseParams = new URLSearchParams({
           providerId: pending.providerId,
           connectionId: pending.connectionId,
           serviceId: pending.serviceId,
           role: pending.role,
         });
+        if (pending.reauthRoot) {
+          browseParams.set("reauthRoot", "1");
+        }
 
         navigate(`/browse-cloud?${browseParams.toString()}`, { replace: true });
       } catch (err) {

@@ -1,5 +1,5 @@
 import { useEffect, useState, type MouseEvent } from "react";
-import { Link, useNavigate } from "react-router";
+import { Link, useLocation, useNavigate } from "react-router";
 import {
   FolderUp,
   FileArchive,
@@ -9,11 +9,13 @@ import {
   RefreshCw,
   ArrowUpRight,
   Trash2,
+  CircleAlert,
 } from "lucide-react";
 
 import "../App.css";
 import OverwriteDialog from "../components/OverwriteDialog";
 import PageContainer from "../components/PageContainer";
+import ImportAttentionWizard from "../components/ImportAttentionWizard";
 import {
   listMigrations,
   getMigrationStatus,
@@ -26,6 +28,8 @@ import DestructiveConfirmDialog from "../components/CleanSlateDialog";
 import ConfirmDialog from "../components/ConfirmDialog";
 import "../components/CleanSlateDialog.css";
 import {
+  ImportScanReport,
+  LocalRootProbe,
   MigrationStatusResponse,
   MigrationWithStatus,
   formatMigrationPhaseLabel,
@@ -33,6 +37,7 @@ import {
   migrationPhaseTone,
 } from "../types/migrations";
 import { formatDate } from "../utils/fileUpload";
+import { navigationPathForStatus } from "../utils/migrationNavigation";
 import { pickOpsImport } from "../utils/opsImport";
 import { SYLOS_WIKI_URL } from "../contexts/HelpModalContext";
 import { useSelection } from "../context/SelectionContext";
@@ -40,6 +45,7 @@ import "./ResumeMigration.css";
 
 export default function ResumeMigration() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { updateMigration, applyServerRoots } = useSelection();
   const [migrations, setMigrations] = useState<MigrationWithStatus[]>([]);
   const [openingMigrationId, setOpeningMigrationId] = useState<string | null>(null);
@@ -60,10 +66,29 @@ export default function ResumeMigration() {
   const [showCleanSlateDialog, setShowCleanSlateDialog] = useState(false);
   const [cleanSlateBusy, setCleanSlateBusy] = useState(false);
   const [cleanSlateMessage, setCleanSlateMessage] = useState<string | null>(null);
+  const [importWizard, setImportWizard] = useState<{
+    migrationId: string;
+    report: ImportScanReport;
+  } | null>(null);
 
   useEffect(() => {
     loadMigrations();
   }, []);
+
+  useEffect(() => {
+    const state = location.state as {
+      remapDone?: { migrationId: string; role: string; newPath?: string };
+    } | null;
+    if (!state?.remapDone) {
+      return;
+    }
+    setUploadSuccess(
+      `Remapped ${state.remapDone.role} local root` +
+        (state.remapDone.newPath ? ` to ${state.remapDone.newPath}` : "")
+    );
+    navigate(location.pathname, { replace: true, state: null });
+    void loadMigrations();
+  }, [location.state, location.pathname, navigate]);
 
   const loadMigrations = async () => {
     setLoading(true);
@@ -85,6 +110,9 @@ export default function ResumeMigration() {
           startedAt: migration.startedAt,
           completedAt: migration.completedAt,
           error: migration.error,
+          needsAttention: migration.needsAttention,
+          attentionReasons: migration.attentionReasons,
+          localRoots: migration.localRoots,
           result: migration.result,
         } as MigrationWithStatus;
       });
@@ -119,7 +147,7 @@ export default function ResumeMigration() {
     setError(null);
     setUploadSuccess(null);
     try {
-      await uploadMigrationOps(zip, filename, overwrite);
+      const resp = await uploadMigrationOps(zip, filename, overwrite);
       setUploadSuccess(
         overwrite
           ? `Successfully imported "${label}" (overwritten)`
@@ -127,6 +155,18 @@ export default function ResumeMigration() {
       );
       setPendingUpload(null);
       await loadMigrations();
+      const report = resp.importReport;
+      if (
+        report &&
+        (report.needsAttention || (report.localRoots && report.localRoots.length > 0))
+      ) {
+        let id = filename.replace(/[/\\]+$/, "");
+        const slash = Math.max(id.lastIndexOf("/"), id.lastIndexOf("\\"));
+        if (slash >= 0) id = id.slice(slash + 1);
+        if (id.toLowerCase().endsWith(".zip")) id = id.slice(0, -4);
+        if (id.toLowerCase().endsWith(".ops")) id = id.slice(0, -4);
+        setImportWizard({ migrationId: id || filename, report });
+      }
     } catch (err) {
       const errorMessage =
         err instanceof Error ? err.message : "Failed to import migration data.";
@@ -181,87 +221,94 @@ export default function ResumeMigration() {
     }
   };
 
-  /** Progress-monitor mode query for a lifecycle phase. */
-  const progressMonitorModeForPhase = (
-    phase: string
-  ): "discovery" | "copy" | "delete" => {
-    if (
-      phase === "copy-in-progress" ||
-      phase === "copy-suspended" ||
-      phase === "copy-finalizing" ||
-      phase === "copy-finalize-failed" ||
-      phase === "awaiting-copy-review"
-    ) {
-      return "copy";
-    }
-    if (
-      phase === "delete-in-progress" ||
-      phase === "delete-suspended" ||
-      phase === "delete-finalizing" ||
-      phase === "delete-finalize-failed" ||
-      phase === "awaiting-delete-review"
-    ) {
-      return "delete";
-    }
-    return "discovery";
-  };
-
-  /**
-   * Last known page for a migration: review / progress (stats + Resume when paused) /
-   * summary for setup. Does not start or resume work - that stays on the destination page.
-   */
-  const navigationPathForStatus = (statusData: MigrationStatusResponse): string => {
-    const phase = getMigrationPhase(statusData);
-    const migrationId = statusData.id;
-
-    switch (phase) {
-      case "awaiting-traversal-review":
-      case "awaiting-copy-review":
-        return `/path-review/${migrationId}`;
-      case "awaiting-delete-review":
-        return `/path-review/${migrationId}/source-cleanup`;
-      case "traversal-suspended":
-      case "traversal-in-progress":
-      case "traversal-finalizing":
-      case "traversal-finalize-failed":
-      case "copy-suspended":
-      case "copy-in-progress":
-      case "copy-finalizing":
-      case "copy-finalize-failed":
-      case "delete-suspended":
-      case "delete-in-progress":
-      case "delete-finalizing":
-      case "delete-finalize-failed":
-      case "failed": {
-        const mode = progressMonitorModeForPhase(phase);
-        return `/progress-monitor/${migrationId}?mode=${mode}`;
-      }
-      case "roots-set":
-      case "filters-set":
-        return `/summary`;
-      default:
-        break;
-    }
-
-    return `/summary`;
-  };
-
   const openLabelForMigration = (migration: MigrationWithStatus): string => {
     const phase = getMigrationPhase(migration);
-    if (phase === "awaiting-delete-review") return "Open source cleanup review";
     if (phase.startsWith("awaiting-") && phase.endsWith("-review")) {
-      return "Open path review";
+      return "Open review";
     }
-    if (phase.includes("delete")) return "Open source cleanup progress";
-    if (phase.includes("copy")) return "Open copy progress";
-    if (phase.includes("traversal")) return "Open discovery progress";
-    if (phase === "failed") return "Open progress";
+    if (
+      phase.includes("delete") ||
+      phase.includes("copy") ||
+      phase.includes("traversal") ||
+      phase === "failed"
+    ) {
+      return "Open progress monitor";
+    }
     if (phase === "roots-set" || phase === "filters-set") return "Open migration summary";
     return "Open migration";
   };
 
-  const handleOpenMigration = async (migrationId: string) => {
+  const openImportWizardFor = (migration: MigrationWithStatus) => {
+    setImportWizard({
+      migrationId: migration.id,
+      report: {
+        needsAttention: Boolean(migration.needsAttention),
+        attentionReasons: migration.attentionReasons,
+        localRoots: migration.localRoots,
+      },
+    });
+  };
+
+  const handleFixCredentials = async (migrationId: string) => {
+    setImportWizard(null);
+    setOpeningMigrationId(migrationId);
+    setError(null);
+    try {
+      const statusData = await getMigrationStatus(migrationId);
+      updateMigration({
+        migrationId: statusData.id,
+        sourceConnectionId: statusData.sourceRoot?.connectionId,
+        destinationConnectionId: statusData.destinationRoot?.connectionId,
+        ready: Boolean(statusData.sourceRoot && statusData.destinationRoot),
+      });
+      applyServerRoots(statusData.sourceRoot, statusData.destinationRoot, true);
+      navigate("/summary", {
+        state: {
+          importNeedsAttention: Boolean(statusData.needsAttention),
+        },
+      });
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to open migration setup for credential fix."
+      );
+    } finally {
+      setOpeningMigrationId(null);
+    }
+  };
+
+  const handleRemapLocal = (migrationId: string, probe: LocalRootProbe) => {
+    const role = probe.role === "destination" ? "destination" : "source";
+    const serviceId = probe.serviceId || "local";
+    updateMigration({ migrationId });
+    setImportWizard(null);
+    navigate(
+      `/browse?serviceId=${encodeURIComponent(serviceId)}&role=${role}` +
+        `&remapImport=1&migrationId=${encodeURIComponent(migrationId)}`
+    );
+  };
+
+  const handleAttentionClick = (
+    migration: MigrationWithStatus,
+    e: MouseEvent
+  ) => {
+    e.stopPropagation();
+    if (busy) return;
+    openImportWizardFor(migration);
+  };
+
+  const handleOpenMigration = async (
+    migrationId: string,
+    opts?: { forceNavigate?: boolean }
+  ) => {
     if (!migrationId || openingMigrationId) {
+      return;
+    }
+
+    const listed = migrations.find((m) => m.id === migrationId);
+    if (listed?.needsAttention && !opts?.forceNavigate) {
+      openImportWizardFor(listed);
       return;
     }
 
@@ -270,6 +317,18 @@ export default function ResumeMigration() {
 
     try {
       const statusData = await getMigrationStatus(migrationId);
+
+      if (statusData.needsAttention && !opts?.forceNavigate) {
+        setImportWizard({
+          migrationId: statusData.id,
+          report: {
+            needsAttention: true,
+            attentionReasons: statusData.attentionReasons,
+            localRoots: statusData.localRoots,
+          },
+        });
+        return;
+      }
 
       updateMigration({
         migrationId: statusData.id,
@@ -427,6 +486,7 @@ export default function ResumeMigration() {
           ) : (
             migrations.map((migration) => {
               const isOpening = openingMigrationId === migration.id;
+              const needsAttention = Boolean(migration.needsAttention);
               const openLabel = openLabelForMigration(migration);
               const isExporting = exportingId === migration.id;
               return (
@@ -434,7 +494,9 @@ export default function ResumeMigration() {
                   key={migration.id}
                   className={`resume-migration__file-card ${
                     isOpening ? "resume-migration__file-card--selected" : ""
-                  } ${openingMigrationId && !isOpening ? "resume-migration__file-card--disabled" : ""}`}
+                  } ${openingMigrationId && !isOpening ? "resume-migration__file-card--disabled" : ""} ${
+                    needsAttention ? "resume-migration__file-card--attention" : ""
+                  }`}
                   role="button"
                   tabIndex={busy ? -1 : 0}
                   aria-label={openLabel}
@@ -450,6 +512,18 @@ export default function ResumeMigration() {
                   }}
                 >
                   <div className="resume-migration__card-actions">
+                    {needsAttention && (
+                      <button
+                        type="button"
+                        className="resume-migration__icon-corner resume-migration__icon-corner--attention"
+                        title="Fix import attention"
+                        aria-label={`Fix attention for ${migration.name || migration.id}`}
+                        disabled={busy}
+                        onClick={(e) => handleAttentionClick(migration, e)}
+                      >
+                        <CircleAlert size={16} aria-hidden="true" color="#c0392b" />
+                      </button>
+                    )}
                     <button
                       type="button"
                       className="resume-migration__icon-corner resume-migration__icon-corner--danger"
@@ -520,6 +594,14 @@ export default function ResumeMigration() {
                       </div>
                     )}
                     <div className="resume-migration__file-meta">
+                      {needsAttention && (
+                        <>
+                          <span className="resume-migration__status resume-migration__status--attention">
+                            Needs attention
+                          </span>
+                          <span> • </span>
+                        </>
+                      )}
                       {migration.status && (
                         <span
                           className={`resume-migration__status resume-migration__status--${migrationPhaseTone(
@@ -591,6 +673,23 @@ export default function ResumeMigration() {
           filename={pendingUpload.label}
           onConfirm={handleOverwrite}
           onCancel={handleCancelOverwrite}
+        />
+      )}
+
+      {importWizard && (
+        <ImportAttentionWizard
+          migrationId={importWizard.migrationId}
+          report={importWizard.report}
+          busy={busy}
+          onFixCredentials={() => void handleFixCredentials(importWizard.migrationId)}
+          onRemapLocal={(probe) => handleRemapLocal(importWizard.migrationId, probe)}
+          onSkipLocalRemap={() => setImportWizard(null)}
+          onOpenMigration={() => {
+            const id = importWizard.migrationId;
+            setImportWizard(null);
+            void handleOpenMigration(id, { forceNavigate: true });
+          }}
+          onDismiss={() => setImportWizard(null)}
         />
       )}
     </>

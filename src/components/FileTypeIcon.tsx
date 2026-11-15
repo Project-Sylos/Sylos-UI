@@ -1,16 +1,16 @@
 import type { LucideIcon } from "lucide-react";
 import {
+  Archive,
+  Braces,
+  CirclePlay,
   File,
-  FileArchive,
-  FileAudio,
-  FileCode,
-  FileImage,
-  FileSpreadsheet,
   FileText,
-  FileType,
-  FileVideo,
   FolderOpen,
+  Image,
+  Music,
+  NotebookText,
   Presentation,
+  Table2,
 } from "lucide-react";
 
 import {
@@ -19,16 +19,20 @@ import {
 } from "../utils/fileCategory";
 import "./FileTypeIcon.css";
 
+/**
+ * Category glyphs use distinct silhouettes (not Lucide's File* family) so they
+ * stay readable at list sizes (~16–18px).
+ */
 const CATEGORY_ICONS: Record<FileMimeCategory, LucideIcon> = {
   document: FileText,
-  spreadsheet: FileSpreadsheet,
+  spreadsheet: Table2,
   presentation: Presentation,
-  image: FileImage,
-  video: FileVideo,
-  audio: FileAudio,
-  archive: FileArchive,
-  code: FileCode,
-  pdf: FileType,
+  image: Image,
+  video: CirclePlay,
+  audio: Music,
+  archive: Archive,
+  code: Braces,
+  pdf: NotebookText,
   other: File,
 };
 
@@ -44,9 +48,9 @@ export type FileTypeIconProps = {
 export default function FileTypeIcon({
   name,
   type,
-  size = 16,
+  size = 18,
   className = "",
-  strokeWidth = 1.5,
+  strokeWidth = 1.75,
 }: FileTypeIconProps) {
   if (type === "folder") {
     return (

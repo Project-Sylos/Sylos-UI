@@ -123,6 +123,8 @@ export function buildCloudConnectPath(params: {
   providerId?: string;
   connectionId?: string;
   reconnect?: boolean;
+  returnTo?: string;
+  reauthRoot?: boolean;
 }): string {
   const providerId = params.providerId ?? serviceIdToProviderId(params.serviceId);
   const search = new URLSearchParams({
@@ -136,6 +138,12 @@ export function buildCloudConnectPath(params: {
   if (params.reconnect) {
     search.set("reconnect", "1");
   }
+  if (params.returnTo) {
+    search.set("returnTo", params.returnTo);
+  }
+  if (params.reauthRoot) {
+    search.set("reauthRoot", "1");
+  }
   return `/cloud/connect?${search.toString()}`;
 }
 
@@ -144,6 +152,7 @@ export function buildCloudBrowsePath(params: {
   serviceId: string;
   connectionId: string;
   providerId?: string;
+  reauthRoot?: boolean;
 }): string {
   const providerId = params.providerId ?? serviceIdToProviderId(params.serviceId);
   const search = new URLSearchParams({
@@ -152,6 +161,9 @@ export function buildCloudBrowsePath(params: {
     connectionId: params.connectionId,
     role: params.role,
   });
+  if (params.reauthRoot) {
+    search.set("reauthRoot", "1");
+  }
   return `/browse-cloud?${search.toString()}`;
 }
 

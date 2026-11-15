@@ -113,6 +113,7 @@ export default function ConnectCloudAccount() {
     searchParams.get("providerId") ?? serviceIdToProviderId(serviceId);
   const role = (searchParams.get("role") as "source" | "destination") || "source";
   const shouldReconnect = searchParams.get("reconnect") === "1";
+  const reauthRoot = searchParams.get("reauthRoot") === "1";
   const migrationConnectionId =
     role === "source"
       ? migration.sourceConnectionId
@@ -126,8 +127,12 @@ export default function ConnectCloudAccount() {
   const [disconnecting, setDisconnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const reconnectHandledRef = useRef(false);
+  /** Binding connection id to reuse on Sign In (set when landing with reconnect=1). */
+  const reuseConnectionIdRef = useRef<string | undefined>(undefined);
 
-  const returnPath = role === "destination" ? "/destination" : "/connect";
+  const returnPath =
+    searchParams.get("returnTo") ||
+    (role === "destination" ? "/destination" : "/connect");
   const oauthConfigured = isCloudProviderOAuthConfigured(provider?.oauthClientId);
   const usesCredentialsForm = provider?.authType === "credentials_form";
   const signInBrand = getCloudProviderSignInBrand(providerId);
@@ -190,51 +195,37 @@ export default function ConnectCloudAccount() {
     };
   }, [providerId, serviceId]);
 
+  // Reconnect: clear the flag immediately, keep the binding connection id for
+  // reuse on Sign In. Do not revoke here; tokens are replaced on exchange and
+  // SetRoot refreshes the binding under the same id.
   useEffect(() => {
     if (!shouldReconnect) {
       reconnectHandledRef.current = false;
       return;
     }
-    if (!existingConnectionId || reconnectHandledRef.current) {
+    if (reconnectHandledRef.current) {
       return;
     }
-
     reconnectHandledRef.current = true;
 
-    async function revokeExisting() {
-      setDisconnecting(true);
-      setError(null);
-      try {
-        await disconnectCloudConnection(providerId, existingConnectionId ?? "");
-        updateMigration({
-          ...(role === "source"
-            ? { sourceConnectionId: undefined }
-            : { destinationConnectionId: undefined }),
-          ...clearAccountFields(role),
-        });
-        const next = new URLSearchParams(searchParams);
-        next.delete("reconnect");
-        next.delete("connectionId");
-        setSearchParams(next, { replace: true });
-      } catch (err) {
-        setError(
-          err instanceof Error
-            ? err.message
-            : "Failed to disconnect the previous cloud session."
-        );
-      } finally {
-        setDisconnecting(false);
-      }
-    }
+    reuseConnectionIdRef.current = existingConnectionId || undefined;
 
-    void revokeExisting();
+    updateMigration({
+      ...clearAccountFields(role),
+    });
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("reconnect");
+        return next;
+      },
+      { replace: true }
+    );
   }, [
     existingConnectionId,
-    providerId,
     role,
     shouldReconnect,
     updateMigration,
-    searchParams,
     setSearchParams,
   ]);
 
@@ -291,6 +282,7 @@ export default function ConnectCloudAccount() {
         serviceId,
         connectionId: existingConnectionId,
         providerId,
+        reauthRoot,
       })
     );
   };
@@ -318,6 +310,7 @@ export default function ConnectCloudAccount() {
         serviceId,
         connectionId,
         providerId,
+        reauthRoot,
       })
     );
   };
@@ -339,7 +332,9 @@ export default function ConnectCloudAccount() {
     try {
       const connection = await createConnection(providerId, {
         migrationId: migration.migrationId,
+        connectionId: reuseConnectionIdRef.current,
       });
+      reuseConnectionIdRef.current = undefined;
 
       updateMigration(
         role === "source"
@@ -359,6 +354,7 @@ export default function ConnectCloudAccount() {
         state,
         scopes,
         returnPath,
+        reauthRoot,
       });
 
       const credsClientId = provider?.oauthClientId;

@@ -3,6 +3,7 @@ import type { DiffItem } from "../api/services";
 import {
   canForceReplaceCopy,
   canUnforceReplaceCopy,
+  isExistsOnBothFile,
   isForceReplaceReviewView,
 } from "./forceReplaceCopy";
 
@@ -23,44 +24,92 @@ describe("forceReplaceCopy", () => {
     expect(isForceReplaceReviewView(false, false, false)).toBe(false);
   });
 
-  it("gates force-replace on already_existed SRC nodes", () => {
+  it("requires a paired file for exists-on-both", () => {
+    expect(
+      isExistsOnBothFile(
+        item({
+          src: { id: "s1" } as DiffItem["src"],
+          dst: { id: "d1" } as DiffItem["dst"],
+        })
+      )
+    ).toBe(true);
+    expect(
+      isExistsOnBothFile(
+        item({
+          type: "folder",
+          src: { id: "s1" } as DiffItem["src"],
+          dst: { id: "d1" } as DiffItem["dst"],
+        })
+      )
+    ).toBe(false);
+    expect(
+      isExistsOnBothFile(
+        item({ src: { id: "s1" } as DiffItem["src"], dst: null })
+      )
+    ).toBe(false);
+  });
+
+  it("shows Replace with source only for already_existed paired files", () => {
     const both = item({
       src: { id: "s1", copyStatus: "already_existed" } as DiffItem["src"],
+      dst: { id: "d1" } as DiffItem["dst"],
       copyStatus: "already_existed",
     });
     expect(canForceReplaceCopy(both, true)).toBe(true);
     expect(canForceReplaceCopy(both, false)).toBe(false);
     expect(
       canForceReplaceCopy(
-        item({ src: { id: "s1", copyStatus: "pending" } as DiffItem["src"] }),
+        item({
+          src: { id: "s1", copyStatus: "already_existed" } as DiffItem["src"],
+          copyStatus: "already_existed",
+        }),
+        true
+      )
+    ).toBe(false);
+    expect(
+      canForceReplaceCopy(
+        item({
+          type: "folder",
+          src: { id: "f1", copyStatus: "already_existed" } as DiffItem["src"],
+          dst: { id: "d1" } as DiffItem["dst"],
+          copyStatus: "already_existed",
+        }),
         true
       )
     ).toBe(false);
   });
 
-  it("gates undo on forced pending or already_existed folders", () => {
+  it("shows Keep destination only for pending paired files", () => {
+    const pendingBoth = item({
+      src: { id: "s1", copyStatus: "pending" } as DiffItem["src"],
+      dst: { id: "d1" } as DiffItem["dst"],
+      copyStatus: "pending",
+    });
+    expect(canUnforceReplaceCopy(pendingBoth, true)).toBe(true);
+
     const forced = item({
       src: {
         id: "s1",
         copyStatus: "pending",
         copyForceReplaceMarked: true,
       } as DiffItem["src"],
+      dst: { id: "d1" } as DiffItem["dst"],
       copyStatus: "pending",
     });
     expect(canUnforceReplaceCopy(forced, true)).toBe(true);
 
     const folder = item({
-      id: "f1",
       type: "folder",
       src: { id: "f1", copyStatus: "already_existed" } as DiffItem["src"],
+      dst: { id: "d1" } as DiffItem["dst"],
       copyStatus: "already_existed",
     });
-    expect(canUnforceReplaceCopy(folder, true)).toBe(true);
+    expect(canUnforceReplaceCopy(folder, true)).toBe(false);
 
-    const plainPending = item({
+    const srcOnlyPending = item({
       src: { id: "s1", copyStatus: "pending" } as DiffItem["src"],
       copyStatus: "pending",
     });
-    expect(canUnforceReplaceCopy(plainPending, true)).toBe(false);
+    expect(canUnforceReplaceCopy(srcOnlyPending, true)).toBe(false);
   });
 });

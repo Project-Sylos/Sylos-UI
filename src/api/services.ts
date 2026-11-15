@@ -155,6 +155,30 @@ export async function deleteMigration(migrationId: string): Promise<{ id: string
   return (await response.json()) as { id: string; message: string };
 }
 
+export async function remapLocalRoot(
+  migrationId: string,
+  role: "source" | "destination",
+  root: MigrationRootRequest["root"]
+): Promise<{ rewritten: number; oldRoot: string; newRoot: string }> {
+  const response = await apiFetch(
+    `/api/migrations/${encodeURIComponent(migrationId)}/remap-local`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ role, root }),
+    }
+  );
+  if (!response.ok) {
+    const message = await readErrorMessage(response);
+    throw new Error(message || `Failed to remap local root (${response.status})`);
+  }
+  return (await response.json()) as {
+    rewritten: number;
+    oldRoot: string;
+    newRoot: string;
+  };
+}
+
 export async function downloadMigrationOpsExport(migrationId: string): Promise<void> {
   const response = await apiFetch(
     `/api/migrations/${encodeURIComponent(migrationId)}/export`,
@@ -504,6 +528,8 @@ export async function getStorageInfo(
     rootType?: string;
     driveId?: string;
     role?: string;
+    /** Rehydrate this migration's cloud connection after API restart. */
+    migrationId?: string;
   }
 ): Promise<StorageInfo> {
   const params = new URLSearchParams();
@@ -512,6 +538,7 @@ export async function getStorageInfo(
   if (options?.rootType) params.set("rootType", options.rootType);
   if (options?.driveId) params.set("driveId", options.driveId);
   if (options?.role) params.set("role", options.role);
+  if (options?.migrationId) params.set("migrationId", options.migrationId);
   const qs = params.toString();
   const response = await apiFetch(
     `/api/services/${encodeURIComponent(serviceId)}/storage${qs ? `?${qs}` : ""}`
@@ -810,6 +837,8 @@ export interface PathNodeItem {
   copyRetryMarked?: boolean;  // copy pending queued for retry from a previous copy failure
   copyExcludedFromFailed?: boolean; // copy excluded from a retry-marked failure; unexcluding restores failed
   copyForceReplaceMarked?: boolean; // pending prefer-source overwrite from already_existed
+  /** Traversal excluded after acknowledging a discovery failure. */
+  traversalAckFromFailed?: boolean;
   failureLogId?: string;
   failureMessage?: string;
   ruleExclusion?: RuleExclusion;
@@ -820,6 +849,8 @@ export interface PathNodes {
   dst?: PathNodeItem;  // Destination node (present if item exists in DST queue)
   /** Accepted/committed destination basename when remapped for compatibility. */
   resolvedDstName?: string;
+  /** Accepted gpl dst_action (rename; legacy merge may still appear). */
+  pathDstAction?: string;
 }
 
 export interface PaginationInfo {
@@ -868,9 +899,15 @@ export interface DiffItem {
   proposedPath?: string;
   /** Accepted/committed destination basename after remap (may differ from name). */
   resolvedDstName?: string;
+  /** Accepted gpl dst_action (rename; legacy merge may still appear). */
+  pathDstAction?: string;
   pathIssueStatus?: string;
   pathIssueSummary?: string;
   pathIssueMessages?: PathIssueMessage[];
+  /** Colliding destination basename when status is manual_review. */
+  collisionSibling?: string;
+  /** Free sibling basename for Accept unique (e.g. "Reports (1)"). */
+  suggestedUniqueName?: string;
   /** True when the compatibility warning is dismissed for this item. */
   pathIssueIgnored?: boolean;
 }
@@ -883,6 +920,8 @@ export async function getMigrationDiffs(
     limit?: number;
     foldersOnly?: boolean;
     includeDestinationOnly?: boolean;
+    /** Dual-tree pane: "src" | "dst" | "both" (default merged). */
+    side?: "src" | "dst" | "both";
   }
 ): Promise<{ items: DiffItem[]; pagination: PaginationInfo }> {
 
@@ -904,6 +943,9 @@ export async function getMigrationDiffs(
   }
   if (options?.includeDestinationOnly !== undefined) {
     params.append("includeDestinationOnly", options.includeDestinationOnly.toString());
+  }
+  if (options?.side) {
+    params.append("side", options.side);
   }
 
   const response = await apiFetch(
@@ -983,6 +1025,7 @@ export async function getMigrationDiffs(
       src: nodes.src,
       dst: nodes.dst,
       resolvedDstName: nodes.resolvedDstName || undefined,
+      pathDstAction: nodes.pathDstAction || undefined,
     };
 
     transformedItems.push(diffItem);
@@ -1429,6 +1472,9 @@ export interface PathIssue {
   messages?: PathIssueMessage[];
   /** True when the warning is dismissed (original name kept). */
   ignored?: boolean;
+  dstAction?: string;
+  collisionSibling?: string;
+  suggestedUniqueName?: string;
 }
 
 export interface PathIssuesListResponse {
@@ -1532,6 +1578,51 @@ export async function validatePathProposal(
   return response.json();
 }
 
+export interface PathRenameProgress {
+  active: boolean;
+  phase?: string;
+  done: number;
+  total: number;
+  nodeId?: string;
+  message?: string;
+  canSoftStop: boolean;
+  canHardStop: boolean;
+}
+
+export async function getPathRenameProgress(
+  migrationId: string
+): Promise<PathRenameProgress> {
+  const response = await apiFetch(
+    `/api/migrations/${migrationId}/path-rename/progress`
+  );
+  if (!response.ok) {
+    throw new Error(`Failed to read path rename progress (${response.status})`);
+  }
+  return response.json();
+}
+
+export async function softStopPathRename(migrationId: string): Promise<void> {
+  const response = await apiFetch(
+    `/api/migrations/${migrationId}/path-rename/soft-stop`,
+    { method: "POST" }
+  );
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.message || data.error || "Could not stop rename.");
+  }
+}
+
+export async function hardStopPathRename(migrationId: string): Promise<void> {
+  const response = await apiFetch(
+    `/api/migrations/${migrationId}/path-rename/hard-stop`,
+    { method: "POST" }
+  );
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.message || data.error || "Could not hard-stop rename.");
+  }
+}
+
 export async function acceptPathProposal(
   migrationId: string,
   nodeId: string,
@@ -1590,6 +1681,97 @@ export async function resetPathRemap(
     return {
       success: false,
       message: data.message || data.error || "Could not reset name.",
+    };
+  }
+  return data;
+}
+
+export type PathCascadeFolderCollision = {
+  srcId: string;
+  srcName: string;
+  srcPath?: string;
+  dstId?: string;
+  dstName: string;
+  dstPath?: string;
+};
+
+export type PathCascadeFileOverwrite = {
+  srcId: string;
+  srcName: string;
+  srcPath?: string;
+  srcSize?: number;
+  srcMTime?: string;
+  dstId: string;
+  dstName: string;
+  dstPath?: string;
+  dstSize?: number;
+  dstMTime?: string;
+  defaultWinner: "src" | "dst" | string;
+};
+
+export type PathResolutionCascadePreview = {
+  success: boolean;
+  action: string;
+  srcFolderId: string;
+  dstFolderId?: string;
+  folderCollisionCount: number;
+  fileOverwriteCount: number;
+  folderCollisions?: PathCascadeFolderCollision[];
+  fileOverwrites?: PathCascadeFileOverwrite[];
+  dstSubtreeListed?: boolean;
+  pathChecksEnabled?: boolean;
+  message?: string;
+};
+
+export async function previewPathResolutionCascade(
+  migrationId: string,
+  nodeId: string,
+  action: "unique" | "remap",
+  proposedName?: string
+): Promise<PathResolutionCascadePreview> {
+  const response = await apiFetch(
+    `/api/migrations/${migrationId}/path-issues/${encodeURIComponent(nodeId)}/preview-cascade`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action,
+        ...(proposedName ? { proposedName } : {}),
+      }),
+    }
+  );
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    return {
+      success: false,
+      action,
+      srcFolderId: nodeId,
+      folderCollisionCount: 0,
+      fileOverwriteCount: 0,
+      message: data.message || data.error || "Could not preview path resolution.",
+    };
+  }
+  return data;
+}
+
+export async function acceptUniquePathName(
+  migrationId: string,
+  nodeId: string,
+  proposedPath?: string
+): Promise<PathIssuesMutationResponse> {
+  const response = await apiFetch(
+    `/api/migrations/${migrationId}/path-issues/${encodeURIComponent(nodeId)}/unique`,
+    {
+      method: "POST",
+      body: JSON.stringify({ proposedPath: proposedPath || "" }),
+    }
+  );
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    return {
+      success: false,
+      message:
+        data.message || data.error || "Could not assign a unique destination name.",
     };
   }
   return data;
@@ -1696,6 +1878,10 @@ export function applyPathIssuesToDiffItems(
       };
     }
     const ignored = !!issue.ignored;
+    const collisionSibling =
+      issue.collisionSibling ||
+      issue.messages?.find((m) => m.category === "SiblingCollision")?.detail ||
+      undefined;
     return {
       ...item,
       // Ignored warnings keep original names (no auto remap hint).
@@ -1704,6 +1890,10 @@ export function applyPathIssuesToDiffItems(
       pathIssueSummary: issue.summary,
       pathIssueMessages: issue.messages?.length ? issue.messages : undefined,
       pathIssueIgnored: ignored || undefined,
+      collisionSibling: ignored ? undefined : collisionSibling,
+      suggestedUniqueName: ignored
+        ? undefined
+        : issue.suggestedUniqueName || undefined,
     };
   });
 }
@@ -1947,6 +2137,8 @@ export interface SearchOptions {
   statusSearchType?: "traversal" | "copy" | "delete" | "both"; // Controls which status conditions are processed
   phase?: "traversal" | "copy" | "delete"; // Phase to determine which status counts to use in stats transformation
   includeDestinationOnly?: boolean; // When false, hide destination-only rows server-side
+  /** Dual-list search scope: "src" | "dst" | "both". */
+  side?: "src" | "dst" | "both";
   /** Folder + descendants scope (id_path). Empty or "/" = global. */
   underPath?: string;
   /** Optional filter-rules predicate (compiled to SQL server-side). */
@@ -1961,6 +2153,7 @@ export interface SearchRequest {
   };
   statusSearchType?: "traversal" | "copy" | "delete" | "both"; // Controls which status conditions are processed
   includeDestinationOnly?: boolean;
+  side?: "src" | "dst" | "both";
   underPath?: string;
   ruleset?: FilterRuleset;
 }
@@ -2104,6 +2297,10 @@ export function buildSearchRequest(options?: SearchOptions): SearchRequest {
     requestBody.includeDestinationOnly = options.includeDestinationOnly;
   }
 
+  if (options?.side) {
+    requestBody.side = options.side;
+  }
+
   const under = options?.underPath?.trim();
   if (under && under !== "/") {
     requestBody.underPath = under;
@@ -2161,7 +2358,8 @@ function normalizeSearchPagination(
 }
 
 /**
- * Search path review items. Requires at least one filter condition (UI-enforced).
+ * Search path review items. Empty/unfiltered search is allowed; the UI warns
+ * when SRC item count is over 1e6.
  * @param migrationId The ID of the migration
  * @param options Search and pagination options
  * @returns Promise resolving to items and pagination info
@@ -2285,6 +2483,7 @@ export async function searchPathReviewItems(
       src: nodes.src,
       dst: nodes.dst,
       resolvedDstName: nodes.resolvedDstName || undefined,
+      pathDstAction: nodes.pathDstAction || undefined,
     };
 
     transformedItems.push(diffItem);
@@ -2625,10 +2824,8 @@ export interface RetrySweepRequest {
   skipListener?: boolean;
   startupDelaySeconds?: number;
   progressTickMillis?: number;
-  /** Index-build override for *-finalize-failed retry (0 = engine default 2GB). */
-  memoryLimitGB?: number;
-  /** Index-build override for *-finalize-failed retry (0 = engine default 1; max 4). */
-  threads?: number;
+  /** Recompute all folder sizes from the catalog during finalize retry. */
+  refold?: boolean;
 }
 
 export interface RetrySweepResponse {
@@ -2658,10 +2855,10 @@ export async function resumeMigration(
   return data as RetrySweepResponse;
 }
 
-/** Retry seal stop / secondary indexes / checkpoint after *-finalize-failed. */
+/** Retry seal flush / folder-size fold / checkpoint after *-finalize-failed. */
 export async function retryFinalize(
   migrationId: string,
-  config?: Pick<RetrySweepRequest, "memoryLimitGB" | "threads">
+  config?: Pick<RetrySweepRequest, "refold">
 ): Promise<RetrySweepResponse> {
   const response = await apiFetch(`/api/migrations/${migrationId}/retry-finalize`, {
     method: "POST",

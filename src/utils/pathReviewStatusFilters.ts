@@ -51,6 +51,7 @@ function mapTraversalReviewStatus(v: string): PhaseStatusFilters {
       return { statusSearchType: "traversal", traversalStatusFilter: "successful" };
     case "excluded":
       return { statusSearchType: "traversal", traversalStatusFilter: "excluded" };
+    // UI "Destination only"; engine lists idx:copy:dst:destination_only (not trav not_on_src).
     case "not_on_src":
       return { statusSearchType: "traversal", traversalStatusFilter: "not_on_src" };
     default:

@@ -2,6 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useLocation } from "react-router";
 import "./Sidebar.css";
 import SylosLogo from "./SylosLogo";
+import {
+  ActiveTaskDetail,
+  ActiveTasksSidebarSection,
+  type ActiveTask,
+} from "./ActiveTasksPanel";
+import { useActiveTasks } from "../contexts/ActiveTasksContext";
 import { useAuth } from "../contexts/AuthContext";
 import { usePreferences } from "../contexts/PreferencesContext";
 import { useSelection } from "../context/SelectionContext";
@@ -18,13 +24,19 @@ import type {
   QueueMetrics,
   RootInfo,
 } from "../types/migrations";
-import { getMigrationPhase, isMigrationLive } from "../types/migrations";
+import {
+  getMigrationPhase,
+  isMigrationActivelyRunning,
+  isMigrationLive,
+} from "../types/migrations";
 import { formatEtaSeconds } from "../utils/formatBytes";
 import {
   getPathReviewStepperState,
   type PathReviewLifecycleStep,
 } from "../utils/pathReviewPhase";
+import { fetchLiveMigrations } from "../utils/liveMigrations";
 import { useRecoveryCode } from "../contexts/RecoveryCodeContext";
+import ConfirmDialog from "./ConfirmDialog";
 import googleDriveLogo from "../assets/external/Google_Drive_Logo.svg";
 import dropboxLogo from "../assets/external/dropbox-1-logo-png-transparent.png";
 import oneDriveLogo from "../assets/external/onedrive.webp";
@@ -274,6 +286,14 @@ export default function Sidebar() {
   const { preferences, updatePreferences } = usePreferences();
   const { user, logout } = useAuth();
   const isCollapsed = preferences.sidebarCollapsed;
+  const { tasks: activeTasks } = useActiveTasks();
+  const [detailTask, setDetailTask] = useState<ActiveTask | null>(null);
+  useEffect(() => {
+    if (!detailTask) return;
+    if (!activeTasks.some((t) => t.id === detailTask.id)) {
+      setDetailTask(null);
+    }
+  }, [activeTasks, detailTask]);
   const navigate = useNavigate();
   const location = useLocation();
   const { openHelp } = useHelpModal();
@@ -309,6 +329,11 @@ export default function Sidebar() {
     Record<string, MigrationQueueMetricsResponse>
   >({});
   const [openingId, setOpeningId] = useState<string | null>(null);
+  const [logoutConfirm, setLogoutConfirm] = useState<{
+    open: boolean;
+    liveCount: number;
+  }>({ open: false, liveCount: 0 });
+  const [logoutChecking, setLogoutChecking] = useState(false);
 
   const active = routeMigration(location);
   const activeMigrationId = active.id;
@@ -567,6 +592,12 @@ export default function Sidebar() {
           )}
         </div>
 
+        <ActiveTasksSidebarSection
+          tasks={activeTasks}
+          collapsed={isCollapsed}
+          onSelectTask={setDetailTask}
+        />
+
         <div className="sidebar__section sidebar__section--footer">
           {user && !isCollapsed && (
             <div className="sidebar__user">
@@ -624,7 +655,31 @@ export default function Sidebar() {
               <button
                 type="button"
                 className="sidebar__icon-button"
-                onClick={() => void logout()}
+                disabled={logoutChecking}
+                onClick={() => {
+                  void (async () => {
+                    setLogoutChecking(true);
+                    try {
+                      let liveCount = migrations.filter((m) =>
+                        isMigrationActivelyRunning(m)
+                      ).length;
+                      if (liveCount === 0) {
+                        try {
+                          liveCount = (await fetchLiveMigrations()).length;
+                        } catch {
+                          // List failed: sign out without a scary confirm.
+                        }
+                      }
+                      if (liveCount > 0) {
+                        setLogoutConfirm({ open: true, liveCount });
+                        return;
+                      }
+                      await logout();
+                    } finally {
+                      setLogoutChecking(false);
+                    }
+                  })();
+                }}
                 aria-label="Sign out"
                 title="Sign out"
               >
@@ -634,6 +689,32 @@ export default function Sidebar() {
           </div>
         </div>
       </div>
+      {logoutConfirm.open ? (
+        <ConfirmDialog
+          title="Sign out while migrations run?"
+          message={
+            logoutConfirm.liveCount === 1
+              ? "Signing out ends this browser session only. The migration keeps running as long as the Sylos process stays up. Sign back in anytime to monitor progress."
+              : `Signing out ends this browser session only. ${logoutConfirm.liveCount} migrations keep running as long as the Sylos process stays up. Sign back in anytime to monitor progress.`
+          }
+          confirmLabel="Sign out"
+          cancelLabel="Stay signed in"
+          confirmTone="cyan"
+          onCancel={() => setLogoutConfirm({ open: false, liveCount: 0 })}
+          onConfirm={() => {
+            setLogoutConfirm({ open: false, liveCount: 0 });
+            void logout();
+          }}
+        />
+      ) : null}
+      {detailTask ? (
+        <ActiveTaskDetail
+          task={
+            activeTasks.find((t) => t.id === detailTask.id) ?? detailTask
+          }
+          onClose={() => setDetailTask(null)}
+        />
+      ) : null}
     </div>
   );
 }

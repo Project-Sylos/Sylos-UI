@@ -1,0 +1,29 @@
+import { listMigrations } from "../api/services";
+import {
+  isMigrationActivelyRunning,
+  type ListMigrationsResponse,
+} from "../types/migrations";
+
+export type LiveMigrationSummary = ListMigrationsResponse["migrations"][number];
+
+/** Migrations that are still running in the Sylos process. */
+export async function fetchLiveMigrations(): Promise<LiveMigrationSummary[]> {
+  const res = await listMigrations();
+  return res.migrations.filter((m) => isMigrationActivelyRunning(m));
+}
+
+/**
+ * Where to send the user after login when they have no `from` redirect.
+ * One live migration → Progress Monitor; several → Resume list; none → home.
+ */
+export function postLoginPathForLiveMigrations(
+  live: Pick<LiveMigrationSummary, "id">[]
+): string {
+  if (live.length === 1) {
+    return `/progress-monitor/${encodeURIComponent(live[0].id)}`;
+  }
+  if (live.length > 1) {
+    return "/resume";
+  }
+  return "/";
+}

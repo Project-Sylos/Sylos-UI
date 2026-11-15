@@ -24,48 +24,93 @@ function item(partial: Partial<DiffItem>): DiffItem {
     id: "1",
     name: "item",
     type: "file",
+    locationPath: "/1",
+    depthLevel: 1,
+    traversalStatus: "successful",
     ...partial,
   } as DiffItem;
 }
 
 describe("bulkActionEligibility", () => {
-  it("blocks exclude for items already on the destination", () => {
-    const it1 = item({});
+  it("discovery exclude only allows failed items", () => {
+    const ok = item({
+      src: { id: "a", traversalStatus: "successful" } as DiffItem["src"],
+    });
     expect(
-      bulkActionInvalidReason("exclude", it1, status({ existsOnBoth: true }), "traversal")
-    ).toBe("Already on the destination");
+      bulkActionInvalidReason("exclude", ok, status({ isSuccessful: true }), "traversal")
+    ).toMatch(/failed/i);
+
+    const failed = item({
+      traversalStatus: "failed",
+      src: { id: "b", traversalStatus: "failed" } as DiffItem["src"],
+    });
     expect(
-      bulkActionInvalidReason("exclude", it1, status({ existsOnlyOnDst: true }), "traversal")
-    ).toBe("Destination only");
-    expect(
-      bulkActionInvalidReason("exclude", it1, status({}), "traversal")
+      bulkActionInvalidReason("exclude", failed, status({ isFailed: true }), "traversal")
     ).toBeNull();
   });
 
-  it("partitions a mixed selection for exclude", () => {
-    const pending = item({ id: "a", name: "pending.txt" });
-    const onBoth = item({ id: "b", name: "copied.txt" });
+  it("copy-plan exclude allows pending, blocks already excluded", () => {
+    const pending = item({
+      copyStatus: "pending",
+      src: { id: "a", copyStatus: "pending" } as DiffItem["src"],
+    });
+    expect(
+      bulkActionInvalidReason("exclude", pending, status({ isPending: true }), "copy-plan")
+    ).toBeNull();
+    const excluded = item({
+      copyStatus: "exclusion_explicit",
+      src: { id: "a", copyStatus: "exclusion_explicit" } as DiffItem["src"],
+    });
+    expect(
+      bulkActionInvalidReason(
+        "exclude",
+        excluded,
+        status({ isExcluded: true }),
+        "copy-plan"
+      )
+    ).toBe("Already excluded");
+  });
+
+  it("partitions a mixed discovery selection for exclude", () => {
+    const failed = item({
+      id: "a",
+      name: "failed.txt",
+      traversalStatus: "failed",
+      src: { id: "a", traversalStatus: "failed" } as DiffItem["src"],
+    });
+    const ok = item({
+      id: "b",
+      name: "ok.txt",
+      src: { id: "b", traversalStatus: "successful" } as DiffItem["src"],
+    });
     const statuses = new Map<string, PathReviewItemStatus>([
-      ["a", status({})],
-      ["b", status({ existsOnBoth: true })],
+      ["a", status({ isFailed: true })],
+      ["b", status({ isSuccessful: true })],
     ]);
     const { valid, invalid } = partitionBulkAction(
-      [pending, onBoth],
+      [failed, ok],
       "exclude",
       (i) => statuses.get(i.id)!,
       "traversal"
     );
-    expect(valid).toEqual([pending]);
-    expect(invalid).toEqual([{ item: onBoth, reason: "Already on the destination" }]);
+    expect(valid).toEqual([failed]);
+    expect(invalid[0]?.item).toEqual(ok);
   });
 
   it("gates mark for retry on failed state and unmark on marked state", () => {
-    const failed = item({ id: "f", src: { traversalStatus: "failed" } as DiffItem["src"] });
+    const failed = item({
+      id: "f",
+      src: { id: "f", traversalStatus: "failed" } as DiffItem["src"],
+    });
     expect(
       bulkActionInvalidReason("mark_retry", failed, status({ isFailed: true }), "traversal")
     ).toBeNull();
+    const ok = item({
+      id: "o",
+      src: { id: "o", traversalStatus: "successful" } as DiffItem["src"],
+    });
     expect(
-      bulkActionInvalidReason("mark_retry", failed, status({}), "traversal")
+      bulkActionInvalidReason("mark_retry", ok, status({ isSuccessful: true }), "traversal")
     ).toBe("Not in a failed state");
     expect(
       bulkActionInvalidReason("mark_failed", failed, status({ isFailed: true }), "traversal")
@@ -76,7 +121,7 @@ describe("bulkActionEligibility", () => {
     const bornPending = item({
       id: "p",
       copyStatus: "pending",
-      src: { copyStatus: "pending" } as DiffItem["src"],
+      src: { id: "p", copyStatus: "pending" } as DiffItem["src"],
     });
     expect(
       bulkActionInvalidReason("mark_failed", bornPending, status({ isPending: true }), "copy")
@@ -90,7 +135,7 @@ describe("bulkActionEligibility", () => {
     const marked = item({
       id: "m",
       copyStatus: "pending",
-      src: { copyStatus: "pending", copyRetryMarked: true } as DiffItem["src"],
+      src: { id: "m", copyStatus: "pending", copyRetryMarked: true } as DiffItem["src"],
     });
     expect(
       bulkActionInvalidReason("mark_failed", marked, status({ isPending: true }), "copy")
@@ -102,7 +147,7 @@ describe("bulkActionEligibility", () => {
     const failed = item({
       id: "f",
       copyStatus: "failed",
-      src: { copyStatus: "failed" } as DiffItem["src"],
+      src: { id: "f", copyStatus: "failed" } as DiffItem["src"],
     });
     expect(
       bulkActionInvalidReason("mark_retry", failed, status({ isFailed: true }), "copy")
@@ -110,5 +155,15 @@ describe("bulkActionEligibility", () => {
     expect(
       bulkActionInvalidReason("mark_failed", failed, status({ isFailed: true }), "copy")
     ).toBe("Not marked for retry");
+  });
+
+  it("copy results allow acknowledge exclude on failed", () => {
+    const failed = item({
+      copyStatus: "failed",
+      src: { id: "f", copyStatus: "failed" } as DiffItem["src"],
+    });
+    expect(
+      bulkActionInvalidReason("exclude", failed, status({ isFailed: true }), "copy")
+    ).toBeNull();
   });
 });

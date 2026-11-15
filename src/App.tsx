@@ -18,6 +18,7 @@ import { SelectionProvider } from "./context/SelectionContext";
 import { ZoomProvider } from "./contexts/ZoomContext";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { AuthProvider } from "./contexts/AuthContext";
+import { ActiveTasksProvider } from "./contexts/ActiveTasksContext";
 import { RecoveryCodeProvider } from "./contexts/RecoveryCodeContext";
 import ThemeBackground from "./components/ThemeBackground";
 import Sidebar from "./components/Sidebar";
@@ -76,6 +77,7 @@ function SettingsRouteOpen() {
 
 function AppShell() {
   return (
+    <ActiveTasksProvider>
     <div className="app-layout">
       <Sidebar />
       <div className="app-main">
@@ -212,6 +214,7 @@ function AppShell() {
       </Routes>
       </div>
     </div>
+    </ActiveTasksProvider>
   );
 }
 

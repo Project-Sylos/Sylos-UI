@@ -31,10 +31,12 @@ export interface MigrationRootRequest {
   connectionId?: string;
   root: MigrationRootRequestRoot;
   config?: any;  // Can be SpectraConfig or other config types
-  /** Immediate children from root-pick review (no DuckDB write until Start). */
+  /** Immediate children from root-pick review (no ops write until Start). */
   children?: MigrationRootChild[];
   /** Source-only; ids not in children are ignored. */
   excludedIds?: string[];
+  /** Quiet credential rebind: keep phase/prep, clear import attention. */
+  reauth?: boolean;
 }
 
 export interface MigrationRootResponse {
@@ -247,6 +249,23 @@ export function isMigrationLive(response: { live?: boolean; Live?: boolean } | n
   return (response as { live?: boolean; Live?: boolean }).live === true || (response as { live?: boolean; Live?: boolean }).Live === true;
 }
 
+/**
+ * True when work is still happening server-side: runtime `live`, or a phase
+ * that implies an in-process run (`*-in-progress` / `*-finalizing`).
+ * Used for sign-out confirm and post-login reattach.
+ */
+export function isMigrationActivelyRunning(
+  response:
+    | { live?: boolean; Live?: boolean; phase?: string; status?: string }
+    | null
+    | undefined
+): boolean {
+  if (!response) return false;
+  if (isMigrationLive(response)) return true;
+  const phase = getMigrationPhase(response);
+  return phase.endsWith("-in-progress") || phase.endsWith("-finalizing");
+}
+
 /** Soft suspend complete: engine phase is *-suspended (not generic `suspended`). */
 export function isMigrationSoftSuspendedPhase(phase: string): boolean {
   return (
@@ -335,16 +354,33 @@ export interface MigrationDBFile {
   modifiedAt: string;
 }
 
+export interface LocalRootProbe {
+  role: string;
+  nativePath?: string;
+  pathExistsOnHost: boolean;
+  serviceId?: string;
+}
+
+export interface ImportScanReport {
+  needsAttention: boolean;
+  attentionReasons?: string[];
+  localRoots?: LocalRootProbe[];
+}
+
 export interface MigrationUploadResponse {
   success: boolean;
   path?: string;
   error?: string;
+  importReport?: ImportScanReport;
 }
 
 export interface MigrationStatusResponse extends MigrationResponse {
   phase?: string;
   live?: boolean;
   completedAt?: string | null;
+  needsAttention?: boolean;
+  attentionReasons?: string[];
+  localRoots?: LocalRootProbe[];
   sourceRoot?: RootInfo;
   destinationRoot?: RootInfo;
   sourceRootPrepared?: boolean;
@@ -369,7 +405,7 @@ export interface MigrationStatusResponse extends MigrationResponse {
   /** True when a queue watchdog recently detected no progress while the migration was live. */
   possibleStall?: boolean;
   PossibleStall?: boolean;
-  /** Human-readable DuckDB wait label (index rebuild, checkpoint, etc.). */
+  /** Human-readable ops DB wait label (seal, folder-size fold, checkpoint, etc.). */
   dbActivity?: string;
   DbActivity?: string;
   result?: {
@@ -435,6 +471,9 @@ export interface MigrationWithStatus extends MigrationMetadata {
   startedAt?: string;
   completedAt?: string | null;
   error?: string;
+  needsAttention?: boolean;
+  attentionReasons?: string[];
+  localRoots?: LocalRootProbe[];
   result?: MigrationStatusResponse["result"];
 }
 

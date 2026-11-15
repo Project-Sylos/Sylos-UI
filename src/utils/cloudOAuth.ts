@@ -10,6 +10,8 @@ export interface OAuthPendingSession {
   state: string;
   scopes: string[];
   returnPath: string;
+  /** Import re-auth: browse only to confirm root (no include/dual-list extras). */
+  reauthRoot?: boolean;
 }
 
 export interface OAuthTokenResponse {
@@ -75,33 +77,74 @@ export function readOAuthCallbackParams(): URLSearchParams {
   return new URLSearchParams(window.location.search);
 }
 
-/** React Strict Mode runs effects twice in dev; OAuth codes are single-use. */
-const inFlightExchanges = new Map<string, Promise<OAuthTokenResponse>>();
+/**
+ * React Strict Mode remounts effects in dev. OAuth codes are single-use, so a
+ * remount after a fast success must reuse the completed result instead of
+ * exchanging again (Dropbox returns invalid_grant / code already used).
+ */
+const inFlightExchanges = new Map<string, Promise<unknown>>();
+const completedExchanges = new Map<string, Promise<unknown>>();
 
-// Make dedupeOAuthCodeExchange generic, so it works with any promise type.
 export function dedupeOAuthCodeExchange<T>(
   code: string,
   exchange: () => Promise<T>
 ): Promise<T> {
-  const existing = inFlightExchanges.get(code) as Promise<T> | undefined;
+  const existing =
+    (completedExchanges.get(code) as Promise<T> | undefined) ??
+    (inFlightExchanges.get(code) as Promise<T> | undefined);
   if (existing) {
     return existing;
   }
 
-  const pending = exchange().finally(() => {
-    inFlightExchanges.delete(code);
-  });
-  inFlightExchanges.set(code, pending as Promise<OAuthTokenResponse>);
+  const pending = exchange()
+    .then((result) => {
+      completedExchanges.set(code, Promise.resolve(result));
+      return result;
+    })
+    .finally(() => {
+      inFlightExchanges.delete(code);
+    });
+  inFlightExchanges.set(code, pending);
   return pending;
 }
 
+function oauthErrorPayload(raw: string): {
+  error?: string;
+  error_description?: string;
+} | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+
+  const tryParse = (text: string) => {
+    try {
+      return JSON.parse(text) as { error?: string; error_description?: string };
+    } catch {
+      return null;
+    }
+  };
+
+  const direct = tryParse(trimmed);
+  if (direct?.error || direct?.error_description) return direct;
+
+  // API wraps provider body: token exchange failed: {...}
+  const idx = trimmed.indexOf("{");
+  if (idx >= 0) {
+    return tryParse(trimmed.slice(idx));
+  }
+  return null;
+}
+
 export function formatOAuthExchangeError(raw: string, brand: string): string {
-  try {
-    const parsed = JSON.parse(raw) as { error?: string; error_description?: string };
+  const parsed = oauthErrorPayload(raw);
+  if (parsed) {
     const errorCode = parsed.error?.toLowerCase() ?? "";
     const description = parsed.error_description?.toLowerCase() ?? "";
 
-    if (errorCode === "invalid_grant" && description.includes("already been used")) {
+    if (
+      errorCode === "invalid_grant" &&
+      (description.includes("already been used") ||
+        description.includes("code has already been"))
+    ) {
       return `${brand} sign-in was already completed or the link expired. That usually happens if this page refreshed during sign-in. Go back and connect again to get a fresh sign-in link.`;
     }
 
@@ -116,8 +159,6 @@ export function formatOAuthExchangeError(raw: string, brand: string): string {
     if (parsed.error) {
       return `${brand} sign-in failed (${parsed.error}).`;
     }
-  } catch {
-    // Not JSON - fall through to raw message.
   }
 
   return raw.trim() || `${brand} sign-in failed.`;

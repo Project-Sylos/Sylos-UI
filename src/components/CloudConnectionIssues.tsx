@@ -10,11 +10,13 @@ import "./CloudConnectionIssues.css";
 interface CloudConnectionIssuesProps {
   issues: CloudConnectionCheckResult[];
   className?: string;
+  returnTo?: string;
 }
 
 export default function CloudConnectionIssues({
   issues,
   className = "",
+  returnTo,
 }: CloudConnectionIssuesProps) {
   const navigate = useNavigate();
   const invalid = issues.filter((issue) => !issue.valid);
@@ -43,6 +45,7 @@ export default function CloudConnectionIssues({
                     providerId: issue.providerId,
                     connectionId: issue.connectionId,
                     reconnect: true,
+                    returnTo,
                   })
                 )
               }

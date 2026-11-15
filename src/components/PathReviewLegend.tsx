@@ -91,7 +91,7 @@ export default function PathReviewLegend({
           icon: (
             <Check
               size={iconSize}
-              className="path-review__legend-icon path-review__legend-icon--exists-only-dst"
+              className="path-review__legend-icon path-review__legend-icon--exists"
             />
           ),
           label: "Destination only",
@@ -132,7 +132,7 @@ export default function PathReviewLegend({
           icon: (
             <Check
               size={iconSize}
-              className="path-review__legend-icon path-review__legend-icon--exists-only-dst"
+              className="path-review__legend-icon path-review__legend-icon--exists"
             />
           ),
           label: "Destination only",
@@ -195,7 +195,7 @@ export default function PathReviewLegend({
           icon: (
             <Check
               size={iconSize}
-              className="path-review__legend-icon path-review__legend-icon--exists-only-dst"
+              className="path-review__legend-icon path-review__legend-icon--exists"
             />
           ),
           label: "Destination only",
@@ -284,7 +284,7 @@ export default function PathReviewLegend({
           icon: (
             <Check
               size={iconSize}
-              className="path-review__legend-icon path-review__legend-icon--exists-only-dst"
+              className="path-review__legend-icon path-review__legend-icon--exists"
             />
           ),
           label: "Destination only",
@@ -335,7 +335,7 @@ export default function PathReviewLegend({
         icon: (
           <Check
             size={iconSize}
-            className="path-review__legend-icon path-review__legend-icon--exists-only-dst"
+            className="path-review__legend-icon path-review__legend-icon--exists"
           />
         ),
         label: "Destination only",

@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { ChevronRight } from "lucide-react";
 
 import FileTypeIcon from "./FileTypeIcon";
@@ -10,6 +11,7 @@ interface BrowseFolderItemRowProps {
   showArrow?: boolean;
   lastUpdated?: string;
   size?: number;
+  badge?: ReactNode;
 }
 
 export default function BrowseFolderItemRow({
@@ -19,6 +21,7 @@ export default function BrowseFolderItemRow({
   showArrow = false,
   lastUpdated,
   size,
+  badge,
 }: BrowseFolderItemRowProps) {
   return (
     <div
@@ -33,7 +36,10 @@ export default function BrowseFolderItemRow({
           className="browse-folder__row-icon"
         />
       </div>
-      <div className="browse-folder__item-name browse-folder__item-name--cell">{name}</div>
+      <div className="browse-folder__item-name browse-folder__item-name--cell">
+        {name}
+        {badge}
+      </div>
       <div className="browse-folder__item-path-col" title={path}>
         {path}
       </div>

@@ -492,6 +492,45 @@ export default function SpectraConfigPage() {
         </div>
 
         <FormSection title="Seed Configuration">
+          <div className="form-field">
+            <label htmlFor="item_name_style" className="form-field__label-with-tooltip">
+              Item name style
+              <HelpTooltip
+                tipId="spectra-item-name-style"
+                category="spectra-config"
+                position="right"
+                content={
+                  <>
+                    <p>
+                      Numbered names (folder_1, file_1.txt) are the default and
+                      fine for small or medium trees.
+                    </p>
+                    <p style={{ marginTop: "0.5rem" }}>
+                      Choose Unique ID names for larger datasets so each node
+                      uses its Spectra ID (files keep a .txt suffix). That
+                      avoids flooding review trigram indexes with shared
+                      numbered-name grams.
+                    </p>
+                  </>
+                }
+              />
+            </label>
+            <select
+              id="item_name_style"
+              className="form-field__input"
+              value={config.seed.unique_id_names ? "unique_id" : "numbered"}
+              onChange={(e) =>
+                handleBooleanInputChange(
+                  "seed",
+                  "unique_id_names",
+                  e.target.value === "unique_id"
+                )
+              }
+            >
+              <option value="numbered">Numbered (folder_1, file_1.txt)</option>
+              <option value="unique_id">Unique ID names</option>
+            </select>
+          </div>
           <FormField
             id="max_depth"
             label="Max Depth"

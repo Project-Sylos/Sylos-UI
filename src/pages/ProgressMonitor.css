@@ -218,6 +218,73 @@
   padding: 0 0.75rem 0.75rem;
 }
 
+.progress-monitor__subsection {
+  border: 1px solid rgba(
+    var(--border-base-r),
+    var(--border-base-g),
+    var(--border-base-b),
+    0.4
+  );
+  border-radius: 8px;
+  background: rgba(
+    var(--surface-base-r),
+    var(--surface-base-g),
+    var(--surface-base-b),
+    0.22
+  );
+  overflow: hidden;
+}
+
+.progress-monitor__subsection-summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.65rem;
+  user-select: none;
+  color: var(--text-primary);
+}
+
+.progress-monitor__subsection-summary::-webkit-details-marker {
+  display: none;
+}
+
+.progress-monitor__subsection-summary::before {
+  content: "";
+  width: 0;
+  height: 0;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 6px solid currentColor;
+  opacity: 0.7;
+  flex: 0 0 auto;
+  transition: transform 0.12s ease;
+}
+
+.progress-monitor__subsection[open] > .progress-monitor__subsection-summary::before {
+  transform: rotate(90deg);
+}
+
+.progress-monitor__subsection-title {
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.progress-monitor__subsection-badge {
+  margin-left: auto;
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+}
+
+.progress-monitor__subsection-body {
+  padding: 0 0.65rem 0.65rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
 .progress-monitor__worker-caps {
   display: flex;
   flex-direction: column;

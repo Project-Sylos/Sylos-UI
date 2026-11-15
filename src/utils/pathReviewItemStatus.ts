@@ -32,6 +32,18 @@ export function itemStatusPhase(
   return "traversal";
 }
 
+/** Destination-only row: unpaired DEST (engine: DST copy destination_only; legacy trav not_on_src). */
+function isDestinationOnly(item: DiffItem): boolean {
+  if (item.src) return false;
+  return (
+    !!item.dst ||
+    item.copyStatus === "destination_only" ||
+    item.dst?.copyStatus === "destination_only" ||
+    item.traversalStatus === "not_on_src" ||
+    item.dst?.traversalStatus === "not_on_src"
+  );
+}
+
 /**
  * Phase-aware row status for tree/list chrome (not icons).
  * Traversal: failure/retry/skip from traversal_status; exclude/exists flags still
@@ -43,11 +55,7 @@ export function getPathReviewItemStatus(
   phase: PathReviewUIPhase
 ): PathReviewItemStatus {
   if (phase === "delete") {
-    const existsOnlyOnDst =
-      !item.src &&
-      (!!item.dst ||
-        item.traversalStatus === "not_on_src" ||
-        item.dst?.traversalStatus === "not_on_src");
+    const existsOnlyOnDst = isDestinationOnly(item);
     if (existsOnlyOnDst) {
       return {
         isExcluded: false,
@@ -77,11 +85,7 @@ export function getPathReviewItemStatus(
   }
 
   const copyStatus = item.src?.copyStatus || item.copyStatus || "";
-  const existsOnlyOnDst =
-    phase === "copy"
-      ? !item.src && !!item.dst
-      : item.traversalStatus === "not_on_src" ||
-        item.dst?.traversalStatus === "not_on_src";
+  const existsOnlyOnDst = isDestinationOnly(item);
 
   if (phase === "copy") {
     const isFailed = copyStatus === "failed";
@@ -109,16 +113,16 @@ export function getPathReviewItemStatus(
     (copyStatus === "exclusion_explicit" ||
       copyStatus === "exclusion_inherited" ||
       copyStatus === "excluded");
+  const retryPending = isTraversalRetryPending(item);
   return {
     isExcluded,
     isTraversalSkipped: skippedDiscovery,
-    isPending: isTraversalRetryPending(item),
+    isPending: retryPending,
     isSuccessful:
       !isFailed &&
       !skippedDiscovery &&
-      !isTraversalRetryPending(item) &&
-      !existsOnlyOnDst &&
-      !!item.src,
+      !retryPending &&
+      (!!item.src || !!item.dst || existsOnlyOnDst),
     existsOnBoth: isCopyComplete(copyStatus),
     existsOnlyOnDst,
     isFailed,

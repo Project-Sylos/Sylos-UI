@@ -9,9 +9,16 @@ export function hasTraversalFailure(item: DiffItem): boolean {
   );
 }
 
-/** Root-pick / traversal-skipped: subtree was never explored. */
+/** Traversal excluded because the user acknowledged a discovery failure. */
+export function isTraversalAckFromFailed(item: DiffItem): boolean {
+  return item.src?.traversalAckFromFailed === true;
+}
+
+/** Root-pick / traversal-skipped: subtree was never explored (not ack-from-failed). */
 export function isTraversalSkipped(item: DiffItem): boolean {
-  return item.src?.traversalStatus === "excluded";
+  return (
+    item.src?.traversalStatus === "excluded" && !isTraversalAckFromFailed(item)
+  );
 }
 
 /**
@@ -58,17 +65,27 @@ export function applyDiscoveryRetryOptimistic(
       : srcSt === "pending";
     if (flipSrc) {
       const nextTrav = marking ? "pending" : unmarkRestore;
+      const wasAck = item.src.traversalAckFromFailed === true;
       updated.src = {
         ...item.src,
         traversalStatus: nextTrav,
-        ...(marking && srcSt === "excluded" ? { copyStatus: "pending" } : {}),
-        ...(!marking && unmarkRestore === "excluded" ? { copyStatus: "excluded" } : {}),
+        traversalAckFromFailed: marking
+          ? false
+          : unmarkRestore === "excluded" && wasAck
+            ? true
+            : false,
+        ...(marking && srcSt === "excluded" && !wasAck
+          ? { copyStatus: "pending" }
+          : {}),
+        ...(!marking && unmarkRestore === "excluded" && !wasAck
+          ? { copyStatus: "excluded" }
+          : {}),
       };
       updated.traversalStatus = nextTrav;
-      if (marking && srcSt === "excluded") {
+      if (marking && srcSt === "excluded" && !wasAck) {
         updated.copyStatus = "pending";
       }
-      if (!marking && unmarkRestore === "excluded") {
+      if (!marking && unmarkRestore === "excluded" && !wasAck) {
         updated.copyStatus = "excluded";
       }
     }

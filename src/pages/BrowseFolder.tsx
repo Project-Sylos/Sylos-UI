@@ -10,6 +10,7 @@ import {
   createBrowseFolder,
   deleteBrowseNodes,
   setMigrationRoot,
+  remapLocalRoot,
   getHomeFolder,
   getMigrationStatus,
 } from "../api/services";
@@ -28,6 +29,9 @@ import ConfirmDialog from "../components/ConfirmDialog";
 import NewFolderModal from "../components/NewFolderModal";
 import BrowseContextMenu from "../components/BrowseContextMenu";
 import FileBrowserPane, { BROWSE_SELECTION_HELP } from "../components/FileBrowserPane";
+import OriginalRootCard, {
+  PreviousRootBadge,
+} from "../components/OriginalRootCard";
 import { BrowseDensityProvider, useBrowseDensity } from "../contexts/BrowseDensityContext";
 import { useSelection } from "../context/SelectionContext";
 import { useAltTextSelect } from "../hooks/useAltTextSelect";
@@ -52,8 +56,13 @@ import {
 } from "../utils/cloudAccountLabel";
 import { isCloudServiceType } from "../utils/cloudProviders";
 import {
+  matchesPreviousRoot,
+  previousRootMatchIds,
+} from "../utils/previousRoot";
+import {
   buildDeleteConfirmMessage,
   BrowseSelectableItem,
+  FOLDER_SELECT_BOUNCE_MS,
   formatDeleteErrors,
   isMultiSelectModifier,
   useBrowseSelection,
@@ -130,15 +139,20 @@ function BrowseFolderPage() {
   const [searchParams] = useSearchParams();
   const serviceIdentifier = searchParams.get("serviceId") || "";
   const role = (searchParams.get("role") as "source" | "destination") || "source";
+  const remapImport = searchParams.get("remapImport") === "1";
+  const reauthRoot = searchParams.get("reauthRoot") === "1";
   const { densityStyle } = useBrowseDensity();
   const {
     services,
     migration,
     source,
+    destination,
     updateMigration,
     selectSource,
     selectDestination,
   } = useSelection();
+  const remapMigrationId =
+    searchParams.get("migrationId") || migration.migrationId || "";
   const rootInclude = useRootIncludeSelection();
   const [browseSort, setBrowseSort] = useState<BrowseSortState>(DEFAULT_BROWSE_SORT);
   const [includeSubmitting, setIncludeSubmitting] = useState(false);
@@ -150,9 +164,26 @@ function BrowseFolderPage() {
   const [files, setFiles] = useState<Folder[]>([]);
   const [currentPath, setCurrentPath] = useState<string | null>(null);
   const [breadcrumbs, setBreadcrumbs] = useState<BreadcrumbItem[]>([]);
+  const [isDriveView, setIsDriveView] = useState(true);
+  const resumeFolder = (location.state as { resumeFolder?: Folder } | null)
+    ?.resumeFolder;
+  const previousRoot = useMemo(() => {
+    if (!reauthRoot) return undefined;
+    return (
+      resumeFolder ??
+      (role === "source" ? source?.root : destination?.root)
+    );
+  }, [reauthRoot, resumeFolder, role, source?.root, destination?.root]);
+  const previousRootIds = useMemo(
+    () => previousRootMatchIds(previousRoot),
+    [previousRoot]
+  );
+  const viewingOriginalRoot =
+    reauthRoot &&
+    !isDriveView &&
+    matchesPreviousRoot(currentPath, previousRootIds);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [isDriveView, setIsDriveView] = useState(true);
   const [showUnmountedDrives, setShowUnmountedDrives] = useState(false);
   const [mountingDrive, setMountingDrive] = useState<string | null>(null);
   const [pagination, setPagination] = useState<PaginationInfo | null>(null);
@@ -180,8 +211,6 @@ function BrowseFolderPage() {
     wasIncluded: boolean;
   } | null>(null);
 
-  const resumeFolder = (location.state as { resumeFolder?: Folder } | null)
-    ?.resumeFolder;
   const reconfirmSourceInclude = Boolean(
     (location.state as { reconfirmSourceInclude?: boolean } | null)
       ?.reconfirmSourceInclude
@@ -223,7 +252,7 @@ function BrowseFolderPage() {
   );
 
   /** Source browse include marks once we are inside a folder. */
-  const includeMode = role === "source" && !isDriveView;
+  const includeMode = !reauthRoot && role === "source" && !isDriveView;
   const parentKey = currentPath ?? ROOT_INCLUDE_PARENT;
   const ancestorChain = useMemo(
     () => breadcrumbs.map((crumb) => crumb.path),
@@ -265,7 +294,7 @@ function BrowseFolderPage() {
   const cascadePreviewKeyRef = useRef("");
 
   const prepareDestinationRoot =
-    role === "destination" && Boolean(migration.sourceRootPrepared);
+    !reauthRoot && role === "destination" && Boolean(migration.sourceRootPrepared);
   /** After picking a dest root: relative dual-list review before final confirm. */
   const destRootReviewMode =
     prepareDestinationRoot && Boolean(destAlignRootId) && !isDriveView;
@@ -694,7 +723,7 @@ function BrowseFolderPage() {
             visibleItems,
             ancestorChain
           );
-        }, 150);
+        }, FOLDER_SELECT_BOUNCE_MS);
         return;
       }
 
@@ -735,7 +764,7 @@ function BrowseFolderPage() {
       folderClickTimerRef.current = window.setTimeout(() => {
         folderClickTimerRef.current = null;
         runSelect();
-      }, 150);
+      }, FOLDER_SELECT_BOUNCE_MS);
       return;
     }
 
@@ -936,6 +965,16 @@ function BrowseFolderPage() {
       return;
     }
 
+    if (reauthRoot) {
+      await commitPreparedRoot(selectedFolder, [], { reauth: true });
+      return;
+    }
+
+    if (remapImport) {
+      await commitPreparedRoot(selectedFolder, []);
+      return;
+    }
+
     if (role === "source") {
       // Key on currentPath: buildSelectedFolder may normalize separators.
       await confirmSourceRoot(selectedFolder, currentPath);
@@ -990,9 +1029,7 @@ function BrowseFolderPage() {
       return;
     }
 
-    navigate("/destination", {
-      state: { selectedFolder, serviceId: serviceIdentifier, role: "destination" },
-    });
+    navigate("/summary");
   };
 
   /** Current folder becomes the source root; checkbox state becomes its include tree. */
@@ -1034,7 +1071,8 @@ function BrowseFolderPage() {
 
   const commitPreparedRoot = async (
     rootFolder: Folder,
-    children: MigrationRootChild[]
+    children: MigrationRootChild[],
+    opts?: { reauth?: boolean }
   ) => {
     const service = services.find((s) => s.id === serviceIdentifier);
     if (!service) {
@@ -1042,19 +1080,49 @@ function BrowseFolderPage() {
       return;
     }
 
+    const quietReauth = Boolean(opts?.reauth);
     try {
       setIncludeSubmitting(true);
       setError(null);
+
+      if (remapImport) {
+        if (!remapMigrationId) {
+          setError("Migration id is required for local remap.");
+          return;
+        }
+        await remapLocalRoot(remapMigrationId, role, folderToApiRoot(rootFolder));
+        if (role === "source") {
+          selectSource(service, rootFolder);
+        } else {
+          selectDestination(service, rootFolder);
+        }
+        rootInclude.reset();
+        navigate("/resume", {
+          state: {
+            remapDone: {
+              migrationId: remapMigrationId,
+              role,
+              newPath: rootFolder.ServiceID || rootFolder.Id,
+            },
+          },
+        });
+        return;
+      }
+
       const response = await setMigrationRoot({
         migrationId: migration.migrationId,
         role,
         serviceId: service.id,
         root: folderToApiRoot(rootFolder),
-        children,
-        excludedIds:
-          role === "source"
-            ? children.filter((c) => c.excluded).map((c) => c.id)
-            : undefined,
+        ...(quietReauth
+          ? { reauth: true }
+          : {
+              children,
+              excludedIds:
+                role === "source"
+                  ? children.filter((c) => c.excluded).map((c) => c.id)
+                  : undefined,
+            }),
       });
 
       updateMigration({
@@ -1062,21 +1130,23 @@ function BrowseFolderPage() {
         sourceConnectionId: response.sourceConnectionId,
         destinationConnectionId: response.destinationConnectionId,
         ready: response.ready,
-        ...(role === "source"
-          ? {
-              sourceRootPrepared: true,
-              sourceRootChildNames: includedSourceChildNames(children),
-              sourceRootChildren: children,
-              ...(isCloudServiceType(service.type)
-                ? {}
-                : clearEndpointCloudState("source")),
-            }
-          : {
-              destinationRootPrepared: true,
-              ...(isCloudServiceType(service.type)
-                ? {}
-                : clearEndpointCloudState("destination")),
-            }),
+        ...(quietReauth
+          ? {}
+          : role === "source"
+            ? {
+                sourceRootPrepared: true,
+                sourceRootChildNames: includedSourceChildNames(children),
+                sourceRootChildren: children,
+                ...(isCloudServiceType(service.type)
+                  ? {}
+                  : clearEndpointCloudState("source")),
+              }
+            : {
+                destinationRootPrepared: true,
+                ...(isCloudServiceType(service.type)
+                  ? {}
+                  : clearEndpointCloudState("destination")),
+              }),
       });
 
       if (role === "source") {
@@ -1084,16 +1154,14 @@ function BrowseFolderPage() {
       } else {
         selectDestination(service, rootFolder);
       }
-      rootInclude.reset();
-      if (response.ready) {
-        navigate("/summary");
-      } else if (role === "source") {
-        navigate("/destination");
-      } else {
-        navigate("/summary");
+      if (!quietReauth) {
+        rootInclude.reset();
       }
+      navigate("/summary");
     } catch (err) {
-      updateMigration(clearAccountFields(role));
+      if (!remapImport && !quietReauth) {
+        updateMigration(clearAccountFields(role));
+      }
       setError(
         err instanceof Error ? err.message : "Failed to confirm root children."
       );
@@ -1108,18 +1176,40 @@ function BrowseFolderPage() {
     <section className="browse-folder">
       <PageShell className="browse-folder__content">
         <PageBackButton
-          onClick={handlePageBack}
+          onClick={() => {
+            if (reauthRoot) {
+              navigate("/summary");
+              return;
+            }
+            handlePageBack();
+          }}
           title={
-            role === "destination"
-              ? "Back to destination service selection"
-              : "Back to source service selection"
+            reauthRoot
+              ? "Back to setup"
+              : role === "destination"
+                ? "Back to destination service selection"
+                : "Back to source service selection"
           }
           className="browse-folder__page-back"
         />
 
         <header className="browse-folder__header">
           <h1 className="browse-folder__title">
-            {role === "source" ? (
+            {reauthRoot ? (
+              <>
+                Confirm your{" "}
+                <span
+                  className={
+                    role === "source"
+                      ? "browse-folder__highlight--magenta"
+                      : "browse-folder__highlight--cyan"
+                  }
+                >
+                  {role}
+                </span>{" "}
+                root
+              </>
+            ) : role === "source" ? (
               <>
                 Choose your{" "}
                 <span className="browse-folder__highlight--magenta">source</span>{" "}
@@ -1133,7 +1223,13 @@ function BrowseFolderPage() {
               </>
             )}
           </h1>
-          {includeMode ? (
+          {reauthRoot ? (
+            <p className="browse-folder__include-hint browse-folder__include-hint--reauth">
+              Re-authentication only: open the same root folder used for this
+              migration, then Confirm. No include checkboxes or extra review
+              steps on this pass.
+            </p>
+          ) : includeMode ? (
             <p className="browse-folder__include-hint">
               Browse freely to the folder you want; Confirm uses this folder (or
               drive) as the source root. You can check folders and files. Leave
@@ -1151,6 +1247,13 @@ function BrowseFolderPage() {
             </p>
           ) : null}
         </header>
+
+        {reauthRoot && (
+          <OriginalRootCard
+            root={previousRoot}
+            viewingOriginal={Boolean(viewingOriginalRoot)}
+          />
+        )}
 
         {error && (
           <div className="browse-folder__error">{error}</div>
@@ -1254,18 +1357,28 @@ function BrowseFolderPage() {
                   const isMounting = mountingDrive === device;
 
                   if (mounted) {
+                    const isPrevious =
+                      reauthRoot &&
+                      (matchesPreviousRoot(drive.path, previousRootIds) ||
+                        matchesPreviousRoot(drive.mountPoint, previousRootIds) ||
+                        matchesPreviousRoot(drive.device, previousRootIds));
                     return (
                       <button
                         key={drive.path}
                         type="button"
-                        className="browse-folder__item browse-folder__item--drive"
+                        className={`browse-folder__item browse-folder__item--drive${
+                          isPrevious ? " browse-folder__item--previous-root" : ""
+                        }`}
                         onClick={() => handleDriveSelect(drive)}
                       >
                         <div className="browse-folder__item-icon">
                           <DriveTypeIcon driveType={drive.type} />
                         </div>
                         <div className="browse-folder__item-info">
-                          <div className="browse-folder__item-name">{getDriveDisplayName(drive)}</div>
+                          <div className="browse-folder__item-name">
+                            {getDriveDisplayName(drive)}
+                            {isPrevious ? <PreviousRootBadge /> : null}
+                          </div>
                           <div className="browse-folder__item-meta">{getDriveSubtitle(drive)}</div>
                           <DriveStorageInfo drive={drive} />
                         </div>
@@ -1420,6 +1533,10 @@ function BrowseFolderPage() {
                       folder.ServiceID
                     );
                     const filterReason = rootInclude.filterReason(folder.ServiceID);
+                    const isPrevious =
+                      reauthRoot &&
+                      (matchesPreviousRoot(folder.ServiceID, previousRootIds) ||
+                        matchesPreviousRoot(folder.locationPath, previousRootIds));
                     return (
                       <div
                         key={folder.ServiceID}
@@ -1435,6 +1552,8 @@ function BrowseFolderPage() {
                           filterReason && !included
                             ? " browse-folder__item--filter-excluded"
                             : ""
+                        }${
+                          isPrevious ? " browse-folder__item--previous-root" : ""
                         }`}
                         onClick={(event) => {
                           if (
@@ -1480,6 +1599,7 @@ function BrowseFolderPage() {
                           type="folder"
                           showArrow
                           lastUpdated={folder.lastUpdated}
+                          badge={isPrevious ? <PreviousRootBadge /> : null}
                         />
                       </div>
                     );
@@ -1562,17 +1682,21 @@ function BrowseFolderPage() {
             {!isDriveView && currentPath && (
               <button
                 type="button"
-                className="action-button action-button--primary"
+                className={`action-button action-button--primary${
+                  reauthRoot ? " browse-folder__confirm--reauth" : ""
+                }`}
                 onClick={() => void handleSelectRoot()}
                 disabled={includeSubmitting}
               >
                 {includeSubmitting
                   ? "Saving…"
-                  : role === "source"
-                    ? "Confirm"
-                    : destRootReviewMode
-                      ? "Confirm destination"
-                      : "Select"}
+                  : reauthRoot
+                    ? "Confirm root"
+                    : role === "source"
+                      ? "Confirm"
+                      : destRootReviewMode
+                        ? "Confirm destination"
+                        : "Select"}
               </button>
             )}
           </div>

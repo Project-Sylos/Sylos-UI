@@ -18,7 +18,6 @@ import {
   ClipboardCopy,
   ChevronDown,
   ChevronRight,
-  Pencil,
 } from "lucide-react";
 
 import {
@@ -31,18 +30,7 @@ import {
   resumeMigration,
   retryFinalize,
 } from "../api/services";
-import {
-  fetchScalingDefaults,
-  getMigrationScaling,
-  putMigrationScaling,
-  deleteProviderScalingOverrides,
-} from "../api/scaling";
-import WorkerCapOverridesDialog from "../components/WorkerCapOverridesDialog";
-import type {
-  ModeWorkerCaps,
-  ProviderWorkerCaps,
-  WorkerCapMode,
-} from "../types/scaling";
+import AutoscalerPanel from "../components/AutoscalerPanel";
 import {
   getMigrationPhase,
   isCopyReviewPhase,
@@ -475,11 +463,12 @@ function SizeFoldProgress({ metrics }: { metrics?: QueueMetrics | null }) {
       ? metrics.eta_seconds
       : null;
   const depth = metrics.round;
+  const scanning = depth === -1;
   return (
     <p>
-      Updating folder sizes
+      {scanning ? "Scanning folders" : "Updating folder sizes"}
       {total > 0 ? `: ${done.toLocaleString()} / ${total.toLocaleString()} folders` : ""}
-      {typeof depth === "number" ? ` (depth ${depth})` : ""}.
+      {!scanning && typeof depth === "number" ? ` (depth ${depth})` : ""}.
       {rate > 0 ? ` ${rate.toFixed(1)} folders/s.` : ""}
       {eta != null && eta > 0 ? ` ETA ${formatEtaSeconds(eta)}.` : ""}
     </p>
@@ -573,15 +562,6 @@ export default function ProgressMonitor() {
   const [logFilter, setLogFilter] = useState<LogLevel | "all">("all");
   const [logLines, setLogLines] = useState<MigrationLog[]>([]);
   const [logsPaused, setLogsPaused] = useState(false);
-  const [workerCapDialogOpen, setWorkerCapDialogOpen] = useState(false);
-  const [workerCapBusy, setWorkerCapBusy] = useState(false);
-  const [workerCapError, setWorkerCapError] = useState<string | null>(null);
-  const [workerCapDefaults, setWorkerCapDefaults] = useState<
-    Partial<Record<WorkerCapMode, ModeWorkerCaps>>
-  >({});
-  const [workerCapModes, setWorkerCapModes] = useState<
-    Partial<Record<WorkerCapMode, number>>
-  >({});
   const logIdsRef = useRef<Set<string>>(new Set());
   const logTerminalRef = useRef<HTMLDivElement | null>(null);
   /** Auto-follow the log tail only while the user is at (or near) the bottom. */
@@ -657,7 +637,8 @@ export default function ProgressMonitor() {
     try {
       const statusData = await getMigrationStatus(migrationId);
       setStatus(statusData);
-      // Rehydrate roots from the server when opening directly in a fresh session.
+      // Rehydrate roots from the server when opening directly in a fresh session
+      // (e.g. after sign-out / sign-in). Do not stop the migration on unmount.
       applyServerRoots(statusData.sourceRoot, statusData.destinationRoot);
       const phase = getMigrationPhase(statusData);
       const hadRunBefore = hasSeenActiveRunRef.current;
@@ -903,6 +884,8 @@ export default function ProgressMonitor() {
   // results are ready (View results) or the migration is waiting in review.
   useScreenWakeLock(live && (inRunPhase || isFinalizing) && !showResultsButton);
   const stoppedMidRun = inRunPhase && !live;
+  // Finalize only offers Stop while the run is still live; dead *-finalizing
+  // is normalized to *-finalize-failed on status poll / Stop.
   const showStopButton = Boolean(
     status &&
       !isFailed &&
@@ -910,18 +893,18 @@ export default function ProgressMonitor() {
       !isAborted &&
       !isSuspended &&
       !inAwaitingReview &&
-      !isFinalizing &&
-      (live || stopPopoverOpen)
+      ((isFinalizing && live) || (!isFinalizing && (live || stopPopoverOpen)))
   );
   const showResumeButton = Boolean(
     status &&
       !isAborted &&
       !inAwaitingReview &&
-      !isFinalizing &&
+      !(isFinalizing && live) &&
       (isFailed ||
         isFinalizeFailed ||
         isSuspended ||
         stoppedMidRun ||
+        (isFinalizing && explicitlyNotLive) ||
         (inRunPhase && explicitlyNotLive))
   );
 
@@ -989,20 +972,6 @@ export default function ProgressMonitor() {
     ? "Opted out of source removal during cleanup planning"
     : "Already on the destination; counted without re-transfer";
   const copyPass = phaseMetrics?.copy_pass ?? 0;
-  const workerCapHighlightMode: WorkerCapMode = showDeleteUI
-    ? "delete"
-    : showCopyUI
-      ? copyPass === 1
-        ? "copy_folders"
-        : "copy_files"
-      : "traversal";
-  const persistProviderId = String(
-    status?.destinationRoot?.serviceId ||
-      status?.destinationId ||
-      status?.sourceRoot?.serviceId ||
-      status?.sourceId ||
-      "generic"
-  );
   // Engine-owned ETA: UI only renders eta_seconds / eta_basis from queue-metrics.
   const etaSeconds =
     typeof phaseMetrics?.eta_seconds === "number" && Number.isFinite(phaseMetrics.eta_seconds)
@@ -1260,18 +1229,29 @@ export default function ProgressMonitor() {
         const fresh = await getMigrationStatus(migrationId);
         setStatus(fresh);
         setStallTooltipOpen(false);
+        // Dead finalize was normalized server-side; Resume should appear after refresh.
+        if (isMigrationFinalizeFailed(fresh) || isMigrationFinalizing(fresh)) {
+          restartPollingIfStopped();
+          return;
+        }
         setToast({ message: "Migration is already stopped.", type: "info" });
         return;
       }
 
       setStatus(next);
+      setStallTooltipOpen(false);
+      if (isFinalizing) {
+        // Finalize abort has no queue drain; wait for *-finalize-failed then Resume.
+        await fetchStatus();
+        restartPollingIfStopped();
+        return;
+      }
       const progress =
         next.stopProgress ??
         (next as { StopProgress?: StopProgressPayload }).StopProgress ??
         null;
       setStopProgress(progress);
       setStopPopoverOpen(true);
-      setStallTooltipOpen(false);
       // Soft stop accepted: unlock Hard stop while we poll drain progress.
       setActionBusy(false);
 
@@ -1369,16 +1349,15 @@ export default function ProgressMonitor() {
     }
   };
 
-  const handleConfirmRetryFinalize = async (overrides: {
-    memoryLimitGB: number;
-    threads: number;
-  }) => {
+  const handleConfirmRetryFinalize = async (mode: "resume" | "refold") => {
     if (!migrationId) return;
     setConfirmKind(null);
     setActionBusy(true);
     setActionError(null);
     try {
-      const result = await retryFinalize(migrationId, overrides);
+      const result = await retryFinalize(migrationId, {
+        refold: mode === "refold",
+      });
       if (!result.success) {
         setActionError(result.error || "Failed to retry finalize.");
         return;
@@ -1562,7 +1541,7 @@ export default function ProgressMonitor() {
                 {(status?.dbActivity || status?.DbActivity || "").trim() ||
                   (queueMetrics?.sizeFold
                     ? "Calculating folder size totals."
-                    : "Rebuilding indexes and checkpointing so review can open safely.")}
+                    : "Sealing and checkpointing so review can open safely.")}
               </p>
               <SizeFoldProgress metrics={queueMetrics?.sizeFold} />
             </div>
@@ -1571,7 +1550,7 @@ export default function ProgressMonitor() {
         {isFinalizeFailed && (
           <div className="progress-monitor__error" role="status">
             Database finalize failed after the queues finished. Use Resume to
-            retry indexes and checkpoint with optional memory/thread overrides.
+            retry sealing, folder-size totals, and checkpoint.
             {(status?.error && String(status.error).trim()) ? (
               <p className="progress-monitor__error-detail">
                 {String(status.error).trim()}
@@ -2008,117 +1987,100 @@ export default function ProgressMonitor() {
         <details
           className="progress-monitor__advanced"
           open={advancedOpen}
-          onToggle={(e) => setAdvancedOpen((e.target as HTMLDetailsElement).open)}
+          onToggle={(e) => {
+            // Nested subsection <details> also fire toggle (bubbles); only sync the outer.
+            if (e.target !== e.currentTarget) return;
+            setAdvancedOpen((e.currentTarget as HTMLDetailsElement).open);
+          }}
         >
           <summary className="progress-monitor__advanced-summary">
             {advancedOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
             Advanced info
           </summary>
           <div className="progress-monitor__advanced-body">
-            <div className="progress-monitor__worker-caps">
-              <div className="progress-monitor__workers-row">
-                <span className="progress-monitor__workers-label">Workers:</span>
-                <span className="progress-monitor__workers-value">
-                  {(
-                    (showDeleteUI
-                      ? queueMetrics?.delete?.workers
-                      : showCopyUI
-                        ? queueMetrics?.copy?.workers
-                        : queueMetrics?.srcTraversal?.workers) ?? 0
-                  ).toLocaleString()}
-                </span>
-                <button
-                  type="button"
-                  className="progress-monitor__workers-edit"
-                  disabled={workerCapBusy || !migrationId}
-                  title="Override worker limits"
-                  aria-label="Override worker limits"
-                  onClick={async () => {
-                    if (!migrationId) return;
-                    setWorkerCapError(null);
-                    try {
-                      setWorkerCapBusy(true);
-                      const [defaultsMap, scaling] = await Promise.all([
-                        fetchScalingDefaults(),
-                        getMigrationScaling(migrationId),
-                      ]);
-                      const providerDefaults =
-                        (defaultsMap[persistProviderId] as ProviderWorkerCaps | undefined) ||
-                        defaultsMap.generic ||
-                        defaultsMap.local;
-                      setWorkerCapDefaults(providerDefaults?.modes || {});
-                      setWorkerCapModes(scaling.modes || {});
-                      setWorkerCapDialogOpen(true);
-                    } catch (err) {
-                      setWorkerCapError(
-                        err instanceof Error ? err.message : "Failed to load worker limits"
-                      );
-                    } finally {
-                      setWorkerCapBusy(false);
-                    }
-                  }}
-                >
-                  <Pencil size={14} />
-                </button>
-              </div>
-              {workerCapError && !workerCapDialogOpen ? (
-                <p className="progress-monitor__worker-caps-error">{workerCapError}</p>
-              ) : null}
-            </div>
-            <div className="progress-monitor__logs-toolbar">
-              <label className="progress-monitor__logs-filter">
-                Level
-                <select
-                  value={logFilter}
-                  onChange={(e) => setLogFilter(e.target.value as LogLevel | "all")}
-                >
-                  <option value="all">all</option>
-                  {LOG_LEVELS.map((lvl) => (
-                    <option key={lvl} value={lvl}>
-                      {lvl}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <button
-                type="button"
-                className="progress-monitor__logs-pause"
-                onClick={toggleLogsPaused}
-              >
-                {logsPaused ? "Resume logs" : "Pause logs"}
-              </button>
-              <span className="progress-monitor__logs-count">
-                {filteredLogLines.length.toLocaleString()} lines
-              </span>
-            </div>
-            <div
-              ref={logTerminalRef}
-              className="progress-monitor__logs-terminal"
-              onScroll={syncLogsStickToBottom}
-            >
-              {filteredLogLines.length === 0 ? (
-                <div className="progress-monitor__logs-empty">
-                  Waiting for log entries…
+            {migrationId ? (
+              <details className="progress-monitor__subsection" open>
+                <summary className="progress-monitor__subsection-summary">
+                  <span className="progress-monitor__subsection-title">
+                    Autoscaler
+                  </span>
+                </summary>
+                <div className="progress-monitor__subsection-body">
+                  <AutoscalerPanel
+                    migrationId={migrationId}
+                    enabled={advancedOpen}
+                  />
                 </div>
-              ) : (
-                filteredLogLines.map((line) => (
-                  <div
-                    key={line.id}
-                    className={`progress-monitor__log-line progress-monitor__log-line--${line.level}`}
+              </details>
+            ) : null}
+            <details className="progress-monitor__subsection">
+              <summary className="progress-monitor__subsection-summary">
+                <span className="progress-monitor__subsection-title">Logs</span>
+                <span className="progress-monitor__subsection-badge">
+                  {filteredLogLines.length.toLocaleString()} lines
+                </span>
+              </summary>
+              <div className="progress-monitor__subsection-body">
+                <div className="progress-monitor__logs-toolbar">
+                  <label className="progress-monitor__logs-filter">
+                    Level
+                    <select
+                      value={logFilter}
+                      onChange={(e) =>
+                        setLogFilter(e.target.value as LogLevel | "all")
+                      }
+                    >
+                      <option value="all">all</option>
+                      {LOG_LEVELS.map((lvl) => (
+                        <option key={lvl} value={lvl}>
+                          {lvl}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <button
+                    type="button"
+                    className="progress-monitor__logs-pause"
+                    onClick={toggleLogsPaused}
                   >
-                    <span className="progress-monitor__log-level">{line.level}</span>
-                    <span className="progress-monitor__log-time">
-                      {line.data?.timestamp
-                        ? new Date(line.data.timestamp).toLocaleTimeString()
-                        : ""}
-                    </span>
-                    <span className="progress-monitor__log-msg">
-                      {line.data?.message ?? JSON.stringify(line.data)}
-                    </span>
-                  </div>
-                ))
-              )}
-            </div>
+                    {logsPaused ? "Resume logs" : "Pause logs"}
+                  </button>
+                  <span className="progress-monitor__logs-count">
+                    {filteredLogLines.length.toLocaleString()} lines
+                  </span>
+                </div>
+                <div
+                  ref={logTerminalRef}
+                  className="progress-monitor__logs-terminal"
+                  onScroll={syncLogsStickToBottom}
+                >
+                  {filteredLogLines.length === 0 ? (
+                    <div className="progress-monitor__logs-empty">
+                      Waiting for log entries…
+                    </div>
+                  ) : (
+                    filteredLogLines.map((line) => (
+                      <div
+                        key={line.id}
+                        className={`progress-monitor__log-line progress-monitor__log-line--${line.level}`}
+                      >
+                        <span className="progress-monitor__log-level">
+                          {line.level}
+                        </span>
+                        <span className="progress-monitor__log-time">
+                          {line.data?.timestamp
+                            ? new Date(line.data.timestamp).toLocaleTimeString()
+                            : ""}
+                        </span>
+                        <span className="progress-monitor__log-msg">
+                          {line.data?.message ?? JSON.stringify(line.data)}
+                        </span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </details>
           </div>
         </details>
 
@@ -2147,9 +2109,11 @@ export default function ProgressMonitor() {
                   disabled={actionBusy || stopPopoverOpen}
                   onClick={() => setConfirmKind("stop")}
                   title={
-                    possibleStall
-                      ? "Migration may have stalled. Click to stop"
-                      : "Stop the running migration"
+                    isFinalizing
+                      ? "Stop finalize (folder sizes / checkpoint); Resume can retry"
+                      : possibleStall
+                        ? "Migration may have stalled. Click to stop"
+                        : "Stop the running migration"
                   }
                   aria-describedby={
                     possibleStall && stallTooltipOpen
@@ -2262,7 +2226,7 @@ export default function ProgressMonitor() {
                   onClick={() => setConfirmKind("resume")}
                   title={
                     isFinalizeFailed
-                      ? "Retry database finalize (indexes and checkpoint)"
+                      ? "Retry database finalize (seal, folder sizes, checkpoint)"
                       : isFailed
                         ? "Run a retry sweep to try again"
                         : "Resume with a retry sweep for the current phase"
@@ -2294,85 +2258,15 @@ export default function ProgressMonitor() {
         </div>
 
 
-        {workerCapDialogOpen && (
-          <WorkerCapOverridesDialog
-            title="Override worker hard caps"
-            defaults={workerCapDefaults}
-            initialModes={workerCapModes}
-            highlightMode={workerCapHighlightMode}
-            busy={workerCapBusy}
-            error={workerCapError}
-            showPersist
-            onClose={() => {
-              setWorkerCapDialogOpen(false);
-              setWorkerCapError(null);
-            }}
-            onApply={async (modes) => {
-              if (!migrationId) return;
-              try {
-                setWorkerCapBusy(true);
-                setWorkerCapError(null);
-                const view = await putMigrationScaling(migrationId, { modes });
-                setWorkerCapModes(view.modes || {});
-                setToast({ message: "Worker limits applied to this migration.", type: "success" });
-                setWorkerCapDialogOpen(false);
-              } catch (err) {
-                setWorkerCapError(err instanceof Error ? err.message : "Apply failed");
-              } finally {
-                setWorkerCapBusy(false);
-              }
-            }}
-            onPersist={async (modes) => {
-              if (!migrationId) return;
-              try {
-                setWorkerCapBusy(true);
-                setWorkerCapError(null);
-                const view = await putMigrationScaling(migrationId, {
-                  modes,
-                  persist: true,
-                  persistTarget: "provider",
-                  persistKey: persistProviderId,
-                });
-                setWorkerCapModes(view.modes || {});
-                setToast({
-                  message: `Saved as default for ${persistProviderId} and applied live.`,
-                  type: "success",
-                });
-                setWorkerCapDialogOpen(false);
-              } catch (err) {
-                setWorkerCapError(err instanceof Error ? err.message : "Save failed");
-              } finally {
-                setWorkerCapBusy(false);
-              }
-            }}
-            onResetAll={async () => {
-              if (!migrationId) return;
-              try {
-                setWorkerCapBusy(true);
-                setWorkerCapError(null);
-                await putMigrationScaling(migrationId, { modes: {} });
-                try {
-                  await deleteProviderScalingOverrides(persistProviderId);
-                } catch {
-                  // Session clear still succeeded; persisted default may not exist.
-                }
-                setWorkerCapModes({});
-                setToast({ message: "Worker limits reset to shipped defaults.", type: "info" });
-                setWorkerCapDialogOpen(false);
-              } catch (err) {
-                setWorkerCapError(err instanceof Error ? err.message : "Reset failed");
-              } finally {
-                setWorkerCapBusy(false);
-              }
-            }}
-          />
-        )}
-
         {confirmKind === "stop" && (
           <ConfirmDialog
-            title="Stop migration?"
-            message="This pauses the running migration safely and saves progress so you can resume later. Continue?"
-            confirmLabel="Stop migration"
+            title={isFinalizing ? "Stop finalize?" : "Stop migration?"}
+            message={
+              isFinalizing
+                ? "This stops sealing, folder-size totals, and checkpointing. Use Resume afterward to retry from the last sealed depth. Continue?"
+                : "This pauses the running migration safely and saves progress so you can resume later. Continue?"
+            }
+            confirmLabel={isFinalizing ? "Stop finalize" : "Stop migration"}
             cancelLabel="Cancel"
             confirmTone="danger"
             onCancel={() => setConfirmKind(null)}
@@ -2397,7 +2291,7 @@ export default function ProgressMonitor() {
             }
             busy={actionBusy}
             onCancel={() => setConfirmKind(null)}
-            onConfirm={(overrides) => void handleConfirmRetryFinalize(overrides)}
+            onConfirm={(mode) => void handleConfirmRetryFinalize(mode)}
           />
         )}
         {confirmKind === "resume" && !isFinalizeFailed && (

@@ -4,7 +4,9 @@ import {
   formatListShowingRange,
   inferExactTotalFromPage,
   hasListSearchPredicate,
+  LIST_SEARCH_EMPTY_WARN_ITEMS,
   parseOptionalTotal,
+  shouldWarnEmptyListSearch,
 } from "./listSearch";
 
 describe("hasListSearchPredicate", () => {
@@ -33,6 +35,23 @@ describe("hasListSearchPredicate", () => {
     expect(hasListSearchPredicate({ pathIssueStatusFilter: "issues" })).toBe(true);
     expect(hasListSearchPredicate({ pathIssueCategoryFilter: "EmptyPart" })).toBe(true);
     expect(hasListSearchPredicate({ hasAdvancedRules: true })).toBe(true);
+  });
+});
+
+describe("shouldWarnEmptyListSearch", () => {
+  it("warns only for empty searches over the threshold", () => {
+    expect(shouldWarnEmptyListSearch({}, LIST_SEARCH_EMPTY_WARN_ITEMS)).toBe(
+      false
+    );
+    expect(
+      shouldWarnEmptyListSearch({}, LIST_SEARCH_EMPTY_WARN_ITEMS + 1)
+    ).toBe(true);
+    expect(
+      shouldWarnEmptyListSearch(
+        { query: "foo" },
+        LIST_SEARCH_EMPTY_WARN_ITEMS + 1
+      )
+    ).toBe(false);
   });
 });
 

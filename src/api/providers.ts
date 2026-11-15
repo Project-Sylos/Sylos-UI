@@ -150,11 +150,15 @@ export async function fetchProviders(): Promise<ProviderDescriptor[]> {
 
 export async function createConnection(
   providerId: string,
-  options?: { migrationId?: string }
+  options?: { migrationId?: string; connectionId?: string }
 ): Promise<CloudConnection> {
+  const body: { migrationId?: string; connectionId?: string } = {};
+  if (options?.migrationId) body.migrationId = options.migrationId;
+  // Reuse binding id on reconnect so DB/UI/FS stay on the same connection key.
+  if (options?.connectionId) body.connectionId = options.connectionId;
   const response = await apiFetch(`/api/providers/${providerId}/connections`, {
     method: "POST",
-    body: JSON.stringify(options?.migrationId ? { migrationId: options.migrationId } : {}),
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {
@@ -218,6 +222,7 @@ export async function exchangeOAuthCode(
     code: string;
     redirect_uri: string;
     scopes?: string[];
+    migrationId?: string;
     microsoft_account_type?: string;
   }
 ): Promise<ConnectionTokenResponse> {
@@ -225,7 +230,13 @@ export async function exchangeOAuthCode(
     `/api/providers/${providerId}/connections/${connectionId}/oauth/exchange`,
     {
       method: "POST",
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        code: payload.code,
+        redirect_uri: payload.redirect_uri,
+        scopes: payload.scopes,
+        migrationId: payload.migrationId,
+        microsoft_account_type: payload.microsoft_account_type,
+      }),
     }
   );
 

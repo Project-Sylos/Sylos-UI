@@ -12,6 +12,7 @@ import {
 } from "../utils/pathReviewRuleExclusion";
 import {
   hasTraversalFailure,
+  isTraversalAckFromFailed,
   isTraversalRetryPending,
   isTraversalSkipped,
 } from "../utils/pathReviewTraversalStatus";
@@ -48,7 +49,8 @@ function maybeHint(
 }
 
 function interactiveClass(baseClass: string, canToggle: boolean): string {
-  return canToggle ? ` ${baseClass}--interactive` : "";
+  if (canToggle) return ` ${baseClass}--interactive`;
+  return ` ${baseClass}--inert`;
 }
 
 export default function PathReviewStatusIcon({
@@ -82,8 +84,6 @@ export default function PathReviewStatusIcon({
   const isCopyPlan = phase === "copy-plan";
   const isCopy = phase === "copy";
 
-  const srcTraversalStatus = item.src?.traversalStatus;
-  const dstTraversalStatus = item.dst?.traversalStatus;
   const copyStatus = item.src?.copyStatus || item.copyStatus || "";
   const existsOnlyOnDst = !item.src && !!item.dst;
 
@@ -94,8 +94,9 @@ export default function PathReviewStatusIcon({
       return (
         <Check
           size={iconSize}
-          className={`${baseClass} ${baseClass}--exists-only-dst`}
+          className={`${baseClass} ${baseClass}--exists${interactiveClass(baseClass, false)}`}
           style={{ cursor: "default" }}
+          title="Destination only"
         />
       );
     }
@@ -122,7 +123,7 @@ export default function PathReviewStatusIcon({
       return (
         <Trash2
           size={iconSize}
-          className={`${baseClass} ${baseClass}--pending`}
+          className={`${baseClass} ${baseClass}--pending${interactiveClass(baseClass, false)}`}
           style={{ cursor: "default" }}
           title="Scheduled for removal with parent folder"
         />
@@ -144,18 +145,13 @@ export default function PathReviewStatusIcon({
   }
 
   if (isDeleteReview) {
-    if (
-      (!item.src &&
-        (!!item.dst ||
-          item.traversalStatus === "not_on_src" ||
-          item.dst?.traversalStatus === "not_on_src")) ||
-      (existsOnlyOnDst && !item.src)
-    ) {
+    if (existsOnlyOnDst && !item.src) {
       return (
         <Check
           size={iconSize}
-          className={`${baseClass} ${baseClass}--exists-only-dst`}
+          className={`${baseClass} ${baseClass}--exists${interactiveClass(baseClass, false)}`}
           style={{ cursor: "default" }}
+          title="Destination only"
         />
       );
     }
@@ -167,7 +163,7 @@ export default function PathReviewStatusIcon({
       return (
         <Check
           size={iconSize}
-          className={`${baseClass} ${baseClass}--deleted`}
+          className={`${baseClass} ${baseClass}--deleted${interactiveClass(baseClass, false)}`}
           style={{ cursor: "default" }}
         />
       );
@@ -239,8 +235,9 @@ export default function PathReviewStatusIcon({
       return (
         <Check
           size={iconSize}
-          className={`${baseClass} ${baseClass}--exists-only-dst`}
+          className={`${baseClass} ${baseClass}--exists${interactiveClass(baseClass, false)}`}
           style={{ cursor: "default" }}
+          title="Destination only"
         />
       );
     }
@@ -248,7 +245,7 @@ export default function PathReviewStatusIcon({
       return (
         <Check
           size={iconSize}
-          className={`${baseClass} ${baseClass}--exists ${baseClass}--exists-on-both`}
+          className={`${baseClass} ${baseClass}--exists ${baseClass}--exists-on-both${interactiveClass(baseClass, false)}`}
           style={{ cursor: "default" }}
         />
       );
@@ -321,7 +318,7 @@ export default function PathReviewStatusIcon({
           className={`${baseClass} ${baseClass}--excluded${
             ruleExcluded ? ` ${baseClass}--rule-excluded` : ""
           }${interactiveClass(baseClass, canToggle)}`}
-          onClick={() => canToggle && onRetryClick?.(item)}
+          onClick={() => canToggle && onExcludeClick?.(item, false)}
           style={{ cursor: canToggle ? "pointer" : "default" }}
           title={ruleTip || "Excluded from copy"}
         />
@@ -332,8 +329,9 @@ export default function PathReviewStatusIcon({
       return (
         <Check
           size={iconSize}
-          className={`${baseClass} ${baseClass}--exists-only-dst`}
+          className={`${baseClass} ${baseClass}--exists${interactiveClass(baseClass, false)}`}
           style={{ cursor: "default" }}
+          title="Destination only"
         />
       );
     }
@@ -342,7 +340,7 @@ export default function PathReviewStatusIcon({
       return (
         <Check
           size={iconSize}
-          className={`${baseClass} ${baseClass}--exists ${baseClass}--exists-on-both`}
+          className={`${baseClass} ${baseClass}--exists ${baseClass}--exists-on-both${interactiveClass(baseClass, false)}`}
           style={{ cursor: "default" }}
         />
       );
@@ -354,6 +352,23 @@ export default function PathReviewStatusIcon({
   const hasFailedStatus = hasTraversalFailure(item);
   const hasPendingRetry = isTraversalRetryPending(item) || isMarkedForRetry;
   const skippedDiscovery = isTraversalSkipped(item);
+  const ackFromFailed = isTraversalAckFromFailed(item);
+
+  if (ackFromFailed) {
+    const canToggle = true;
+    return maybeHint(
+      STATUS_HINT.include,
+      STATUS_HINT_COPY.include,
+      canToggle,
+      <X
+        size={iconSize}
+        className={`${baseClass} ${baseClass}--excluded${interactiveClass(baseClass, canToggle)}`}
+        onClick={() => onExcludeClick?.(item, false)}
+        style={{ cursor: "pointer" }}
+        title="Acknowledged discovery failure. Click to restore as failed."
+      />
+    );
+  }
 
   if (skippedDiscovery) {
     const canToggle = true;
@@ -403,28 +418,13 @@ export default function PathReviewStatusIcon({
     );
   }
 
-  const primaryTraversalStatus = item.traversalStatus;
-  if (
-    primaryTraversalStatus === "not_on_src" ||
-    srcTraversalStatus === "not_on_src" ||
-    dstTraversalStatus === "not_on_src"
-  ) {
+  if (item.src || item.dst || existsOnlyOnDst) {
     return (
       <Check
         size={iconSize}
-        className={`${baseClass} ${baseClass}--exists-only-dst`}
+        className={`${baseClass} ${baseClass}--exists${interactiveClass(baseClass, false)}`}
         style={{ cursor: "default" }}
-      />
-    );
-  }
-
-  if (item.src || item.dst) {
-    return (
-      <Check
-        size={iconSize}
-        className={`${baseClass} ${baseClass}--exists`}
-        style={{ cursor: "default" }}
-        title="Discovered successfully"
+        title={existsOnlyOnDst ? "Destination only" : "Discovered successfully"}
       />
     );
   }

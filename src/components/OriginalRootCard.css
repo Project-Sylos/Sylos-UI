@@ -1,0 +1,110 @@
+.original-root-card {
+  --previous-root-accent: var(--brand-cyan, #3db8c5);
+  flex-shrink: 0;
+  width: 100%;
+  max-width: 42rem;
+  margin-inline: auto;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--previous-root-accent) 38%, transparent);
+  background: color-mix(in srgb, var(--previous-root-accent) 9%, transparent);
+  color: var(--text-primary);
+}
+
+.original-root-card--here {
+  border-color: color-mix(in srgb, var(--previous-root-accent) 65%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--previous-root-accent) 30%, transparent),
+    0 0 14px color-mix(in srgb, var(--previous-root-accent) 22%, transparent);
+}
+
+.original-root-card__toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  width: 100%;
+  padding: 0.55rem 0.75rem;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+
+.original-root-card__title {
+  flex: 1;
+  min-width: 0;
+}
+
+.original-root-card__chevron {
+  flex-shrink: 0;
+  transition: transform 0.15s ease;
+}
+
+.original-root-card__chevron--open {
+  transform: rotate(180deg);
+}
+
+.original-root-card__fields {
+  margin: 0;
+  padding: 0 0.75rem 0.7rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.original-root-card__row {
+  display: grid;
+  grid-template-columns: 7.5rem minmax(0, 1fr);
+  gap: 0.5rem;
+  align-items: baseline;
+  font-size: 0.8rem;
+  line-height: 1.35;
+}
+
+.original-root-card__row dt {
+  margin: 0;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.original-root-card__row dd {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.78rem;
+}
+
+.browse-folder__item--previous-root {
+  --previous-root-accent: var(--brand-cyan, #3db8c5);
+  position: relative;
+  border-color: color-mix(in srgb, var(--previous-root-accent) 60%, transparent) !important;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--previous-root-accent) 42%, transparent),
+    0 0 14px color-mix(in srgb, var(--previous-root-accent) 28%, transparent);
+}
+
+.browse-folder__previous-root-badge {
+  --previous-root-accent: var(--brand-cyan, #3db8c5);
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  padding: 0.12rem 0.4rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--previous-root-accent) 50%, transparent);
+  background: color-mix(in srgb, var(--previous-root-accent) 16%, transparent);
+  color: color-mix(in srgb, var(--previous-root-accent) 72%, #0a3a40);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  margin-left: 0.35rem;
+}
+
+:root[data-theme="dark"] .browse-folder__previous-root-badge,
+[data-theme="dark"] .browse-folder__previous-root-badge {
+  color: color-mix(in srgb, var(--previous-root-accent) 85%, white);
+}

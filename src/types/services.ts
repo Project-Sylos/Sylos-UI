@@ -112,6 +112,8 @@ export interface SpectraConfig {
     file_backoff_factor?: number;
     file_depth_decay_factor?: number;
     diverging_tree_mode?: boolean;
+    /** Name nodes after their Spectra IDs (files: "{id}.txt") to diversify trigrams. */
+    unique_id_names?: boolean;
   };
   api: {
     host: string;
@@ -171,6 +173,7 @@ export const DEFAULT_SPECTRA_CONFIG: SpectraConfig = {
     seed: 0,
     db_path: "./spectra.db",
     diverging_tree_mode: true,
+    unique_id_names: false,
   },
   api: {
     host: "localhost",

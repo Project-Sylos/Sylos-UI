@@ -19,6 +19,7 @@ import {
   clearMigrationSetup,
   loadMigrationSetup,
   saveMigrationSetup,
+  type MigrationStateSnapshot,
 } from "../utils/migrationSetupStorage";
 
 type SelectedService = {
@@ -135,6 +136,26 @@ function endpointFromStorage(
   return { service, root: endpoint.root };
 }
 
+function toMigrationSnapshot(migration: MigrationState): MigrationStateSnapshot {
+  // Never persist sourceRootChildren: the include tree can exceed sessionStorage
+  // and JSON.stringify throwing mid-Done blocked navigate to summary.
+  return {
+    migrationId: migration.migrationId,
+    sourceConnectionId: migration.sourceConnectionId,
+    destinationConnectionId: migration.destinationConnectionId,
+    sourceAccountEmail: migration.sourceAccountEmail,
+    sourceAccountDisplayName: migration.sourceAccountDisplayName,
+    destinationAccountEmail: migration.destinationAccountEmail,
+    destinationAccountDisplayName: migration.destinationAccountDisplayName,
+    ready: migration.ready,
+    spectraLocked: migration.spectraLocked,
+    spectraPrimaryRole: migration.spectraPrimaryRole,
+    sourceRootPrepared: migration.sourceRootPrepared,
+    destinationRootPrepared: migration.destinationRootPrepared,
+    sourceRootChildNames: migration.sourceRootChildNames,
+  };
+}
+
 function buildPersistedSetup(
   migration: MigrationState,
   source?: SelectedService,
@@ -142,7 +163,7 @@ function buildPersistedSetup(
 ) {
   saveMigrationSetup({
     v: 1,
-    migration,
+    migration: toMigrationSnapshot(migration),
     source: source
       ? { serviceId: source.service.id, root: source.root }
       : undefined,
@@ -226,37 +247,37 @@ export function SelectionProvider({ children }: { children: ReactNode }) {
     if (!hydratedRef.current) {
       return;
     }
-    persistSelections();
+    try {
+      persistSelections();
+    } catch (err) {
+      console.error("Failed to persist migration setup", err);
+    }
   }, [migration, source, destination, persistSelections]);
 
   const selectSource = useCallback(
     (service: ServiceDescriptor, root?: Folder) => {
-      if (root) {
-        setSource({ service, root });
-        return;
-      }
-      if (service.type === "cloud") {
-        setSource({ service });
-        return;
-      }
-      const preset = getPresetRootForServiceType(service.type);
-      setSource({ service, root: preset });
+      const next: SelectedService = root
+        ? { service, root }
+        : service.type === "cloud"
+          ? { service }
+          : { service, root: getPresetRootForServiceType(service.type) };
+      // Keep stateRef in sync immediately so persistSelections before the next
+      // paint (e.g. right before navigate away from browse) sees the new endpoint.
+      stateRef.current = { ...stateRef.current, source: next };
+      setSource(next);
     },
     []
   );
 
   const selectDestination = useCallback(
     (service: ServiceDescriptor, root?: Folder) => {
-      if (root) {
-        setDestination({ service, root });
-        return;
-      }
-      if (service.type === "cloud") {
-        setDestination({ service });
-        return;
-      }
-      const preset = getPresetRootForServiceType(service.type);
-      setDestination({ service, root: preset });
+      const next: SelectedService = root
+        ? { service, root }
+        : service.type === "cloud"
+          ? { service }
+          : { service, root: getPresetRootForServiceType(service.type) };
+      stateRef.current = { ...stateRef.current, destination: next };
+      setDestination(next);
     },
     []
   );
@@ -270,6 +291,7 @@ export function SelectionProvider({ children }: { children: ReactNode }) {
         // Allow explicit undefined to clear optional fields (e.g. disconnect).
         next[key] = value as never;
       }
+      stateRef.current = { ...stateRef.current, migration: next };
       return next;
     });
   }, []);

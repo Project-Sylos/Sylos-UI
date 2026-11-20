@@ -59,8 +59,8 @@ export type PathReviewFooterItem = {
   selectedHoverCard?: PathReviewSelectedHoverCard;
   tooltip?: {
     tipId: string;
-    category: string;
-    content: React.ReactNode;
+    category?: string;
+    content?: React.ReactNode;
     position?: "above" | "right" | "left" | "below";
   };
 };

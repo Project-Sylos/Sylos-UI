@@ -99,15 +99,7 @@ export default function ListDensityControl() {
 
   return (
     <div className="list-density-control">
-      <InteractionHint
-        tipId={DENSITY_HINT_TIP_ID}
-        position="above"
-        content={
-          <p>
-            Make list rows bigger or smaller. Your choice is saved for next time.
-          </p>
-        }
-      >
+      <InteractionHint tipId={DENSITY_HINT_TIP_ID} position="above">
         <button
           ref={buttonRef}
           type="button"

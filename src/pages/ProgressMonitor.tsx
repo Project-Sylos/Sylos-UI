@@ -30,7 +30,14 @@ import {
   forceStopMigration,
   resumeMigration,
   retryFinalize,
+  probeMigrationFSHealth,
 } from "../api/services";
+import CloudConnectionIssues from "../components/CloudConnectionIssues";
+import type { CloudConnectionCheckResult } from "../utils/cloudConnections";
+import {
+  cloudIssuesFromFSHealth,
+  formatFSHealthFailure,
+} from "../utils/fsHealth";
 import {
   fetchScalingDefaults,
   getMigrationScaling,
@@ -52,6 +59,7 @@ import {
   isMigrationSuspended,
   isMigrationFailed,
   isMigrationAborted,
+  isMigrationHardStoppedResumable,
   isMigrationFinalizing,
   isMigrationFinalizeFailed,
   type InFlightTask,
@@ -377,18 +385,7 @@ function RateLimitBadge({
         >
           Rate limited · {formatRateLimitCountdown(secs)}
         </span>
-        <HelpTooltip
-          tipId="progress-rate-limited"
-          category="progress-rate-limited"
-          position="below"
-          content={
-            <p>
-              The storage service asked Sylos to slow down for a short time. Work
-              resumes automatically when the wait ends. This is normal and helps
-              avoid getting blocked by the provider.
-            </p>
-          }
-        />
+        <HelpTooltip tipId="progress-rate-limited" position="below" />
       </span>
     );
   }
@@ -402,18 +399,7 @@ function RateLimitBadge({
         >
           Pacing · {formatRateLimitCountdown(delaySecs)}
         </span>
-        <HelpTooltip
-          tipId="progress-pacing"
-          category="progress-pacing"
-          position="below"
-          content={
-            <p>
-              Sylos is inserting short pauses between operations so it stays within
-              the provider&apos;s limits. Throughput may look slower, but the
-              migration is still making progress.
-            </p>
-          }
-        />
+        <HelpTooltip tipId="progress-pacing" position="below" />
       </span>
     );
   }
@@ -617,6 +603,9 @@ export default function ProgressMonitor() {
   const [stopProgress, setStopProgress] = useState<StopProgressPayload | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [fsHealthIssues, setFsHealthIssues] = useState<CloudConnectionCheckResult[]>(
+    []
+  );
   const [toast, setToast] = useState<{
     message: string;
     type: "success" | "error" | "info";
@@ -627,8 +616,8 @@ export default function ProgressMonitor() {
   /** Local tick so rate-limit countdowns update between 1s metrics polls. */
   const [, setRateLimitTick] = useState(0);
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [inflightOpen, setInflightOpen] = useState(false);
-  const [logsOpen, setLogsOpen] = useState(true);
+  const [inflightOpen, setInflightOpen] = useState(true);
+  const [logsOpen, setLogsOpen] = useState(false);
   const [logFilter, setLogFilter] = useState<LogLevel | "all">("all");
   const [logLines, setLogLines] = useState<MigrationLog[]>([]);
   const [logsPaused, setLogsPaused] = useState(false);
@@ -955,6 +944,9 @@ export default function ProgressMonitor() {
   const isFinalizeFailed = status ? isMigrationFinalizeFailed(status) : false;
   const isSuspended = status ? isMigrationSuspended(status) : false;
   const isAborted = status ? isMigrationAborted(status) : false;
+  const needsRecoverySweep = status
+    ? isMigrationHardStoppedResumable(status)
+    : false;
   const isFailed = status ? isMigrationFailed(status) : false;
   const explicitlyNotLive = status ? isLiveExplicitlyFalse(status) : false;
   const live = status ? isMigrationLive(status) : false;
@@ -974,12 +966,12 @@ export default function ProgressMonitor() {
   );
   const showResumeButton = Boolean(
     status &&
-      !isAborted &&
       !inAwaitingReview &&
       !isFinalizing &&
       (isFailed ||
         isFinalizeFailed ||
         isSuspended ||
+        isAborted ||
         stoppedMidRun ||
         (inRunPhase && explicitlyNotLive))
   );
@@ -1413,7 +1405,8 @@ export default function ProgressMonitor() {
         queueMetricsIntervalRef.current = null;
       }
       setToast({
-        message: "Migration was force-stopped and may not resume cleanly.",
+        message:
+          "Hard-stopped without a clean checkpoint. Use Resume when ready; Sylos will run a recovery sweep.",
         type: "info",
       });
     } catch (e) {
@@ -1430,10 +1423,22 @@ export default function ProgressMonitor() {
     setConfirmKind(null);
     setActionBusy(true);
     setActionError(null);
+    setFsHealthIssues([]);
     try {
+      const health = await probeMigrationFSHealth(migrationId, "both");
+      if (!health.ok) {
+        setFsHealthIssues(cloudIssuesFromFSHealth(health));
+        setActionError(formatFSHealthFailure(health));
+        return;
+      }
       const result = await resumeMigration(migrationId);
       if (!result.success) {
-        setActionError(result.error || "Failed to resume migration.");
+        if (result.fsHealth) {
+          setFsHealthIssues(cloudIssuesFromFSHealth(result.fsHealth));
+          setActionError(formatFSHealthFailure(result.fsHealth));
+        } else {
+          setActionError(result.error || "Failed to resume migration.");
+        }
         return;
       }
       const next = new URLSearchParams(searchParams);
@@ -1630,15 +1635,28 @@ export default function ProgressMonitor() {
             </button>
           </div>
         )}
+        {fsHealthIssues.length > 0 && (
+          <CloudConnectionIssues issues={fsHealthIssues} returnTo={`/progress-monitor/${migrationId}`} />
+        )}
         {actionError && (
           <div className="progress-monitor__error progress-monitor__error--action">
             {actionError}
           </div>
         )}
-        {isAborted && (
+        {needsRecoverySweep && !live && (
           <div className="progress-monitor__error" role="status">
-            This migration was force-stopped and may not resume. Start a new
-            migration if you need to continue.
+            <p>
+              This migration was interrupted without a clean checkpoint. Prefer
+              soft stop next time. You can still Resume; Sylos will run a recovery
+              sweep (it may re-check or redo some work).
+            </p>
+            <button
+              type="button"
+              className="progress-monitor__results-button"
+              onClick={() => navigate("/resume")}
+            >
+              Go to Resume Migration
+            </button>
           </div>
         )}
         {isFinalizing && (
@@ -1863,19 +1881,7 @@ export default function ProgressMonitor() {
                     <div className="progress-monitor__metric-row">
                       <span>
                         Items/sec:
-                        <HelpTooltip
-                          tipId="copy-items-per-sec-explanation"
-                          category="copy-items-per-sec"
-                          position="above"
-                          content={
-                            <p>
-                              A low items/sec rate is not necessarily a concern.
-                              Migrations that move large files often complete
-                              fewer items while still transferring a lot of
-                              data. Check Bytes/sec for transfer throughput.
-                            </p>
-                          }
-                        />
+                        <HelpTooltip tipId="copy-items-per-sec-explanation" position="above" />
                       </span>
                       <span>{itemsPerSec(queueMetrics.copy).toFixed(1)}</span>
                     </div>
@@ -1922,36 +1928,14 @@ export default function ProgressMonitor() {
                         <div className="progress-monitor__metric-row">
                           <span>
                             Items/sec:
-                            <HelpTooltip
-                              tipId="discovery-rate-explanation"
-                              category="discovery-rate-source"
-                              position="above"
-                              content={
-                                <p>
-                                  How many files and folders are processed per second
-                                  (windowed). During discovery this is newly found
-                                  children, or list-task completions when those are
-                                  faster (leaf folders).
-                                </p>
-                              }
-                            />
+                            <HelpTooltip tipId="discovery-rate-explanation" position="above" />
                           </span>
                           <span>{itemsPerSec(queueMetrics.srcTraversal).toFixed(1)}</span>
                         </div>
                         <div className="progress-monitor__metric-row">
                           <span>
                             Batch:
-                            <HelpTooltip
-                              tipId="discovery-batch-explanation"
-                              category="discovery-batch"
-                              position="above"
-                              content={
-                                <p>
-                                  Current scan chunk. The bar and ETA reset when the next batch starts;
-                                  totals keep growing.
-                                </p>
-                              }
-                            />
+                            <HelpTooltip tipId="discovery-batch-explanation" position="above" />
                           </span>
                           <span>{(queueMetrics.srcTraversal.round ?? 0).toLocaleString()}</span>
                         </div>
@@ -1994,36 +1978,14 @@ export default function ProgressMonitor() {
                         <div className="progress-monitor__metric-row">
                           <span>
                             Items/sec:
-                            <HelpTooltip
-                              tipId="discovery-rate-explanation-dst"
-                              category="discovery-rate-destination"
-                              position="above"
-                              content={
-                                <p>
-                                  How many files and folders are processed per second
-                                  (windowed). During discovery this is newly found
-                                  children, or list-task completions when those are
-                                  faster (leaf folders).
-                                </p>
-                              }
-                            />
+                            <HelpTooltip tipId="discovery-rate-explanation-dst" position="above" />
                           </span>
                           <span>{itemsPerSec(queueMetrics.dstTraversal).toFixed(1)}</span>
                         </div>
                         <div className="progress-monitor__metric-row">
                           <span>
                             Batch:
-                            <HelpTooltip
-                              tipId="discovery-batch-explanation-dst"
-                              category="discovery-batch"
-                              position="above"
-                              content={
-                                <p>
-                                  Current scan chunk. The bar and ETA reset when the next batch starts;
-                                  totals keep growing.
-                                </p>
-                              }
-                            />
+                            <HelpTooltip tipId="discovery-batch-explanation-dst" position="above" />
                           </span>
                           <span>{(queueMetrics.dstTraversal.round ?? 0).toLocaleString()}</span>
                         </div>
@@ -2043,14 +2005,7 @@ export default function ProgressMonitor() {
                           <div className="progress-monitor__metric-row">
                             <span>
                               Total Discovered:
-                              <HelpTooltip
-                                tipId="destination-total-discovered-explanation"
-                                category="discovery-destination-total"
-                                position="above"
-                                content={
-                                  <p>This is specifically only the overlapping items explored, not the total items inside of your destination root folder.</p>
-                                }
-                              />
+                              <HelpTooltip tipId="destination-total-discovered-explanation" position="above" />
                             </span>
                             <span>{queueMetrics.dstTraversal.total_discovered.toLocaleString()}</span>
                           </div>
@@ -2277,8 +2232,17 @@ export default function ProgressMonitor() {
             {migrationId ? (
               <details className="progress-monitor__subsection" open>
                 <summary className="progress-monitor__subsection-summary">
-                  <span className="progress-monitor__subsection-title">
+                  <span className="progress-monitor__subsection-title progress-monitor__subsection-title--with-tip">
                     Autoscaler
+                    <span
+                      className="progress-monitor__subsection-tip"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                      }}
+                    >
+                      <HelpTooltip tipId="autoscaler-overview" position="above" />
+                    </span>
                   </span>
                 </summary>
                 <div className="progress-monitor__subsection-body">
@@ -2611,7 +2575,7 @@ export default function ProgressMonitor() {
         {confirmKind === "hardStop" && (
           <ConfirmDialog
             title="Hard stop migration?"
-            message="WARNING: This is a destructive action. It may leave this migration unable to resume. Prefer this only if the safe stop is stuck. Continue?"
+            message="Not recommended. Hard stop skips a clean checkpoint. Prefer soft stop unless it is stuck. You can still Resume later; Sylos will run a recovery sweep and may re-check or redo some work. Continue?"
             confirmLabel="Hard stop"
             cancelLabel="Cancel"
             confirmTone="danger"
@@ -2633,7 +2597,9 @@ export default function ProgressMonitor() {
           <ConfirmDialog
             title="Resume migration?"
             message={
-              showDeleteUI
+              needsRecoverySweep
+                ? "This migration was interrupted without a clean checkpoint. Resume runs a recovery sweep first (it may re-check or redo some work), then continues. Continue?"
+                : showDeleteUI
                 ? "This resumes source removal from where it stopped. It can use significant resources and run for a long time. Continue?"
                 : showCopyUI
                 ? "This resumes the copy phase from where it stopped. It can use significant resources and run for a long time. Continue?"

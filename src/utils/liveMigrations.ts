@@ -1,4 +1,4 @@
-import { listMigrations } from "../api/services";
+import { listMigrations, stopMigration } from "../api/services";
 import {
   isMigrationActivelyRunning,
   type ListMigrationsResponse,
@@ -10,6 +10,16 @@ export type LiveMigrationSummary = ListMigrationsResponse["migrations"][number];
 export async function fetchLiveMigrations(): Promise<LiveMigrationSummary[]> {
   const res = await listMigrations();
   return res.migrations.filter((m) => isMigrationActivelyRunning(m));
+}
+
+/**
+ * Request soft stop for each id (does not wait for drain). Used when signing out
+ * with "stop migrations then leave". Failures are ignored so logout can proceed.
+ */
+export async function softStopMigrationsById(ids: string[]): Promise<void> {
+  const unique = [...new Set(ids.map((id) => id.trim()).filter(Boolean))];
+  if (unique.length === 0) return;
+  await Promise.allSettled(unique.map((id) => stopMigration(id)));
 }
 
 /**

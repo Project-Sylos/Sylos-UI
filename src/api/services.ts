@@ -74,6 +74,41 @@ export async function setMigrationRoot(
   return (await response.json()) as MigrationRootResponse;
 }
 
+export interface FSHealthStepResult {
+  ok: boolean;
+  httpStatus?: number;
+  error?: string;
+  errorCode?: string;
+}
+
+export interface FSHealthSideReport {
+  ok: boolean;
+  serviceId?: string;
+  serviceType?: string;
+  connectionId?: string;
+  rootId?: string;
+  steps?: Record<string, FSHealthStepResult>;
+  classification?: string;
+}
+
+export interface FSHealthReport {
+  ok: boolean;
+  checkedAt?: string;
+  side?: string;
+  source?: FSHealthSideReport;
+  destination?: FSHealthSideReport;
+  sides?: Record<string, FSHealthSideReport>;
+}
+
+function isFSHealthReport(data: unknown): data is FSHealthReport {
+  if (!data || typeof data !== "object") return false;
+  const obj = data as Record<string, unknown>;
+  return (
+    typeof obj.ok === "boolean" &&
+    (obj.source != null || obj.destination != null || obj.sides != null)
+  );
+}
+
 export async function startMigration(
   payload: StartMigrationPayload
 ): Promise<MigrationResponse> {
@@ -83,14 +118,26 @@ export async function startMigration(
     body: JSON.stringify(payload),
   });
 
+  const data = await response.json().catch(() => null);
+  if (data && isFSHealthReport(data) && data.ok === false) {
+    const err = new Error("filesystem health check failed") as Error & {
+      fsHealth: FSHealthReport;
+    };
+    err.fsHealth = data;
+    throw err;
+  }
+
   if (!response.ok) {
-    const message = await response.text();
     throw new Error(
-      `Failed to start migration (${response.status}): ${message || "Unknown"}`
+      `Failed to start migration (${response.status}): ${
+        (data && typeof data === "object" && "error" in data
+          ? String((data as { error?: string }).error || "")
+          : "") || "Unknown"
+      }`
     );
   }
 
-  return (await response.json()) as MigrationResponse;
+  return data as MigrationResponse;
 }
 
 export async function uploadMigrationOps(
@@ -2839,6 +2886,26 @@ export interface RetrySweepResponse {
   success: boolean;
   message?: string;
   error?: string;
+  fsHealth?: FSHealthReport;
+}
+
+/** Live list + write/delete probe for bound migration roots. */
+export async function probeMigrationFSHealth(
+  migrationId: string,
+  side: "src" | "dst" | "both" = "both"
+): Promise<FSHealthReport> {
+  const response = await apiFetch(
+    `/api/migrations/${migrationId}/fs-health?side=${encodeURIComponent(side)}`,
+    { method: "POST" }
+  );
+  const data = (await response.json().catch(() => ({}))) as FSHealthReport;
+  if (!response.ok) {
+    throw new Error(
+      (data as { error?: string }).error ||
+        `Filesystem health check failed (${response.status})`
+    );
+  }
+  return data;
 }
 
 export async function resumeMigration(
@@ -2850,15 +2917,22 @@ export async function resumeMigration(
     body: JSON.stringify(config || {}),
   });
 
+  const data = await response.json().catch(() => ({}));
+  if (isFSHealthReport(data) && data.ok === false && !("success" in data)) {
+    return {
+      success: false,
+      error: "filesystem health check failed",
+      fsHealth: data,
+    };
+  }
   if (!response.ok) {
-    const data = await response.json().catch(() => ({}));
     return {
       success: false,
       error: data.error || `Failed to resume migration (${response.status})`,
+      fsHealth: data.fsHealth,
     };
   }
 
-  const data = await response.json();
   return data as RetrySweepResponse;
 }
 

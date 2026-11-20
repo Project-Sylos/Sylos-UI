@@ -34,7 +34,9 @@ import {
   MigrationWithStatus,
   formatMigrationPhaseLabel,
   getMigrationPhase,
+  isMigrationHardStoppedResumable,
   migrationPhaseTone,
+  normalizeMigrationPhase,
 } from "../types/migrations";
 import { formatDate } from "../utils/fileUpload";
 import { navigationPathForStatus } from "../utils/migrationNavigation";
@@ -113,6 +115,7 @@ export default function ResumeMigration() {
           needsAttention: migration.needsAttention,
           attentionReasons: migration.attentionReasons,
           localRoots: migration.localRoots,
+          uncleanInterrupt: migration.uncleanInterrupt,
           result: migration.result,
         } as MigrationWithStatus;
       });
@@ -610,6 +613,14 @@ export default function ResumeMigration() {
                         >
                           {formatMigrationPhaseLabel(migration.status)}
                         </span>
+                      )}
+                      {isMigrationHardStoppedResumable(migration) && (
+                        <>
+                          <span> • </span>
+                          <span className="resume-migration__status resume-migration__status--suspended">
+                            Needs recovery sweep
+                          </span>
+                        </>
                       )}
                       {migration.status && <span> • </span>}
                       Created: {formatDate(migration.createdAt)}

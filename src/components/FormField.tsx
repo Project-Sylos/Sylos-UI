@@ -1,4 +1,3 @@
-import { ReactNode } from "react";
 import HelpTooltip, { HelpTooltipProps } from "./HelpTooltip";
 import "./FormField.css";
 
@@ -15,7 +14,8 @@ export interface FormFieldProps {
   max?: number | string;
   step?: number | string;
   disabled?: boolean;
-  helpTooltip?: Omit<HelpTooltipProps, "content"> & { content: ReactNode };
+  helpTooltip?: Pick<HelpTooltipProps, "tipId"> &
+    Partial<Pick<HelpTooltipProps, "position" | "content" | "category">>;
   className?: string;
 }
 

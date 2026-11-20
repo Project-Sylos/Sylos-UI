@@ -165,7 +165,7 @@ export function formatMigrationPhaseLabel(
     case "awaiting-delete-review":
       return "Ready to review removal";
     case "aborted":
-      return "Aborted";
+      return "Hard-stopped";
     case "failed":
       return "Failed";
     case "":
@@ -184,8 +184,12 @@ export function migrationPhaseTone(
   phaseOrStatus: string | undefined | null
 ): "running" | "suspended" | "awaiting" | "failed" | "completed" {
   const phase = normalizeMigrationPhase(phaseOrStatus ?? "");
-  if (phase === "failed" || phase.endsWith("-finalize-failed") || phase === "aborted") {
+  if (phase === "failed" || phase.endsWith("-finalize-failed")) {
     return "failed";
+  }
+  if (phase === "aborted") {
+    // Recoverable hard-stop: cautionary but Resume-eligible (same chip family as suspended).
+    return "suspended";
   }
   if (phase.endsWith("-in-progress") || phase.endsWith("-finalizing")) {
     return "running";
@@ -288,12 +292,41 @@ export function isMigrationSuspended(
   return isMigrationSoftSuspendedPhase(getMigrationPhase(response));
 }
 
-/** Force-aborted: not resumable. */
+/** Legacy hard-stop phase (pre-recoverable). Still Resume-eligible via recovery sweep. */
 export function isMigrationAborted(
   response: { phase?: string; status?: string } | null | undefined
 ): boolean {
   if (!response) return false;
   return getMigrationPhase(response) === "aborted";
+}
+
+/** True when crash/hard-stop recovery mode is active (ops unclean_interrupt). */
+export function hasUncleanInterrupt(
+  response:
+    | {
+        uncleanInterrupt?: boolean;
+        UncleanInterrupt?: boolean;
+      }
+    | null
+    | undefined
+): boolean {
+  if (!response) return false;
+  return Boolean(response.uncleanInterrupt || response.UncleanInterrupt);
+}
+
+/** Hard-stopped / interrupted migrations can Resume (recovery sweep); soft stop is preferred. */
+export function isMigrationHardStoppedResumable(
+  response:
+    | {
+        phase?: string;
+        status?: string;
+        uncleanInterrupt?: boolean;
+        UncleanInterrupt?: boolean;
+      }
+    | null
+    | undefined
+): boolean {
+  return isMigrationAborted(response) || hasUncleanInterrupt(response);
 }
 
 export interface StopStepPayload {
@@ -413,6 +446,11 @@ export interface MigrationStatusResponse extends MigrationResponse {
   /** Human-readable ops DB wait label (seal, folder-size fold, checkpoint, etc.). */
   dbActivity?: string;
   DbActivity?: string;
+  /** Crash / hard-stop recovery mode; Resume runs a recovery sweep. */
+  uncleanInterrupt?: boolean;
+  UncleanInterrupt?: boolean;
+  uncleanInterruptKind?: string;
+  UncleanInterruptKind?: string;
   result?: {
     rootSummary?: {
       srcRoots?: number;
@@ -479,6 +517,7 @@ export interface MigrationWithStatus extends MigrationMetadata {
   needsAttention?: boolean;
   attentionReasons?: string[];
   localRoots?: LocalRootProbe[];
+  uncleanInterrupt?: boolean;
   result?: MigrationStatusResponse["result"];
 }
 
@@ -494,6 +533,10 @@ export interface ListMigrationsResponse {
     live?: boolean;
     completedAt: string | null;
     error: string;
+    needsAttention?: boolean;
+    attentionReasons?: string[];
+    localRoots?: LocalRootProbe[];
+    uncleanInterrupt?: boolean;
     result?: MigrationStatusResponse["result"];
     sourceRoot?: RootInfo;
     destinationRoot?: RootInfo;
@@ -636,7 +679,7 @@ export interface QueueMetrics {
   rate_limited_remaining_ms_src?: number;
   /** Remaining ms for destination rate-limit at poll time. */
   rate_limited_remaining_ms_dst?: number;
-  /** AIMD inter-op pacing delay in ms (workers slowed after throttle). */
+  /** Autoscaler inter-op pacing delay in ms (workers slowed after throttle). */
   inter_op_delay_ms?: number;
   /** Live leased tasks from queue observer (memory-only). */
   activeTasks?: InFlightTask[];

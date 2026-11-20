@@ -3,7 +3,7 @@ import { useCallback, useRef, useState } from "react";
 /** Delay plain folder select so a double-click can navigate first (root browse). */
 export const FOLDER_SELECT_BOUNCE_MS = 150;
 
-/** Path Review dual/merged tree: slightly longer so navigate-vs-inspector is clearer. */
+/** Path Review dual/merged tree: delay plain folder select so dblclick can navigate. */
 export const PATH_REVIEW_FOLDER_SELECT_BOUNCE_MS = 250;
 
 export type BrowseSelectableItem = {

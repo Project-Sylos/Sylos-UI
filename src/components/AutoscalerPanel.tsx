@@ -5,6 +5,7 @@ import {
   putMigrationAutoscaler,
 } from "../api/scaling";
 import HelpTooltip from "./HelpTooltip";
+import { autoscalerKnobContent } from "../tips";
 import type {
   AutoscalerKnobOverride,
   AutoscalerKnobView,
@@ -56,7 +57,7 @@ const KNOB_ORDER: Record<string, string[]> = {
   copy: ["WorkerCount", "LeaseBatchSize", "InterOpDelayMs"],
   delete: ["WorkerCount", "LeaseBatchSize", "InterOpDelayMs"],
   seal: ["SealRowThreshold", "SealFlushIntervalMs"],
-  autoscaler: ["MemoryKnobCooldownMs", "AimdProbeCooldownMs"],
+  autoscaler: ["MemoryKnobCooldownMs", "ProbeCooldownMs"],
 };
 
 const KNOB_LABELS: Record<string, string> = {
@@ -67,7 +68,7 @@ const KNOB_LABELS: Record<string, string> = {
   SealRowThreshold: "Buffer size",
   SealFlushIntervalMs: "Flush interval",
   MemoryKnobCooldownMs: "Memory bounce",
-  AimdProbeCooldownMs: "Worker bounce",
+  ProbeCooldownMs: "Worker bounce",
 };
 
 const QUEUE_TITLES: Record<string, string> = {
@@ -79,73 +80,13 @@ const QUEUE_TITLES: Record<string, string> = {
   autoscaler: "bounce timers",
 };
 
-const QUEUE_TASK_KIND: Record<string, string> = {
-  src: "source discovery",
-  dst: "destination discovery",
-  copy: "copy",
-  delete: "delete",
-};
-
-/** Shared HelpTooltip categories: dismiss on one queue dismisses the same knob elsewhere. */
-function knobTip(
-  knob: string,
-  queue: string
-): { category: string; content: string } | null {
-  switch (knob) {
-    case "WorkerCount": {
-      const kind = QUEUE_TASK_KIND[queue] || "migration";
-      return {
-        category: "autoscaler-workers",
-        content: `How many ${kind} tasks can run at the same time. Raising the max lets Sylos try more work in parallel, which can speed things up, but setting it too high may hit cloud rate limits or use more memory.`,
-      };
-    }
-    case "LeaseBatchSize":
-      return {
-        category: "autoscaler-queue-tasks",
-        content:
-          "How many tasks this queue may keep ready in memory. When that list runs low (about 25% full), Sylos pulls more from the database in chunks of about 25% of this size. Larger values can keep workers busier but use more RAM.",
-      };
-    case "InterOpDelayMs":
-      return {
-        category: "autoscaler-interop",
-        content:
-          "A short pause between storage operations on a single worker. You can edit this only when workers is 1 (a slow-lane throttle). With more than one worker, Sylos manages any delay automatically.",
-      };
-    case "SealRowThreshold":
-      return {
-        category: "autoscaler-db-buffer",
-        content:
-          "How many finished results to hold in the database memory buffer before preferring a flush to disk. Default soft size is 50k rows; absolute max (and hard cap) is 250k. When the buffer stays at max with free memory, Sylos may raise this size and keep the raise only if flush cost (time per row) or producer stall wait improves; otherwise it rolls back. Manual Apply above 250k is capped with a warning.",
-      };
-    case "SealFlushIntervalMs":
-      return {
-        category: "autoscaler-db-flush",
-        content:
-          "The longest Sylos will wait before flushing the database memory buffer. Shorter means progress is saved more often; longer can mean fewer, larger writes.",
-      };
-    case "MemoryKnobCooldownMs":
-      return {
-        category: "autoscaler-memory-bounce",
-        content:
-          "After Sylos cuts queue or buffer sizes because of memory pressure, it waits this long before cutting or raising those sizes again. That avoids thrashing when memory is tight.",
-      };
-    case "AimdProbeCooldownMs":
-      return {
-        category: "autoscaler-worker-bounce",
-        content:
-          "After Sylos reduces workers because the storage provider is rate-limiting, it waits this long before trying to add workers again.",
-      };
-    default:
-      return null;
-  }
-}
 
 /** Knobs stored as ms in the API; UI shows/edits decimal seconds. */
 const MS_KNOBS = new Set([
   "InterOpDelayMs",
   "SealFlushIntervalMs",
   "MemoryKnobCooldownMs",
-  "AimdProbeCooldownMs",
+  "ProbeCooldownMs",
 ]);
 
 type AutoscalerPanelProps = {
@@ -160,7 +101,7 @@ function knobKey(queue: string, knob: string) {
 }
 
 function isBounceKnob(knob: string): boolean {
-  return knob === "MemoryKnobCooldownMs" || knob === "AimdProbeCooldownMs";
+  return knob === "MemoryKnobCooldownMs" || knob === "ProbeCooldownMs";
 }
 
 function isMsKnob(knob: string): boolean {
@@ -304,22 +245,7 @@ function WaitBudgetCard({ budget }: { budget: AutoscalerWaitBudget }) {
       <div className="autoscaler-panel__wait-head">
         <h4 className="autoscaler-panel__wait-title">
           Bottleneck wait
-          <HelpTooltip
-            tipId="autoscaler-wait-budget"
-            category="autoscaler-wait-budget"
-            position="above"
-            content={
-              <p>
-                Totals are overlap wall-clock: time when at least one worker was
-                busy in that category. Parallel waiters in the same second count
-                once, so totals stay at or under elapsed run time. FS / provider
-                is adapter calls. DB backpressure is hard-cap wait and/or forced
-                flush (round seal). DB flush / pull is organic flush and/or
-                frontier pulls. EMA is busy milliseconds per wall-clock second
-                (about 0 to 1000).
-              </p>
-            }
-          />
+          <HelpTooltip tipId="autoscaler-wait-budget" position="above" />
         </h4>
         <span className={badgeClass}>{badgeLabel}</span>
       </div>
@@ -462,7 +388,6 @@ function SystemMemoryChart({ mem }: { mem: AutoscalerSystemMemory }) {
           system memory
           <HelpTooltip
             tipId="autoscaler-system-memory"
-            category="autoscaler-system-memory"
             position="above"
             content={
               <p>
@@ -630,7 +555,6 @@ function SealBufferChart({ seal }: { seal: AutoscalerSealBuffer }) {
           buffer fill
           <HelpTooltip
             tipId="autoscaler-seal-buffer"
-            category="autoscaler-seal-buffer"
             position="above"
             content={
               <p>
@@ -1060,7 +984,7 @@ export default function AutoscalerPanel({
         const label = KNOB_LABELS[k.knob] || k.knob;
         const unit = displayUnit(k.knob, k.unit);
         const step = asSec ? "0.001" : "1";
-        const tip = knobTip(k.knob, k.queue);
+        const tip = autoscalerKnobContent(k.knob, k.queue);
         return (
           <div
             key={key}
@@ -1075,8 +999,7 @@ export default function AutoscalerPanel({
               ) : null}
               {tip ? (
                 <HelpTooltip
-                  tipId={`autoscaler-${k.queue}-${k.knob}`}
-                  category={tip.category}
+                  tipId={tip.category}
                   position="above"
                   content={<p>{tip.content}</p>}
                 />

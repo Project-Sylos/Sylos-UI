@@ -2,13 +2,22 @@ import { useState, useRef, useEffect, useLayoutEffect, ReactNode, CSSProperties 
 import { createPortal } from "react-dom";
 import { HelpCircle, X } from "lucide-react";
 import { usePreferences } from "../contexts/PreferencesContext";
+import { resolveTipContent } from "../tips";
 import "./HelpTooltip.css";
 
 export interface HelpTooltipProps {
   tipId: string;
-  category: string;
-  content: ReactNode;
+  /** Preferred placement; flipped when the bubble would leave the viewport. */
   position?: "above" | "right" | "left" | "below";
+  /**
+   * Optional live override (dynamic path-issue rows, seal probe state, etc.).
+   * Registry content is used when omitted.
+   */
+  content?: ReactNode;
+  /**
+   * Unused for prefs (dismiss is per tipId). Kept so older call sites compile.
+   */
+  category?: string;
 }
 
 const VIEWPORT_MARGIN = 8;
@@ -87,8 +96,7 @@ function getBubblePosition(
 
 export default function HelpTooltip({
   tipId,
-  category,
-  content,
+  content: contentProp,
   position = "above",
 }: HelpTooltipProps) {
   const { preferences, updatePreferences } = usePreferences();
@@ -97,8 +105,9 @@ export default function HelpTooltip({
   const tooltipRef = useRef<HTMLDivElement>(null);
   const iconRef = useRef<HTMLButtonElement>(null);
 
+  const content = resolveTipContent(tipId, contentProp);
   const tipsEnabled = preferences.tips?.enabled !== false;
-  const categoryEnabled = preferences.tips?.categories?.[category] !== false;
+  const tipEnabled = preferences.tips?.categories?.[tipId] !== false;
 
   const updateBubblePosition = () => {
     if (!iconRef.current) {
@@ -116,7 +125,7 @@ export default function HelpTooltip({
   };
 
   useLayoutEffect(() => {
-    if (!isOpen || !tipsEnabled || !categoryEnabled) {
+    if (!isOpen || !tipsEnabled || !tipEnabled) {
       return;
     }
 
@@ -132,10 +141,10 @@ export default function HelpTooltip({
       window.removeEventListener("resize", handleReposition);
       window.removeEventListener("scroll", handleReposition, true);
     };
-  }, [isOpen, position, tipsEnabled, categoryEnabled]);
+  }, [isOpen, position, tipsEnabled, tipEnabled]);
 
   useEffect(() => {
-    if (!isOpen || !tipsEnabled || !categoryEnabled) return;
+    if (!isOpen || !tipsEnabled || !tipEnabled) return;
 
     const handleClickOutside = (event: MouseEvent) => {
       if (
@@ -152,9 +161,9 @@ export default function HelpTooltip({
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
     };
-  }, [isOpen, tipsEnabled, categoryEnabled]);
+  }, [isOpen, tipsEnabled, tipEnabled]);
 
-  if (!tipsEnabled || !categoryEnabled) {
+  if (!tipsEnabled || !tipEnabled || !content) {
     return null;
   }
 
@@ -177,7 +186,7 @@ export default function HelpTooltip({
         enabled: currentTips.enabled ?? true,
         categories: {
           ...currentCategories,
-          [category]: false,
+          [tipId]: false,
         },
       },
     });

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, startTransition, type ReactNode } from "react";
-import { Palette, X, Code, Cloud, Users, AlertTriangle, ChevronDown, Filter } from "lucide-react";
+import { Palette, X, Code, Cloud, Users, AlertTriangle } from "lucide-react";
 import "./Settings.css";
 import { PageShell } from "../components/PageShell";
 import { useTheme } from "../contexts/ThemeContext";
@@ -7,9 +7,7 @@ import { usePreferences } from "../contexts/PreferencesContext";
 import { useAuth } from "../contexts/AuthContext";
 import CloudProviderOAuthSetup from "../components/CloudProviderOAuthSetup";
 import SettingsSftpHostsSection from "../components/SettingsSftpHostsSection";
-import SettingsThroughputSection from "../components/SettingsThroughputSection";
 import "../components/CloudProviderOAuthSetup.css";
-import "../components/SettingsThroughputSection.css";
 import { clearAllMigrations, wipeInstall } from "../api/admin";
 import {
   fetchOAuthHealthSettings,
@@ -23,13 +21,9 @@ import DestructiveConfirmDialog from "../components/CleanSlateDialog";
 import SettingsUsersSection from "../components/SettingsUsersSection";
 import "../components/SettingsUsersSection.css";
 import "../components/CleanSlateDialog.css";
-import { ALL_TIP_CATEGORY_IDS, TIP_GROUPS, type TipGroup } from "./settingsTips";
-import { listPrepackagedRulesets, listRulesets } from "../api/services";
-import type { RulesetSummary } from "../types/rulesets";
 
 export type SettingsSection =
   | "appearance"
-  | "filters"
   | "developer"
   | "users"
   | "cloud"
@@ -37,7 +31,6 @@ export type SettingsSection =
 
 const SECTION_IDS: Record<SettingsSection, string> = {
   appearance: "settings-appearance",
-  filters: "settings-filters",
   users: "settings-users",
   cloud: "settings-cloud",
   danger: "settings-danger",
@@ -59,7 +52,6 @@ export default function Settings({ onClose, initialSection = null }: SettingsPro
   const { theme, setTheme } = useTheme();
   const { preferences, updatePreferences } = usePreferences();
   const [activeSection, setActiveSection] = useState<SettingsSection>("appearance");
-  const [expandedTipGroups, setExpandedTipGroups] = useState<Record<string, boolean>>({});
   const [dangerDialog, setDangerDialog] = useState<"clear-migrations" | "wipe-install" | null>(null);
   const [dangerBusy, setDangerBusy] = useState(false);
   const [dangerMessage, setDangerMessage] = useState<string | null>(null);
@@ -67,8 +59,6 @@ export default function Settings({ onClose, initialSection = null }: SettingsPro
   const [oauthScanMinutes, setOauthScanMinutes] = useState(0);
   const [oauthScanSaving, setOauthScanSaving] = useState(false);
   const [oauthScanError, setOauthScanError] = useState<string | null>(null);
-  const [rulesetOptions, setRulesetOptions] = useState<RulesetSummary[]>([]);
-  const [rulesetsLoading, setRulesetsLoading] = useState(false);
   const { needsAttention: recoveryNeedsAttention } = useRecoveryCode();
 
   const cloudProviders = [
@@ -86,9 +76,6 @@ export default function Settings({ onClose, initialSection = null }: SettingsPro
       ?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, []);
 
-  const toggleTipGroup = (groupId: string) => {
-    setExpandedTipGroups((prev) => ({ ...prev, [groupId]: !prev[groupId] }));
-  };
 
   const handleClearMigrations = async () => {
     setDangerBusy(true);
@@ -164,33 +151,10 @@ export default function Settings({ onClose, initialSection = null }: SettingsPro
   }, [isAdmin]);
 
   useEffect(() => {
-    let cancelled = false;
-    setRulesetsLoading(true);
-    void Promise.all([listRulesets(), listPrepackagedRulesets()])
-      .then(([library, prepackaged]) => {
-        if (cancelled) return;
-        const byId = new Map<string, RulesetSummary>();
-        for (const item of [...prepackaged, ...library]) {
-          byId.set(item.id, item);
-        }
-        setRulesetOptions(Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name)));
-      })
-      .catch(() => {
-        if (!cancelled) setRulesetOptions([]);
-      })
-      .finally(() => {
-        if (!cancelled) setRulesetsLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
     const root = contentRef.current;
     if (!root) return;
 
-    const visibleSections: SettingsSection[] = ["appearance", "filters"];
+    const visibleSections: SettingsSection[] = ["appearance"];
     if (user) visibleSections.push("users", "cloud");
     if (canCleanSlate) visibleSections.push("danger");
     visibleSections.push("developer");
@@ -246,75 +210,6 @@ export default function Settings({ onClose, initialSection = null }: SettingsPro
     }
   };
 
-  const renderTipGroup = (group: TipGroup) => {
-    const expanded = expandedTipGroups[group.id] === true;
-    const enabledCount = group.categories.filter(
-      (category) => preferences.tips?.categories?.[category.id] !== false
-    ).length;
-
-    return (
-      <div key={group.id} className="settings__tip-group">
-        <button
-          type="button"
-          className="settings__tip-group-header"
-          onClick={() => toggleTipGroup(group.id)}
-          aria-expanded={expanded}
-        >
-          <span className="settings__tip-group-header-main">
-            <ChevronDown
-              size={18}
-              className={`settings__tip-group-chevron ${expanded ? "settings__tip-group-chevron--expanded" : ""}`}
-              aria-hidden
-            />
-            <span>
-              <span className="settings__tip-group-name">{group.name}</span>
-              <span className="settings__tip-group-meta">
-                {enabledCount} of {group.categories.length} enabled
-              </span>
-            </span>
-          </span>
-          <span className="settings__tip-group-description">{group.description}</span>
-        </button>
-
-        {expanded && (
-          <div className="settings__tip-categories settings__tip-categories--nested">
-            {group.categories.map((category) => {
-              const categoryEnabled = preferences.tips?.categories?.[category.id] !== false;
-              return (
-                <div key={category.id} className="settings__tip-category">
-                  <div className="settings__tip-category-info">
-                    <h3 className="settings__tip-category-name">{category.name}</h3>
-                    <p className="settings__tip-category-description">{category.description}</p>
-                  </div>
-                  <label className="settings__toggle">
-                    <input
-                      type="checkbox"
-                      checked={categoryEnabled}
-                      onChange={(e) => {
-                        const currentTips = preferences.tips || { enabled: true, categories: {} };
-                        const currentCategories = currentTips.categories || {};
-                        updatePreferences({
-                          tips: {
-                            ...currentTips,
-                            categories: {
-                              ...currentCategories,
-                              [category.id]: e.target.checked,
-                            },
-                          },
-                        });
-                      }}
-                      className="settings__toggle-input"
-                    />
-                    <span className="settings__toggle-slider"></span>
-                  </label>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-    );
-  };
 
   const navButton = (section: SettingsSection, icon: ReactNode, label: string, badge?: ReactNode) => (
     <button
@@ -345,7 +240,6 @@ export default function Settings({ onClose, initialSection = null }: SettingsPro
           <nav className="settings__nav">
             <div className="settings__nav-group">
               {navButton("appearance", <Palette size={20} />, "Appearance")}
-              {navButton("filters", <Filter size={20} />, "Filter rules")}
               {user &&
                 navButton(
                   "users",
@@ -437,96 +331,6 @@ export default function Settings({ onClose, initialSection = null }: SettingsPro
                 </button>
               </div>
             </div>
-
-            <div className="settings__subsection">
-              <div className="settings__subsection-header">
-                <div>
-                  <h2 className="settings__subsection-title">Enable Tips</h2>
-                  <p className="settings__subsection-description">
-                    Show contextual help tooltips throughout the application
-                  </p>
-                </div>
-                <label className="settings__toggle">
-                  <input
-                    type="checkbox"
-                    checked={preferences.tips?.enabled !== false}
-                    onChange={(e) => {
-                      const currentTips = preferences.tips || { enabled: true, categories: {} };
-                      const currentCategories = currentTips.categories || {};
-
-                      const updatedCategories: { [key: string]: boolean } = {};
-                      ALL_TIP_CATEGORY_IDS.forEach((categoryId) => {
-                        updatedCategories[categoryId] = e.target.checked;
-                      });
-
-                      updatePreferences({
-                        tips: {
-                          ...currentTips,
-                          enabled: e.target.checked,
-                          categories: { ...currentCategories, ...updatedCategories },
-                        },
-                      });
-                    }}
-                    className="settings__toggle-input"
-                  />
-                  <span className="settings__toggle-slider"></span>
-                </label>
-              </div>
-            </div>
-
-            <div className="settings__subsection">
-              <div className="settings__subsection-header">
-                <div>
-                  <h2 className="settings__subsection-title">Tip Categories</h2>
-                  <p className="settings__subsection-description">
-                    Control which categories of tips are shown. Dismissing a tip will also disable its category here.
-                  </p>
-                </div>
-              </div>
-
-              <div className="settings__tip-groups">
-                {TIP_GROUPS.map((group) => renderTipGroup(group))}
-              </div>
-            </div>
-          </div>
-
-          <div className="settings__section settings__page-section" id={SECTION_IDS.filters}>
-            <h1 className="settings__section-title">Filter rules</h1>
-            <p className="settings__subsection-description">
-              Saved rulesets live in the Sylos library (API database). Each migration gets its own
-              copy, so editing a migration's rules never changes the saved original.
-            </p>
-
-            <div className="settings__subsection">
-              <div className="settings__subsection-header">
-                <div>
-                  <h2 className="settings__subsection-title">Applied to new migrations</h2>
-                  <p className="settings__subsection-description">
-                    Optional starter ruleset copied onto new migrations. Edit and
-                    apply filters during path review after discovery, pick a
-                    different library ruleset here, or choose None.
-                  </p>
-                </div>
-              </div>
-              <label>
-                Applied ruleset
-                <select
-                  value={preferences.defaultRulesetId || ""}
-                  disabled={rulesetsLoading}
-                  onChange={(e) => {
-                    void updatePreferences({ defaultRulesetId: e.target.value });
-                  }}
-                >
-                  <option value="">None (migrate everything you select)</option>
-                  {rulesetOptions.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.name}
-                      {item.createdBy === "prepackaged" ? " (prepackaged)" : ""}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
           </div>
 
           {user && (
@@ -613,7 +417,6 @@ export default function Settings({ onClose, initialSection = null }: SettingsPro
               </div>
 
               <SettingsSftpHostsSection canManage={Boolean(user)} />
-              <SettingsThroughputSection canManage={Boolean(user)} />
             </div>
           )}
 

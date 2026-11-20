@@ -2,10 +2,7 @@ import type { ReactElement } from "react";
 import { Clock, X, Check, AlertCircle, RotateCw, Trash2, Ban } from "lucide-react";
 import { DiffItem } from "../api/services";
 import InteractionHint from "./InteractionHint";
-import {
-  STATUS_HINT,
-  STATUS_HINT_COPY,
-} from "./pathReviewStatusHints";
+import { STATUS_HINT } from "./pathReviewStatusHints";
 import {
   excludedByRuleText,
   isRuleExcluded,
@@ -102,14 +99,13 @@ export default function PathReviewStatusIcon({
 
   const maybeHint = (
     tipId: string,
-    content: string,
     canToggle: boolean,
     icon: ReactElement
   ): ReactElement => {
     const hinted = !canToggle ? (
       icon
     ) : (
-      <InteractionHint tipId={tipId} content={content} position="right">
+      <InteractionHint tipId={tipId} position="right">
         {icon}
       </InteractionHint>
     );
@@ -137,7 +133,6 @@ export default function PathReviewStatusIcon({
       const canToggle = true;
       return maybeHint(
         STATUS_HINT.include,
-        STATUS_HINT_COPY.include,
         canToggle,
         <X
           size={iconSize}
@@ -160,8 +155,7 @@ export default function PathReviewStatusIcon({
     }
     const canToggle = true;
     return maybeHint(
-      STATUS_HINT.exclude,
-      STATUS_HINT_COPY.exclude,
+        STATUS_HINT.exclude,
       canToggle,
       <Trash2
         size={iconSize}
@@ -206,7 +200,6 @@ export default function PathReviewStatusIcon({
       const canToggle = true;
       return maybeHint(
         STATUS_HINT.markRetry,
-        STATUS_HINT_COPY.markRetry,
         canToggle,
         <AlertCircle
           size={iconSize}
@@ -221,7 +214,6 @@ export default function PathReviewStatusIcon({
       const canToggle = true;
       return maybeHint(
         STATUS_HINT.undoRetry,
-        STATUS_HINT_COPY.undoRetry,
         canToggle,
         <RotateCw
           size={iconSize}
@@ -247,7 +239,6 @@ export default function PathReviewStatusIcon({
       const canToggle = !isLocked && !ruleExcluded;
       return maybeHint(
         STATUS_HINT.include,
-        STATUS_HINT_COPY.include,
         canToggle,
         <X
           size={iconSize}
@@ -287,7 +278,6 @@ export default function PathReviewStatusIcon({
       const canToggle = !isLocked;
       return maybeHint(
         STATUS_HINT.exclude,
-        STATUS_HINT_COPY.exclude,
         canToggle,
         <Clock
           size={iconSize}
@@ -306,7 +296,6 @@ export default function PathReviewStatusIcon({
       const canToggle = true;
       return maybeHint(
         STATUS_HINT.markRetry,
-        STATUS_HINT_COPY.markRetry,
         canToggle,
         <AlertCircle
           size={iconSize}
@@ -323,8 +312,7 @@ export default function PathReviewStatusIcon({
       const retryMarked = item.src?.copyRetryMarked === true;
       if (retryMarked) {
         return maybeHint(
-          STATUS_HINT.undoRetry,
-          STATUS_HINT_COPY.undoRetry,
+        STATUS_HINT.undoRetry,
           canToggle,
           <RotateCw
             size={iconSize}
@@ -337,7 +325,6 @@ export default function PathReviewStatusIcon({
       }
       return maybeHint(
         STATUS_HINT.exclude,
-        STATUS_HINT_COPY.exclude,
         canToggle,
         <Clock
           size={iconSize}
@@ -359,7 +346,6 @@ export default function PathReviewStatusIcon({
       const canToggle = !isLocked && !ruleExcluded;
       return maybeHint(
         STATUS_HINT.include,
-        STATUS_HINT_COPY.include,
         canToggle,
         <X
           size={iconSize}
@@ -403,8 +389,7 @@ export default function PathReviewStatusIcon({
   if (skippedDiscovery) {
     const canToggle = true;
     return maybeHint(
-      STATUS_HINT.markRetry,
-      STATUS_HINT_COPY.markRetry,
+        STATUS_HINT.markRetry,
       canToggle,
       <Ban
         size={iconSize}
@@ -419,8 +404,7 @@ export default function PathReviewStatusIcon({
   if (hasFailedStatus) {
     const canToggle = true;
     return maybeHint(
-      STATUS_HINT.markRetry,
-      STATUS_HINT_COPY.markRetry,
+        STATUS_HINT.markRetry,
       canToggle,
       <AlertCircle
         size={iconSize}
@@ -435,8 +419,7 @@ export default function PathReviewStatusIcon({
   if (hasPendingRetry) {
     const canToggle = true;
     return maybeHint(
-      STATUS_HINT.undoRetry,
-      STATUS_HINT_COPY.undoRetry,
+        STATUS_HINT.undoRetry,
       canToggle,
       <RotateCw
         size={iconSize}

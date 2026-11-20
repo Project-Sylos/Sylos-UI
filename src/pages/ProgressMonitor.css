@@ -1466,3 +1466,14 @@
 .progress-monitor__see-results {
   flex-shrink: 0;
 }
+
+.progress-monitor__subsection-title--with-tip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.progress-monitor__subsection-tip {
+  display: inline-flex;
+  align-items: center;
+}

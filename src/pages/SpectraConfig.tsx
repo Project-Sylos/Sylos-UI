@@ -453,18 +453,7 @@ export default function SpectraConfigPage() {
               Ephemeral Mode
               <HelpTooltip
                 tipId="spectra-ephemeral-mode"
-                category="spectra-config"
                 position="right"
-                content={
-                  <>
-                    <p>
-                      When enabled, Spectra will run in ephemeral mode, skipping database operations in spectra's internals.
-                    </p>
-                    <p style={{ marginTop: '0.5rem' }}>
-                      This automatically disables caching and destination probability since ephemeral mode doesn't persist data between sessions.
-                    </p>
-                  </>
-                }
               />
             </label>
           </div>
@@ -481,11 +470,7 @@ export default function SpectraConfigPage() {
               Diverging Tree Mode
               <HelpTooltip
                 tipId="spectra-diverging-tree-mode"
-                category="spectra-config"
                 position="right"
-                content={
-                  <p>When enabled, and if ephermal mode is selected, the tree structure may diverge. Without ephemeral, trees diverge by default.</p>
-                }
               />
             </label>
           </div>
@@ -497,22 +482,7 @@ export default function SpectraConfigPage() {
               Item name style
               <HelpTooltip
                 tipId="spectra-item-name-style"
-                category="spectra-config"
                 position="right"
-                content={
-                  <>
-                    <p>
-                      Numbered names (folder_1, file_1.txt) are the default and
-                      fine for small or medium trees.
-                    </p>
-                    <p style={{ marginTop: "0.5rem" }}>
-                      Choose Unique ID names for larger datasets so each node
-                      uses its Spectra ID (files keep a .txt suffix). That
-                      avoids flooding review trigram indexes with shared
-                      numbered-name grams.
-                    </p>
-                  </>
-                }
               />
             </label>
             <select
@@ -663,13 +633,7 @@ export default function SpectraConfigPage() {
             disabled={config.mode === "ephemeral"}
             helpTooltip={{
               tipId: "spectra-destination-probability",
-              category: "spectra-config",
               position: "right",
-              content: (
-                <p>
-                  This is the chance each item has for existing on the destination once it's created in the source world.
-                </p>
-              ),
             }}
           />
         </FormSection>
@@ -708,13 +672,7 @@ export default function SpectraConfigPage() {
             }
             helpTooltip={{
               tipId: "spectra-auth-ttl",
-              category: "spectra-config",
               position: "right",
-              content: (
-                <p>
-                  Access token lifetime in seconds. Use -1 for tokens that never expire. Refresh tokens always last forever.
-                </p>
-              ),
             }}
           />
         </FormSection>

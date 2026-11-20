@@ -3,21 +3,6 @@ import { PATH_REVIEW_COPY } from "../utils/pathReviewCopy";
 
 export const PATH_REVIEW_SIDE_HELP = {
   tipId: "path-review-side-column",
-  category: "path-review-side-column",
-  content: (
-    <>
-      <p>Marks whether an item exists on one side or both.</p>
-      <p>
-        <strong>{PATH_REVIEW_COPY.sideChipSrc}</strong>:{" "}
-        {PATH_REVIEW_COPY.sideChipSrcTip.toLowerCase()}.
-      </p>
-      <p>
-        <strong>{PATH_REVIEW_COPY.sideChipDst}</strong>:{" "}
-        {PATH_REVIEW_COPY.sideChipDstTip.toLowerCase()}.
-      </p>
-      <p>No label: exists on both source and destination.</p>
-    </>
-  ),
 } as const;
 
 /** Column header row aligned with Path Review tree/list item grids. */
@@ -68,8 +53,6 @@ export default function PathReviewSizeColumnHeader({
               {PATH_REVIEW_COPY.sideColumnHeader}
               <HelpTooltip
                 tipId={PATH_REVIEW_SIDE_HELP.tipId}
-                category={PATH_REVIEW_SIDE_HELP.category}
-                content={PATH_REVIEW_SIDE_HELP.content}
                 position="below"
               />
             </span>

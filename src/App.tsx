@@ -220,7 +220,7 @@ function AppShell() {
 
 export default function App() {
   return (
-    <HashRouter>
+    <HashRouter useTransitions={false}>
       <MomentumScrollEnhancer />
       <AuthProvider>
         <RecoveryCodeProvider>

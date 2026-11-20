@@ -136,8 +136,6 @@ export default function PathReviewIssuesPanel({
             label="Failed"
             count={failedCount}
             tipId="path-review-issues-failed"
-            tipCategory="path-review-issues-failed"
-            tipContent={<p>{PATH_REVIEW_COPY.issuesHelpFailed}</p>}
             onJump={
               failedCount > 0
                 ? () => onJump({ statusFilter: "failed" })
@@ -152,8 +150,6 @@ export default function PathReviewIssuesPanel({
               label={PATH_REVIEW_COPY.compatibilityFilterManual}
               count={manualCount}
               tipId="path-review-issues-manual"
-              tipCategory="path-review-issues-manual"
-              tipContent={<p>{PATH_REVIEW_COPY.manualReviewTip}</p>}
               onJump={
                 manualCount > 0
                   ? () => onJump({ pathIssueStatus: "manual" })
@@ -180,9 +176,7 @@ export default function PathReviewIssuesPanel({
               <span className="path-review-issues-panel__tip">
                 <HelpTooltip
                   tipId="path-review-issues-naming-warnings"
-                  category="path-review-issues-naming-warnings"
                   position="left"
-                  content={<p>{PATH_REVIEW_COPY.issuesHelpReference}</p>}
                 />
               </span>
             </div>
@@ -253,7 +247,7 @@ function IssueRow({
             <span className="path-review-issues-panel__row-icon">{icon}</span>
           ) : null}
           <span className="path-review-issues-panel__row-label">{label}</span>
-          {tipId && tipCategory && tipContent ? (
+          {tipId ? (
             <span className="path-review-issues-panel__tip">
               <HelpTooltip
                 tipId={tipId}

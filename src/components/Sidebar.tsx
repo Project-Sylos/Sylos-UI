@@ -34,7 +34,10 @@ import {
   getPathReviewStepperState,
   type PathReviewLifecycleStep,
 } from "../utils/pathReviewPhase";
-import { fetchLiveMigrations } from "../utils/liveMigrations";
+import {
+  fetchLiveMigrations,
+  softStopMigrationsById,
+} from "../utils/liveMigrations";
 import { useRecoveryCode } from "../contexts/RecoveryCodeContext";
 import ConfirmDialog from "./ConfirmDialog";
 import googleDriveLogo from "../assets/external/Google_Drive_Logo.svg";
@@ -57,7 +60,7 @@ import {
   Settings,
 } from "lucide-react";
 import {
-  defaultHelpModalBody,
+  DefaultHelpBody,
   useHelpModal,
 } from "../contexts/HelpModalContext";
 import { useSettingsModal } from "../contexts/SettingsModalContext";
@@ -331,9 +334,10 @@ export default function Sidebar() {
   const [openingId, setOpeningId] = useState<string | null>(null);
   const [logoutConfirm, setLogoutConfirm] = useState<{
     open: boolean;
-    liveCount: number;
-  }>({ open: false, liveCount: 0 });
+    liveIds: string[];
+  }>({ open: false, liveIds: [] });
   const [logoutChecking, setLogoutChecking] = useState(false);
+  const [logoutStopping, setLogoutStopping] = useState(false);
 
   const active = routeMigration(location);
   const activeMigrationId = active.id;
@@ -464,7 +468,7 @@ export default function Sidebar() {
   };
 
   const handleHelpClick = () => {
-    openHelp({ title: "Help", body: defaultHelpModalBody() });
+    openHelp({ title: "Help", body: <DefaultHelpBody /> });
   };
 
   const handleContributeClick = () => {
@@ -660,18 +664,20 @@ export default function Sidebar() {
                   void (async () => {
                     setLogoutChecking(true);
                     try {
-                      let liveCount = migrations.filter((m) =>
-                        isMigrationActivelyRunning(m)
-                      ).length;
-                      if (liveCount === 0) {
+                      let liveIds = migrations
+                        .filter((m) => isMigrationActivelyRunning(m))
+                        .map((m) => m.id);
+                      if (liveIds.length === 0) {
                         try {
-                          liveCount = (await fetchLiveMigrations()).length;
+                          liveIds = (await fetchLiveMigrations()).map(
+                            (m) => m.id
+                          );
                         } catch {
                           // List failed: sign out without a scary confirm.
                         }
                       }
-                      if (liveCount > 0) {
-                        setLogoutConfirm({ open: true, liveCount });
+                      if (liveIds.length > 0) {
+                        setLogoutConfirm({ open: true, liveIds });
                         return;
                       }
                       await logout();
@@ -693,17 +699,41 @@ export default function Sidebar() {
         <ConfirmDialog
           title="Sign out while migrations run?"
           message={
-            logoutConfirm.liveCount === 1
-              ? "Signing out ends this browser session only. The migration keeps running as long as the Sylos process stays up. Sign back in anytime to monitor progress."
-              : `Signing out ends this browser session only. ${logoutConfirm.liveCount} migrations keep running as long as the Sylos process stays up. Sign back in anytime to monitor progress.`
+            logoutConfirm.liveIds.length === 1
+              ? "One migration is still running. You can leave it going (sign back in anytime to monitor), or soft-stop it now and then sign out. Soft stop saves progress in the background after you leave."
+              : `${logoutConfirm.liveIds.length} migrations are still running. You can leave them going (sign back in anytime to monitor), or soft-stop all of them now and then sign out. Soft stop saves progress in the background after you leave.`
           }
-          confirmLabel="Sign out"
           cancelLabel="Stay signed in"
-          confirmTone="cyan"
-          onCancel={() => setLogoutConfirm({ open: false, liveCount: 0 })}
-          onConfirm={() => {
-            setLogoutConfirm({ open: false, liveCount: 0 });
+          secondaryLabel="Sign out only"
+          confirmLabel={
+            logoutStopping
+              ? "Stopping…"
+              : logoutConfirm.liveIds.length === 1
+                ? "Soft-stop then sign out"
+                : "Soft-stop all then sign out"
+          }
+          confirmTone="magenta"
+          onCancel={() => {
+            if (logoutStopping) return;
+            setLogoutConfirm({ open: false, liveIds: [] });
+          }}
+          onSecondary={() => {
+            if (logoutStopping) return;
+            setLogoutConfirm({ open: false, liveIds: [] });
             void logout();
+          }}
+          onConfirm={() => {
+            if (logoutStopping) return;
+            void (async () => {
+              setLogoutStopping(true);
+              try {
+                await softStopMigrationsById(logoutConfirm.liveIds);
+              } finally {
+                setLogoutConfirm({ open: false, liveIds: [] });
+                setLogoutStopping(false);
+                await logout();
+              }
+            })();
           }}
         />
       ) : null}

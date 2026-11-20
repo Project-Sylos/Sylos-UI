@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 import { Search, ChevronRight, Pencil } from "lucide-react";
 
@@ -13,17 +13,20 @@ import {
   setPathCheckTarget,
   getStorageInfo,
   startMigration,
+  probeMigrationFSHealth,
   StorageInfo,
 } from "../api/services";
 import { ServiceDescriptor, Folder } from "../types/services";
 import {
   CloudConnectionCheckResult,
   connectionIdForRole,
-  formatCloudConnectionIssues,
   invalidCloudResults,
   resolveCloudNavigation,
-  verifyConfiguredMigrationCloudConnections,
 } from "../utils/cloudConnections";
+import {
+  cloudIssuesFromFSHealth,
+  formatFSHealthFailure,
+} from "../utils/fsHealth";
 import {
   accountLabelForRole,
 } from "../utils/cloudAccountLabel";
@@ -49,41 +52,6 @@ const LOCAL_OS_CHECKS_ON_NOTE =
   "We'll flag names this OS would reject, so you can fix them before copy.";
 const LOCAL_OS_CHECKS_OFF_NOTE =
   "Same OS as source, so destination name checks are skipped.";
-
-const LOCAL_OS_CHECKS_ON_HELP = (
-  <>
-    <p>
-      During discovery, Sylos checks each file and folder name against this
-      destination OS.
-    </p>
-    <p>
-      Illegal characters, reserved names, length limits, and naming collisions
-      are flagged on the review screen so you can rename them before copying
-      starts.
-    </p>
-  </>
-);
-
-const LOCAL_OS_CHECKS_OFF_HELP = (
-  <>
-    <p>
-      Source and destination use the same OS naming rules, so names that already
-      work on the source should work on the destination.
-    </p>
-    <p>
-      If the destination is actually a different OS (for example Linux files going
-      onto a Windows volume), change the destination OS here to turn checks on.
-    </p>
-  </>
-);
-
-const LOCAL_OS_SOURCE_HELP = (
-  <p>
-    Label which OS this local path lives on. Destination name checks follow the
-    destination OS. The source OS is only used to skip those checks when both
-    sides match.
-  </p>
-);
 
 function computeDefaultName(
   source?: { service?: { displayName?: string }; root?: Folder },
@@ -265,24 +233,39 @@ export default function MigrationSummary() {
       : "Configure source and destination to continue.";
 
   useEffect(() => {
-    if (!sourceConfigured && !destinationConfigured) {
+    // Only probe sides that are actually configured. Probing "both" before
+    // destination is chosen surfaces a pointless "destination needs attention".
+    if (!migration.migrationId || (!sourceConfigured && !destinationConfigured)) {
       setConnectionIssues([]);
       return;
     }
+
+    const side: "src" | "dst" | "both" =
+      sourceConfigured && destinationConfigured
+        ? "both"
+        : sourceConfigured
+          ? "src"
+          : "dst";
 
     let cancelled = false;
 
     async function checkConnections() {
       setCheckingConnections(true);
       try {
-        const results = await verifyConfiguredMigrationCloudConnections(
-          source,
-          destination,
-          migration
-        );
-        if (!cancelled) {
-          setConnectionIssues(results);
+        const report = await probeMigrationFSHealth(migration.migrationId!, side);
+        if (cancelled) return;
+        if (report.ok) {
+          setConnectionIssues([]);
+          return;
         }
+        const issues = cloudIssuesFromFSHealth(report, {
+          source: source?.service?.displayName,
+          destination: destination?.service?.displayName,
+        }).filter((issue) => {
+          if (issue.role === "source") return sourceConfigured;
+          return destinationConfigured;
+        });
+        setConnectionIssues(issues);
       } catch {
         if (!cancelled) {
           setConnectionIssues([]);
@@ -374,17 +357,17 @@ export default function MigrationSummary() {
     setStarting(true);
     setError(null);
     try {
-      const results = await verifyConfiguredMigrationCloudConnections(
-        source,
-        destination,
-        migration
-      );
-      const invalid = invalidCloudResults(results);
-      if (invalid.length > 0) {
-        setConnectionIssues(results);
-        setError(formatCloudConnectionIssues(invalid));
+      const report = await probeMigrationFSHealth(migration.migrationId, "both");
+      if (!report.ok) {
+        const issues = cloudIssuesFromFSHealth(report, {
+          source: source?.service?.displayName,
+          destination: destination?.service?.displayName,
+        });
+        setConnectionIssues(issues);
+        setError(formatFSHealthFailure(report));
         return;
       }
+      setConnectionIssues([]);
       try {
         await setPathCheckTarget(
           migration.migrationId,
@@ -406,7 +389,17 @@ export default function MigrationSummary() {
       });
       navigate(`/progress-monitor/${run.id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to start discovery.");
+      const withHealth = err as Error & { fsHealth?: import("../api/services").FSHealthReport };
+      if (withHealth.fsHealth) {
+        const issues = cloudIssuesFromFSHealth(withHealth.fsHealth, {
+          source: source?.service?.displayName,
+          destination: destination?.service?.displayName,
+        });
+        setConnectionIssues(issues);
+        setError(formatFSHealthFailure(withHealth.fsHealth));
+      } else {
+        setError(err instanceof Error ? err.message : "Unable to start discovery.");
+      }
     } finally {
       setStarting(false);
     }
@@ -506,7 +499,6 @@ export default function MigrationSummary() {
             }}
             localOsSelectId="source-local-os"
             localOsHelpTipId="migration-source-local-os"
-            localOsHelp={LOCAL_OS_SOURCE_HELP}
             storage={srcStorage}
             storageTipId="migration-summary-src-storage"
             onSelect={() => void navigateToEndpoint("source", source)}
@@ -547,11 +539,10 @@ export default function MigrationSummary() {
                   ? LOCAL_OS_CHECKS_ON_NOTE
                   : undefined
             }
-            localOsHelpTipId="migration-destination-local-os"
-            localOsHelp={
+            localOsHelpTipId={
               sameLocalOsDisablesChecks
-                ? LOCAL_OS_CHECKS_OFF_HELP
-                : LOCAL_OS_CHECKS_ON_HELP
+                ? "migration-destination-local-os-off"
+                : "migration-destination-local-os-on"
             }
             storage={destStorage}
             storageTipId="migration-summary-dst-storage"
@@ -583,19 +574,7 @@ export default function MigrationSummary() {
                   >
                     Persist log level
                   </label>
-                  <HelpTooltip
-                    tipId="migration-setup-persist-log-level"
-                    category="migration-setup"
-                    position="above"
-                    content={
-                      <p>
-                        Adjusts the threshold for which logs are saved to disk. Saving
-                        more detail keeps a fuller historical record, but can slow
-                        discovery and copy as more lines are written. The live log
-                        window still shows all emitted levels.
-                      </p>
-                    }
-                  />
+                  <HelpTooltip tipId="migration-setup-persist-log-level" position="above" />
                 </div>
                 <select
                   id="migration-persist-log-level"
@@ -621,17 +600,7 @@ export default function MigrationSummary() {
                   >
                     Overwrite policy
                   </label>
-                  <HelpTooltip
-                    tipId="migration-setup-overwrite-policy"
-                    category="migration-setup"
-                    position="above"
-                    content={
-                      <p>
-                        This can still be overridden on a per-item basis during
-                        review of your copy plan.
-                      </p>
-                    }
-                  />
+                  <HelpTooltip tipId="migration-setup-overwrite-policy" position="above" />
                 </div>
                 <select
                   id="migration-overwrite-policy"
@@ -659,25 +628,14 @@ export default function MigrationSummary() {
                   <span className="migration-summary__advanced-label">
                     Double-read content verification
                   </span>
-                  <HelpTooltip
-                    tipId="migration-setup-hash-verify"
-                    category="migration-setup"
-                    position="above"
-                    content={
-                      <p>
-                        During discovery, Sylos already pairs files by name and
-                        modified time. Turn this on to also read both source and
-                        destination contents and compare SHA-256 hashes for an
-                        extra identical-content check (bytes are discarded, not
-                        saved to disk).
-                      </p>
-                    }
-                  />
+                                    <HelpTooltip tipId="migration-setup-hash-verify" position="above" />
                 </span>
                 <span className="migration-summary__advanced-hint">
-                  Warning: reading file contents is much heavier and slower than 
-                  listing items from folders. For every paired file Sylos reads 
-                  both the source and destination, so discovery can take far longer.
+                  Compares hashes of paired source and destination files. 
+                  This can cause discovery to run slower to read the bytes of
+                  every file discovered, but it can be useful to catch content 
+                  differences that might otherwise slip through if you need 
+                  extra assurance.
                 </span>
               </span>
             </label>
@@ -740,20 +698,11 @@ type SetupEndpointCardProps = {
   localOsSelectId?: string;
   localOsNote?: string;
   localOsHelpTipId?: string;
-  localOsHelp?: ReactNode;
   storage?: StorageInfo | null;
   storageTipId?: string;
   storageWarning?: string | null;
   onSelect: () => void;
 };
-
-const FS_STORAGE_TIP = (
-  <p>
-    Capacity reported by the filesystem or cloud account for this service. It is
-    the total free and used space on that drive or account, not the size of the
-    specific folder you selected.
-  </p>
-);
 
 function SetupEndpointCard({
   label,
@@ -770,7 +719,6 @@ function SetupEndpointCard({
   localOsSelectId,
   localOsNote,
   localOsHelpTipId,
-  localOsHelp,
   storage,
   storageTipId,
   storageWarning,
@@ -826,13 +774,8 @@ function SetupEndpointCard({
                   <label className="migration-summary__info-label" htmlFor={localOsSelectId}>
                     OS
                   </label>
-                  {localOsHelp && localOsHelpTipId ? (
-                    <HelpTooltip
-                      tipId={localOsHelpTipId}
-                      category="migration-setup"
-                      position="above"
-                      content={localOsHelp}
-                    />
+                  {localOsHelpTipId ? (
+                    <HelpTooltip tipId={localOsHelpTipId} position="above" />
                   ) : null}
                 </div>
                 <select
@@ -860,12 +803,7 @@ function SetupEndpointCard({
                 <div className="migration-summary__storage-label-row">
                   <span className="migration-summary__info-label">Storage</span>
                   {storageTipId ? (
-                    <HelpTooltip
-                      tipId={storageTipId}
-                      category="migration-setup-storage"
-                      position="above"
-                      content={FS_STORAGE_TIP}
-                    />
+                    <HelpTooltip tipId={storageTipId} position="above" />
                   ) : null}
                 </div>
                 <StorageMeter

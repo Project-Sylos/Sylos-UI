@@ -31,10 +31,12 @@ export interface MigrationRootRequest {
   connectionId?: string;
   root: MigrationRootRequestRoot;
   config?: any;  // Can be SpectraConfig or other config types
-  /** Immediate children from root-pick review (no DuckDB write until Start). */
+  /** Immediate children from root-pick review (no ops write until Start). */
   children?: MigrationRootChild[];
   /** Source-only; ids not in children are ignored. */
   excludedIds?: string[];
+  /** Quiet credential rebind: keep phase/prep, clear import attention. */
+  reauth?: boolean;
 }
 
 export interface MigrationRootResponse {
@@ -61,11 +63,16 @@ export interface StartMigrationPayload {
     coordinatorLead?: number;
     logAddress?: string;
     logLevel?: string;
+    persistLogLevel?: string;
     enableLoggingTerminal?: boolean;
     /** Destination name rules: "none" | "auto" | provider id (e.g. "windows") */
     pathCheckTarget?: string;
     /** Soft-cloud Windows desktop-sync overlays (Dropbox/Box/Egnyte/ShareFile). */
     windowsCompat?: boolean;
+    /** newest_mtime | decide | source_wins */
+    overwritePolicy?: string;
+    /** Dual-stream SHA-256 compare for name-matched files during discovery. */
+    hashVerify?: boolean;
   };
 }
 
@@ -158,7 +165,7 @@ export function formatMigrationPhaseLabel(
     case "awaiting-delete-review":
       return "Ready to review removal";
     case "aborted":
-      return "Aborted";
+      return "Hard-stopped";
     case "failed":
       return "Failed";
     case "":
@@ -177,8 +184,12 @@ export function migrationPhaseTone(
   phaseOrStatus: string | undefined | null
 ): "running" | "suspended" | "awaiting" | "failed" | "completed" {
   const phase = normalizeMigrationPhase(phaseOrStatus ?? "");
-  if (phase === "failed" || phase.endsWith("-finalize-failed") || phase === "aborted") {
+  if (phase === "failed" || phase.endsWith("-finalize-failed")) {
     return "failed";
+  }
+  if (phase === "aborted") {
+    // Recoverable hard-stop: cautionary but Resume-eligible (same chip family as suspended).
+    return "suspended";
   }
   if (phase.endsWith("-in-progress") || phase.endsWith("-finalizing")) {
     return "running";
@@ -247,6 +258,23 @@ export function isMigrationLive(response: { live?: boolean; Live?: boolean } | n
   return (response as { live?: boolean; Live?: boolean }).live === true || (response as { live?: boolean; Live?: boolean }).Live === true;
 }
 
+/**
+ * True when work is still happening server-side: runtime `live`, or a phase
+ * that implies an in-process run (`*-in-progress` / `*-finalizing`).
+ * Used for sign-out confirm and post-login reattach.
+ */
+export function isMigrationActivelyRunning(
+  response:
+    | { live?: boolean; Live?: boolean; phase?: string; status?: string }
+    | null
+    | undefined
+): boolean {
+  if (!response) return false;
+  if (isMigrationLive(response)) return true;
+  const phase = getMigrationPhase(response);
+  return phase.endsWith("-in-progress") || phase.endsWith("-finalizing");
+}
+
 /** Soft suspend complete: engine phase is *-suspended (not generic `suspended`). */
 export function isMigrationSoftSuspendedPhase(phase: string): boolean {
   return (
@@ -264,12 +292,41 @@ export function isMigrationSuspended(
   return isMigrationSoftSuspendedPhase(getMigrationPhase(response));
 }
 
-/** Force-aborted: not resumable. */
+/** Legacy hard-stop phase (pre-recoverable). Still Resume-eligible via recovery sweep. */
 export function isMigrationAborted(
   response: { phase?: string; status?: string } | null | undefined
 ): boolean {
   if (!response) return false;
   return getMigrationPhase(response) === "aborted";
+}
+
+/** True when crash/hard-stop recovery mode is active (ops unclean_interrupt). */
+export function hasUncleanInterrupt(
+  response:
+    | {
+        uncleanInterrupt?: boolean;
+        UncleanInterrupt?: boolean;
+      }
+    | null
+    | undefined
+): boolean {
+  if (!response) return false;
+  return Boolean(response.uncleanInterrupt || response.UncleanInterrupt);
+}
+
+/** Hard-stopped / interrupted migrations can Resume (recovery sweep); soft stop is preferred. */
+export function isMigrationHardStoppedResumable(
+  response:
+    | {
+        phase?: string;
+        status?: string;
+        uncleanInterrupt?: boolean;
+        UncleanInterrupt?: boolean;
+      }
+    | null
+    | undefined
+): boolean {
+  return isMigrationAborted(response) || hasUncleanInterrupt(response);
 }
 
 export interface StopStepPayload {
@@ -335,16 +392,33 @@ export interface MigrationDBFile {
   modifiedAt: string;
 }
 
+export interface LocalRootProbe {
+  role: string;
+  nativePath?: string;
+  pathExistsOnHost: boolean;
+  serviceId?: string;
+}
+
+export interface ImportScanReport {
+  needsAttention: boolean;
+  attentionReasons?: string[];
+  localRoots?: LocalRootProbe[];
+}
+
 export interface MigrationUploadResponse {
   success: boolean;
   path?: string;
   error?: string;
+  importReport?: ImportScanReport;
 }
 
 export interface MigrationStatusResponse extends MigrationResponse {
   phase?: string;
   live?: boolean;
   completedAt?: string | null;
+  needsAttention?: boolean;
+  attentionReasons?: string[];
+  localRoots?: LocalRootProbe[];
   sourceRoot?: RootInfo;
   destinationRoot?: RootInfo;
   sourceRootPrepared?: boolean;
@@ -369,9 +443,14 @@ export interface MigrationStatusResponse extends MigrationResponse {
   /** True when a queue watchdog recently detected no progress while the migration was live. */
   possibleStall?: boolean;
   PossibleStall?: boolean;
-  /** Human-readable DuckDB wait label (index rebuild, checkpoint, etc.). */
+  /** Human-readable ops DB wait label (seal, folder-size fold, checkpoint, etc.). */
   dbActivity?: string;
   DbActivity?: string;
+  /** Crash / hard-stop recovery mode; Resume runs a recovery sweep. */
+  uncleanInterrupt?: boolean;
+  UncleanInterrupt?: boolean;
+  uncleanInterruptKind?: string;
+  UncleanInterruptKind?: string;
   result?: {
     rootSummary?: {
       srcRoots?: number;
@@ -435,6 +514,10 @@ export interface MigrationWithStatus extends MigrationMetadata {
   startedAt?: string;
   completedAt?: string | null;
   error?: string;
+  needsAttention?: boolean;
+  attentionReasons?: string[];
+  localRoots?: LocalRootProbe[];
+  uncleanInterrupt?: boolean;
   result?: MigrationStatusResponse["result"];
 }
 
@@ -450,6 +533,10 @@ export interface ListMigrationsResponse {
     live?: boolean;
     completedAt: string | null;
     error: string;
+    needsAttention?: boolean;
+    attentionReasons?: string[];
+    localRoots?: LocalRootProbe[];
+    uncleanInterrupt?: boolean;
     result?: MigrationStatusResponse["result"];
     sourceRoot?: RootInfo;
     destinationRoot?: RootInfo;
@@ -484,6 +571,25 @@ export interface MigrationLogsRequest {
     error?: string;
     critical?: string;
   };
+  textExact?: string;
+  action?: string;
+  nodeId?: string;
+  from?: string;
+  to?: string;
+  limit?: number;
+}
+
+export interface InFlightTask {
+  nodeId?: string;
+  path?: string;
+  workerId?: string;
+  taskType?: string;
+  itemKind?: string;
+  round?: number;
+  copyPass?: number;
+  leaseAgeMs?: number;
+  bytesDone?: number;
+  bytesTotal?: number;
 }
 
 export interface MigrationLogsResponse {
@@ -573,8 +679,10 @@ export interface QueueMetrics {
   rate_limited_remaining_ms_src?: number;
   /** Remaining ms for destination rate-limit at poll time. */
   rate_limited_remaining_ms_dst?: number;
-  /** AIMD inter-op pacing delay in ms (workers slowed after throttle). */
+  /** Autoscaler inter-op pacing delay in ms (workers slowed after throttle). */
   inter_op_delay_ms?: number;
+  /** Live leased tasks from queue observer (memory-only). */
+  activeTasks?: InFlightTask[];
   /** Engine-owned remaining seconds (0 = done). */
   eta_seconds?: number;
   /** Which clock the engine used: "items" | "bytes". */

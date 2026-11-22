@@ -4,6 +4,18 @@ export const EXCLUSION_OP_TITLE = "Exclusion op in progress";
 export const RETRY_OP_TITLE = "Retry op in progress";
 export const REMOVAL_OP_TITLE = "Removal op in progress";
 
+/** How long the green confirmation check stays after a successful mutation. */
+export const MUTATION_CONFIRM_MS = 700;
+
+export type MutationOpPhase = "pending" | "confirmed";
+
+export type MutationOpState = {
+  title: string;
+  phase: MutationOpPhase;
+};
+
+export type MutationOpsMap = ReadonlyMap<string, MutationOpState>;
+
 export function canStartMutation(
   inFlight: { has(id: string): boolean },
   nodeId: string | null | undefined
@@ -31,17 +43,18 @@ export function withInFlightIds(
   return next;
 }
 
-/** Record or clear an in-flight path-review op. title null removes the ids. */
+/** Record a pending op, mark confirmed, or clear (title null). */
 export function withInFlightOp(
-  prev: ReadonlyMap<string, string>,
+  prev: MutationOpsMap,
   ids: Array<string | null | undefined>,
-  title: string | null
-): Map<string, string> {
+  title: string | null,
+  phase: MutationOpPhase = "pending"
+): Map<string, MutationOpState> {
   const next = new Map(prev);
   for (const id of ids) {
     if (!id) continue;
     if (title) {
-      next.set(id, title);
+      next.set(id, { title, phase });
     } else {
       next.delete(id);
     }
@@ -49,16 +62,23 @@ export function withInFlightOp(
   return next;
 }
 
-export function inFlightOpTitle(
-  inFlight: ReadonlyMap<string, string>,
+export function inFlightOpState(
+  inFlight: MutationOpsMap,
   ids: Array<string | null | undefined>
-): string | undefined {
+): MutationOpState | undefined {
   for (const id of ids) {
     if (!id) continue;
-    const title = inFlight.get(id);
-    if (title) return title;
+    const state = inFlight.get(id);
+    if (state) return state;
   }
   return undefined;
+}
+
+export function inFlightOpTitle(
+  inFlight: MutationOpsMap,
+  ids: Array<string | null | undefined>
+): string | undefined {
+  return inFlightOpState(inFlight, ids)?.title;
 }
 
 export function itemMutationIds(item: {

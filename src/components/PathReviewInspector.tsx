@@ -44,6 +44,7 @@ type PathReviewInspectorProps = {
   onRetry?: () => void;
   onForceReplace?: () => void;
   onUnforceReplace?: () => void;
+  onViewLogs?: () => void;
 };
 
 function formatDate(dateString?: string): string {
@@ -104,6 +105,7 @@ export default function PathReviewInspector({
   onRetry,
   onForceReplace,
   onUnforceReplace,
+  onViewLogs,
 }: PathReviewInspectorProps) {
   const inSrc = !!item.src;
   const inDst = !!item.dst;
@@ -403,6 +405,16 @@ export default function PathReviewInspector({
             onClick={onUnforceReplace}
           >
             Keep destination (undo replace)
+          </button>
+        )}
+        {onViewLogs && (
+          <button
+            type="button"
+            className="action-button action-button--small"
+            disabled={busy}
+            onClick={onViewLogs}
+          >
+            View logs
           </button>
         )}
       </div>

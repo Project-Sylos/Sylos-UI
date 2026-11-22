@@ -39,7 +39,7 @@ export default function BulkActionConfirmDialog({
               <FileTypeIcon
                 name={item.name}
                 type={item.type === "folder" ? "folder" : "file"}
-                size={16}
+                size={18}
               />
               <span className="bulk-action-dialog__item-name">{item.name}</span>
               <span className="bulk-action-dialog__item-reason">{reason}</span>

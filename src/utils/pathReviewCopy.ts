@@ -19,6 +19,13 @@ export const PATH_REVIEW_COPY = {
   ignoreWarning: "Ignore this error",
   ignoreKeepExistingName: "Keep current name",
   unignoreWarning: "Show this error again",
+  ignoreBlockedTip:
+    "This issue must be fixed before copy. It cannot be dismissed.",
+  sideChipSrc: "Source",
+  sideChipDst: "Dest",
+  sideChipSrcTip: "Only on the source",
+  sideChipDstTip: "Only on the destination",
+  sideColumnHeader: "Side",
   useNameAnyway: "Use this name anyway",
   updatingRelatedPaths: "Updating related paths…",
   checkingDestinationNames: "Checking names…",
@@ -35,6 +42,10 @@ export const PATH_REVIEW_COPY = {
   renamedToLabel: "Renamed to:",
   requireReviewBeforeCopy: (n: number) =>
     `${n} item${n === 1 ? "" : "s"} require${n === 1 ? "s" : ""} review before copy`,
+  phaseBlockedOpenIssues: (n: number) =>
+    `${n} issue${n === 1 ? "" : "s"} blocking copy. Open Issues.`,
+  phaseBlockedOpenIssuesTip:
+    "Open the Issues panel to see what must be fixed before you can continue.",
   confirmCopyTitle: "Confirm Copy",
   confirmCopyMessage:
     "Are you sure you'd like to start copying these items?",
@@ -54,7 +65,39 @@ export const PATH_REVIEW_COPY = {
     "This name still has naming problems. Keep it anyway? Warnings will be dismissed for this item and everything inside it.",
   resetDestinationName: "Reset to original name",
   resetDestinationNameTip:
-    "Clear the rename and check the original name again.",
+    "Clear the destination rename and re-check naming (source stays unchanged).",
+  undoAcceptedRename: "Undo rename",
+  undoAcceptedRenameTip:
+    "Clear the accepted destination name so you can pick a unique name or rename again.",
+  useUniqueName: "Use unique name",
+  acceptUniqueName: (name: string) => `Accept “${name}”`,
+  editUniqueName: "Edit unique name",
+  editUniqueNameTip: "Choose a different destination name",
+  siblingCollisionConfirmTitle: "Name already used?",
+  siblingCollisionConfirm:
+    "That name is already used in this folder (or matches the colliding destination). Pick another name, or confirm to keep it anyway.",
+  siblingCollisionConfirmKeep: "Use anyway",
+  siblingCollisionConfirmEdit: "Edit name",
+  cascadePreviewTitle: (action: string, name?: string) =>
+    action === "unique"
+      ? name
+        ? `Accept “${name}”?`
+        : "Use unique name?"
+      : "Rename destination?",
+  cascadePreviewProceed: "Proceed",
+  cascadePreviewCancel: "Cancel",
+  cascadePreviewEmpty:
+    "No nested name conflicts or file overwrites are listed yet under this folder. Proceeding still applies the parent resolution; destination re-scan may find more.",
+  cascadeFolderConflicts: (n: number) =>
+    `${n} nested folder name conflict${n === 1 ? "" : "s"} (will need review)`,
+  cascadeFileOverwrites: (n: number) =>
+    `${n} file${n === 1 ? "" : "s"} with the same name (overwrite preview)`,
+  cascadeDefaultWinnerDst: "Keep destination (newer or equal last modified)",
+  cascadeDefaultWinnerSrc: "Copy from source (newer last modified)",
+  overwriteDefaultNote:
+    "By default Sylos keeps the newer last-modified file.",
+  useSourceInstead: "Use source instead",
+  keepDestination: "Keep destination",
   /** Heads-up when a suggested rename will be applied automatically. */
   compatAutoHandledSummary: (issueCount: number, resolution: string) => {
     const issues =
@@ -66,7 +109,7 @@ export const PATH_REVIEW_COPY = {
   compatAutoHandledDetail:
     "No action needed. The suggested name is applied automatically when you start copying. You can still rename it or ignore the warning if you prefer.",
   alreadyExistedAcceptHelp:
-    "This name already exists on the destination. Accepting renames both the source and that destination item to the suggested name. Ignoring keeps the current names.",
+    "This name already exists on the destination. Accepting renames the destination item to the suggested name (source is left unchanged). Ignoring keeps the current names.",
   compatibilityLabel: "Compatibility",
   compatibilityWarningLabel: "Naming warning",
   compatibilityNeedsActionLabel: "Needs attention",
@@ -90,14 +133,19 @@ export const PATH_REVIEW_COPY = {
   issuesButtonLabel: "Issues",
   issuesButtonLabelWithCounts: (issues: number, warnings: number) =>
     `Issues ${issues} · Warnings ${warnings}`,
+  issuesButtonLabelIssuesOnly: (issues: number) => `Issues ${issues}`,
   issuesButtonTip:
     "Open a breakdown of failed items and destination naming issues. Jump to list view to inspect them.",
+  issuesButtonTipDiscover:
+    "Open a breakdown of failed items. Destination naming issues appear on the copy plan.",
   issuesPanelTitle: "Issues",
   issuesPanelAttentionSummary: (n: number) =>
     `${n} item${n === 1 ? "" : "s"} need${n === 1 ? "s" : ""} attention before you continue.`,
   issuesPanelNoneAttention: "Nothing needs attention right now.",
   issuesPanelNoneAttentionDetail:
     "Failed items and names that require a manual rename show up here.",
+  issuesPanelNoneAttentionDetailDiscover:
+    "Failed items show up here. Destination naming issues appear on the copy plan.",
   issuesNeedsAttention: "Needs attention",
   issuesReferenceTitle: "Naming warnings",
   issuesJumpToList: "Show in list view",
@@ -308,18 +356,160 @@ export function destinationDisplayName(item: {
   );
 }
 
-/** True when destination basename differs from the source/display name. */
-export function hasDestinationRename(item: {
-  name: string;
+/**
+ * Which side an unpaired row belongs to. Empty when the item exists on both.
+ * Used for a separate UI chip (never concatenated into the display name).
+ */
+export function unpairedSide(item: {
+  src?: unknown | null;
+  dst?: unknown | null;
+  traversalStatus?: string;
+  existsOnlyOnDst?: boolean;
+}): "src" | "dst" | "" {
+  const dstOnly =
+    item.existsOnlyOnDst === true ||
+    (!item.src && !!item.dst) ||
+    item.traversalStatus === "not_on_src";
+  if (dstOnly) return "dst";
+  if (item.src && !item.dst) return "src";
+  return "";
+}
+
+/** Soft naming warnings can be dismissed; manual_review cannot. */
+export function canIgnorePathIssue(item: {
+  pathIssueStatus?: string;
   proposedPath?: string;
-  resolvedDstName?: string;
-  dst?: { name?: string } | null;
+  pathIssueIgnored?: boolean;
 }): boolean {
+  if (item.pathIssueIgnored) return true; // unignore always allowed
+  if (!item.pathIssueStatus && !item.proposedPath) return false;
+  return !needsManualCompatAction(item);
+}
+
+/** True when destination basename differs from the source/display name. */
+export function hasDestinationRename(
+  item: {
+    name: string;
+    proposedPath?: string;
+    resolvedDstName?: string;
+    pathDstAction?: string;
+    collisionSibling?: string;
+    pathIssueStatus?: string;
+    pathIssueMessages?: { category?: string }[] | null;
+    src?: unknown | null;
+    dst?: { name?: string } | null;
+  },
+  folderPeers: {
+    name: string;
+    src?: unknown | null;
+    dst?: unknown | null;
+    existsOnlyOnDst?: boolean;
+    traversalStatus?: string;
+  }[] = []
+): boolean {
+  // Sibling collisions offer Unique name instead of a soft rename hint.
+  if (isSiblingCollisionIssue(item)) return false;
+  if (collisionSiblingFromFolderPeers(item, folderPeers)) return false;
   const dest =
     item.proposedPath ||
     item.resolvedDstName ||
     (item.dst?.name && item.dst.name !== item.name ? item.dst.name : undefined);
   return Boolean(dest && dest !== item.name);
+}
+
+/**
+ * If a soft proposal (or cleaned name) matches a DST-only sibling in this
+ * folder, treat it as a collision target even when the server issue is
+ * still status=pending.
+ */
+export function collisionSiblingFromFolderPeers(
+  item: {
+    name: string;
+    proposedPath?: string;
+    resolvedDstName?: string;
+    collisionSibling?: string;
+    src?: unknown | null;
+    dst?: unknown | null;
+  },
+  peers: {
+    name: string;
+    src?: unknown | null;
+    dst?: unknown | null;
+    existsOnlyOnDst?: boolean;
+    traversalStatus?: string;
+  }[]
+): string {
+  if (item.collisionSibling) return item.collisionSibling;
+  const proposed = (
+    item.proposedPath ||
+    item.resolvedDstName ||
+    ""
+  ).trim();
+  if (!proposed || !item.src) return "";
+  const want = proposed.toLowerCase();
+  for (const peer of peers) {
+    const dstOnly =
+      peer.existsOnlyOnDst === true ||
+      (!peer.src && !!peer.dst) ||
+      peer.traversalStatus === "not_on_src";
+    if (!dstOnly) continue;
+    if (peer.name === proposed || peer.name.toLowerCase() === want) {
+      return peer.name;
+    }
+  }
+  return "";
+}
+
+/** True when an accepted unique/remap destination name is in effect. */
+export function hasAcceptedDestinationRename(item: {
+  pathDstAction?: string;
+  resolvedDstName?: string;
+  name: string;
+}): boolean {
+  const dest = (item.resolvedDstName || "").trim();
+  return Boolean(dest && dest !== item.name);
+}
+
+/** True when a manual_review issue is a destination sibling collision. */
+export function isSiblingCollisionIssue(item: {
+  pathIssueStatus?: string;
+  collisionSibling?: string;
+  pathIssueMessages?: { category?: string }[] | null;
+}): boolean {
+  if (item.pathIssueStatus !== "manual_review") return false;
+  if (item.collisionSibling) return true;
+  return !!item.pathIssueMessages?.some((m) => m.category === "SiblingCollision");
+}
+
+/**
+ * Whether the path-review rename action is available for this row.
+ * Callers still gate on review phase (not delete / source-cleanup / live copy).
+ *
+ * Eligible when there is already a compat issue/proposal/remap, or when the
+ * item is SRC-side copy-pending (not yet on destination — bookkeeping rename).
+ */
+export function canRenameDestinationItem(item: {
+  name: string;
+  src?: { copyStatus?: string } | null;
+  dst?: unknown | null;
+  copyStatus?: string;
+  proposedPath?: string;
+  resolvedDstName?: string;
+  pathIssueStatus?: string;
+}): boolean {
+  if (
+    item.pathIssueStatus ||
+    item.proposedPath ||
+    (item.resolvedDstName && item.resolvedDstName !== item.name)
+  ) {
+    return true;
+  }
+  // Destination-only rows have no SRC plan to rename.
+  if (!item.src) {
+    return false;
+  }
+  const copyStatus = item.src.copyStatus || item.copyStatus || "";
+  return copyStatus === "pending";
 }
 
 /** Full destination path using remapped basename when present. */

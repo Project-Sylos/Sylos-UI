@@ -46,7 +46,11 @@ import {
   unforceReplaceCopyNode,
 } from "../api/services";
 import type { RulesetSummary } from "../types/rulesets";
-import { hasListSearchPredicate } from "../utils/listSearch";
+import {
+  hasListSearchPredicate,
+  LIST_SEARCH_EMPTY_WARN_ITEMS,
+  shouldWarnEmptyListSearch,
+} from "../utils/listSearch";
 import {
   allMatchingSelectedLabel,
   excludeApplyLabel,
@@ -55,11 +59,14 @@ import {
 } from "../utils/pathReviewSelectMatching";
 import {
   EXCLUSION_OP_TITLE,
+  MUTATION_CONFIRM_MS,
   RETRY_OP_TITLE,
   canStartMutation,
+  inFlightOpState,
   inFlightOpTitle,
   itemMutationIds,
   withInFlightOp,
+  type MutationOpState,
 } from "../utils/pathReviewMutationGuard";
 import {
   mapPathReviewStatusFilter,
@@ -67,7 +74,10 @@ import {
 } from "../utils/pathReviewStatusFilters";
 import HelpTooltip from "../components/HelpTooltip";
 import type { PathReviewListJumpTarget } from "../components/PathReviewIssuesPanel";
-import { formatBulkActionToast } from "../utils/bulkActionToast";
+import {
+  formatBulkActionToast,
+  isNoItemsChangedError,
+} from "../utils/bulkActionToast";
 import { isDeletePendingExplicit } from "../utils/pathReviewDeletePlan";
 import CompatibilityCaution from "../components/CompatibilityCaution";
 import DestinationRenameHint from "../components/DestinationRenameHint";
@@ -76,12 +86,15 @@ import FilterRulesBuilder from "../components/filterRules/FilterRulesBuilder";
 import FilterRuleExamples from "../components/filterRules/FilterRuleExamples";
 import {
   PATH_REVIEW_COPY,
+  canIgnorePathIssue,
   itemDisplayPath,
   pathIssueShortLabel,
   summarizePathIssues,
 } from "../utils/pathReviewCopy";
+import UnpairedSideChip from "../components/UnpairedSideChip";
 import {
   MigrationStatusResponse,
+  getMigrationPhase,
   isCopyReviewPhase,
   isDeleteReviewPhase,
 } from "../types/migrations";
@@ -93,7 +106,12 @@ import {
   getPathReviewItemStatus,
   itemStatusPhase,
 } from "../utils/pathReviewItemStatus";
-import { isCopyComplete } from "../utils/copyStatus";
+import {
+  applyExcludeOptimistic,
+  displayPhaseAllowsBulkExclude,
+  excludeActionSetsExcluded,
+  getPathReviewItemActions,
+} from "../utils/pathReviewItemActions";
 import { useListDensity } from "../contexts/ListDensityContext";
 import { useAltTextSelect } from "../hooks/useAltTextSelect";
 import FileTypeIcon from "../components/FileTypeIcon";
@@ -101,6 +119,9 @@ import PathReviewStatusIcon from "../components/PathReviewStatusIcon";
 import PathReviewLegend from "../components/PathReviewLegend";
 import PathReviewIssuesButton from "../components/PathReviewIssuesButton";
 import ListViewPagination from "../components/ListViewPagination";
+import PathReviewSelectionControls, {
+  type PathReviewSelectionAction,
+} from "../components/PathReviewSelectionControls";
 import ListItemMeta from "../components/ListItemMeta";
 import PathReviewSizeColumnHeader from "../components/PathReviewSizeColumnHeader";
 import { getDiffItemFailureMessage } from "../utils/diffFailureMessage";
@@ -115,14 +136,13 @@ import {
 import {
   FORCE_REPLACE_BULK_FOLDER_CONFIRM,
   FORCE_REPLACE_FOLDER_CONFIRM,
-  canForceReplaceCopy,
-  canUnforceReplaceCopy,
 } from "../utils/forceReplaceCopy";
 import BulkActionConfirmDialog from "../components/BulkActionConfirmDialog";
 import ConfirmDialog from "../components/ConfirmDialog";
 import {
   applyDiscoveryRetryOptimistic,
   getTraversalRetryNodeId,
+  isTraversalAckFromFailed,
   isTraversalRetryPending,
 } from "../utils/pathReviewTraversalStatus";
 import type { PathReviewContextAction } from "../components/PathReviewContextMenu";
@@ -130,13 +150,8 @@ import {
   canIncludeRuleExcludedSubtree,
   excludedByRuleText,
   includeRuleExcludedSubtree,
-  isRuleExcluded,
 } from "../utils/pathReviewRuleExclusion";
-import {
-  COPY_CYCLE_LABELS,
-  copyCycleStep,
-  runCopyCycleClick,
-} from "../utils/copyStatusCycle";
+import { runCopyCycleClick } from "../utils/copyStatusCycle";
 import {
   createEmptyRuleset,
   isRulesetEffectivelyEmpty,
@@ -168,13 +183,18 @@ export interface PathReviewListViewProps {
   onPaginationChange?: (pagination: PaginationInfo | null, itemsPerPage: number) => void; // Callback for pagination info
   onNavigateToTreeView?: (item: DiffItem) => void; // Callback to navigate to tree view and highlight item
   /** Shared in-flight path ops so tree navigation stays blocked until the backend finishes. */
-  mutationOps?: ReadonlyMap<string, string>;
-  setMutationOps?: Dispatch<SetStateAction<Map<string, string>>>;
+  mutationOps?: ReadonlyMap<string, MutationOpState>;
+  setMutationOps?: Dispatch<SetStateAction<Map<string, MutationOpState>>>;
   onToast?: (message: string, type: "success" | "error") => void; // Callback to show toast (e.g. retry/exclude success or error)
   isActive?: boolean;
   pathIssues?: PathIssue[];
   onPathIssuesChange?: (issues: PathIssue[]) => void;
-  onOpenRename?: (item: DiffItem) => void;
+  /** Open rename editor; optional initialName prefills (unique suggestion). */
+  onOpenRename?: (item: DiffItem, opts?: { initialName?: string }) => void;
+  /** Accept allocated unique destination name (cascade preview when folder). */
+  onAcceptUniqueName?: (item: DiffItem, suggestedName?: string) => void;
+  /** Undo accepted unique / remap destination name. */
+  onUndoAcceptedRename?: (item: DiffItem) => void;
   /** Toggle GPL naming warning ignore/unignore for an item. */
   onToggleIgnoreWarning?: (item: DiffItem) => void;
   /** Shared inspector selection from parent PathReview. */
@@ -205,6 +225,11 @@ export interface PathReviewListViewProps {
   onCalculatedTotalChange?: (total: number | null, counting: boolean) => void;
   /** Copy-plan / awaiting-copy-review prefer-source actions. */
   forceReplaceAllowed?: boolean;
+  /** Dual-list search scope (ignored when browseLayout is merged). */
+  searchSide?: "src" | "dst" | "both";
+  onSearchSideChange?: (side: "src" | "dst" | "both") => void;
+  /** When true, show Source|Destination|Both scope control. */
+  showSearchSideToggle?: boolean;
 }
 
 export default function PathReviewListView({
@@ -230,6 +255,8 @@ export default function PathReviewListView({
   pathIssues = [],
   onPathIssuesChange,
   onOpenRename,
+  onAcceptUniqueName,
+  onUndoAcceptedRename,
   onToggleIgnoreWarning,
   inspectorItemId = null,
   onInspectorSelect,
@@ -250,6 +277,9 @@ export default function PathReviewListView({
   calculateTotalRef,
   onCalculatedTotalChange,
   forceReplaceAllowed = false,
+  searchSide = "both",
+  onSearchSideChange,
+  showSearchSideToggle = false,
 }: PathReviewListViewProps) {
   const { densityStyle, setListViewportElement } = useListDensity();
   const altTextSelect = useAltTextSelect();
@@ -270,9 +300,9 @@ export default function PathReviewListView({
   const countRequestVersion = useRef(0);
   const searchAbortRef = useRef<AbortController | null>(null);
   const countAbortRef = useRef<AbortController | null>(null);
-  const [localMutationOps, setLocalMutationOps] = useState<Map<string, string>>(
-    () => new Map()
-  );
+  const [localMutationOps, setLocalMutationOps] = useState<
+    Map<string, MutationOpState>
+  >(() => new Map());
   const mutationOps = mutationOpsProp ?? localMutationOps;
   const setMutationOps = setMutationOpsProp ?? setLocalMutationOps;
   const [serverBulkMutationInProgress, setServerBulkMutationInProgress] =
@@ -294,6 +324,10 @@ export default function PathReviewListView({
   const [pathSegments, setPathSegments] = useState<string[]>([""]);
   const [activePathSegments, setActivePathSegments] = useState<string[]>([]);
   const [searchField, setSearchField] = useState<"path" | "name">("name"); // Field to search in (path or name)
+  /** User confirmed a slow empty search on a >1M-item migration. */
+  const [emptyLargeSearchAccepted, setEmptyLargeSearchAccepted] = useState(false);
+  const [showEmptyLargeSearchConfirm, setShowEmptyLargeSearchConfirm] =
+    useState(false);
   const MAX_PATH_SEGMENTS = 6;
   const [typeFilter, setTypeFilter] = useState<"both" | "folder" | "file">("both"); // Type filter: both, folder, or file
   const [depthFilter, setDepthFilter] = useState<string>(""); // Depth filter (as string for input)
@@ -367,8 +401,13 @@ export default function PathReviewListView({
 
   const getDisplayPhase = () =>
     getPathReviewDisplayPhase(migrationStatus, reviewView);
+  const isAwaitingCopyReview =
+    getMigrationPhase(migrationStatus) === "awaiting-copy-review";
+  // Destination-name (GPL) UI only on copy-plan / copy review, not Discover.
   const showCompatUI =
-    !isSourceCleanupView && !isDeletePhase(migrationStatus);
+    !isSourceCleanupView &&
+    !isDeletePhase(migrationStatus) &&
+    (isCopyPlanView || isAwaitingCopyReview);
 
   // Fetch migration status
   const fetchMigrationStatus = async () => {
@@ -609,6 +648,9 @@ export default function PathReviewListView({
       .map((s) => sanitizeSearchQuery(s))
       .filter((s) => s !== "");
 
+    const dstOnlySearch = searchSide === "dst";
+    const allowSrcFilters = searchSide === "src" || searchSide === "both";
+
     return {
       offset: currentPage * itemsPerPage,
       limit: itemsPerPage,
@@ -641,17 +683,25 @@ export default function PathReviewListView({
           ? sizeOperator
           : undefined,
       traversalStatusFilter: traversalStatusFilterValue,
-      copyStatusFilter: copyStatusFilterValue,
-      deleteStatusFilter: deleteStatusFilterValue,
-      pathIssueStatusFilter: pathIssueStatusFilter || undefined,
-      pathIssueCategoryFilter: pathIssueCategoryFilter || undefined,
-      statusSearchType: statusSearchType,
+      copyStatusFilter: allowSrcFilters ? copyStatusFilterValue : undefined,
+      deleteStatusFilter: allowSrcFilters ? deleteStatusFilterValue : undefined,
+      pathIssueStatusFilter:
+        allowSrcFilters && !dstOnlySearch
+          ? pathIssueStatusFilter || undefined
+          : undefined,
+      pathIssueCategoryFilter:
+        allowSrcFilters && !dstOnlySearch
+          ? pathIssueCategoryFilter || undefined
+          : undefined,
+      statusSearchType: dstOnlySearch ? "traversal" : statusSearchType,
       phase: phase,
       includeDestinationOnly,
+      side: searchSide,
       underPath: underPath.trim() && underPath.trim() !== "/" ? underPath.trim() : undefined,
-      ruleset: isRulesetEffectivelyEmpty(activeRuleset)
-        ? undefined
-        : prepareRulesetForSave(activeRuleset),
+      ruleset:
+        allowSrcFilters && !isRulesetEffectivelyEmpty(activeRuleset)
+          ? prepareRulesetForSave(activeRuleset)
+          : undefined,
     };
   };
 
@@ -668,19 +718,24 @@ export default function PathReviewListView({
   ) => {
     if (!migrationId) return;
 
+    // Avoid auto-firing an unfiltered scan on huge migrations until the user confirms.
     if (
-      !hasListSearchPredicate({
-        query: activeSearchQuery,
-        pathSegments: activePathSegments,
-        underPath,
-        typeFilter,
-        depthFilter,
-        sizeFilter,
-        traversalStatusFilter,
-        pathIssueStatusFilter,
-        pathIssueCategoryFilter,
-        hasAdvancedRules: advancedRulesActive,
-      })
+      shouldWarnEmptyListSearch(
+        {
+          query: activeSearchQuery,
+          pathSegments: activePathSegments,
+          underPath,
+          typeFilter,
+          depthFilter,
+          sizeFilter,
+          traversalStatusFilter,
+          pathIssueStatusFilter,
+          pathIssueCategoryFilter,
+          hasAdvancedRules: advancedRulesActive,
+        },
+        sourceItemCount
+      ) &&
+      !emptyLargeSearchAccepted
     ) {
       setItems([]);
       setPagination(null);
@@ -860,6 +915,9 @@ export default function PathReviewListView({
       setPathIssueStatusFilter("");
       setPathIssueCategoryFilter("");
     }
+    if (listJumpTarget.side) {
+      onSearchSideChange?.(listJumpTarget.side);
+    }
     // clearTextSearchState only uses state setters
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [listJumpToken, listJumpTarget]);
@@ -894,7 +952,7 @@ export default function PathReviewListView({
   useEffect(() => {
     loadItems();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [migrationId, currentPage, itemsPerPage, sortField, sortDir, activeSearchQuery, activePathSegments, underPath, searchField, typeFilter, depthFilter, depthOperator, sizeFilter, sizeOperator, sizeDisplayUnit, traversalStatusFilter, pathIssueStatusFilter, pathIssueCategoryFilter, treeListRefreshToken, includeDestinationOnly, activeRuleset]);
+  }, [migrationId, currentPage, itemsPerPage, sortField, sortDir, activeSearchQuery, activePathSegments, underPath, searchField, typeFilter, depthFilter, depthOperator, sizeFilter, sizeOperator, sizeDisplayUnit, traversalStatusFilter, pathIssueStatusFilter, pathIssueCategoryFilter, treeListRefreshToken, includeDestinationOnly, activeRuleset, searchSide, sourceItemCount, emptyLargeSearchAccepted]);
 
   useEffect(() => {
     const empty = createEmptyRuleset(migrationId || "search");
@@ -950,12 +1008,19 @@ export default function PathReviewListView({
     return () => clearInterval(interval);
   }, [migrationId, activeTaskIds, onItemUpdate, onListDataMutated]);
 
+  const commitSearch = (sanitized: string, sanitizedSegments: string[]) => {
+    commitDraftRuleset();
+    setActiveSearchQuery(searchField === "name" ? sanitized : "");
+    setActivePathSegments(searchField === "path" ? sanitizedSegments : []);
+    setCurrentPage(0);
+  };
+
   const handleSearch = () => {
     const sanitized = sanitizeSearchQuery(searchQuery);
     const sanitizedSegments = pathSegments
       .map((s) => sanitizeSearchQuery(s))
       .filter((s) => s !== "");
-    const nextHasPredicate = hasListSearchPredicate({
+    const nextInput = {
       query: searchField === "name" ? sanitized : "",
       pathSegments: searchField === "path" ? sanitizedSegments : undefined,
       underPath,
@@ -966,31 +1031,39 @@ export default function PathReviewListView({
       pathIssueStatusFilter,
       pathIssueCategoryFilter,
       hasAdvancedRules: draftAdvancedRulesActive,
-    });
-    if (!nextHasPredicate) {
+    };
+    if (
+      shouldWarnEmptyListSearch(nextInput, sourceItemCount) &&
+      !emptyLargeSearchAccepted
+    ) {
+      setShowEmptyLargeSearchConfirm(true);
       return;
     }
-    commitDraftRuleset();
-    setActiveSearchQuery(searchField === "name" ? sanitized : "");
-    setActivePathSegments(searchField === "path" ? sanitizedSegments : []);
-    setCurrentPage(0);
+    if (hasListSearchPredicate(nextInput)) {
+      setEmptyLargeSearchAccepted(false);
+    }
+    commitSearch(sanitized, sanitizedSegments);
   };
 
   const handleCalculateTotal = async () => {
     if (!migrationId || countingTotal) return;
     if (
-      !hasListSearchPredicate({
-        query: activeSearchQuery,
-        pathSegments: activePathSegments,
-        underPath,
-        typeFilter,
-        depthFilter,
-        sizeFilter,
-        traversalStatusFilter,
-        pathIssueStatusFilter,
-        pathIssueCategoryFilter,
-        hasAdvancedRules: advancedRulesActive,
-      })
+      shouldWarnEmptyListSearch(
+        {
+          query: activeSearchQuery,
+          pathSegments: activePathSegments,
+          underPath,
+          typeFilter,
+          depthFilter,
+          sizeFilter,
+          traversalStatusFilter,
+          pathIssueStatusFilter,
+          pathIssueCategoryFilter,
+          hasAdvancedRules: advancedRulesActive,
+        },
+        sourceItemCount
+      ) &&
+      !emptyLargeSearchAccepted
     ) {
       return;
     }
@@ -1401,48 +1474,27 @@ export default function PathReviewListView({
     }
   };
 
-  const handleCheckboxChange = async (
-    item: DiffItem,
-    currentChecked: boolean
-  ) => {
-    if (!migrationId) return;
+  const handleCheckboxChange = async (item: DiffItem, _currentChecked: boolean) => {
+    if (!migrationId || isSourceCleanupView) return;
 
-    // Copy results / delete / source-cleanup: exclusion read-only. Copy-plan allows exclude.
-    if (
-      (isCopyPhase(migrationStatus) && !isCopyPlanView) ||
-      isDeletePhase(migrationStatus) ||
-      isSourceCleanupView
-    ) {
-      return;
-    }
-
+    const displayPhase = getDisplayPhase();
     const status = getItemStatus(item);
-    const isFolder = item.type === "folder";
-
-    if (status.isTraversalSkipped) {
+    const acts = getPathReviewItemActions(item, status, displayPhase, {
+      forceReplaceAllowed,
+      folderPeers: items,
+    });
+    if (!acts.canExclude) {
       return;
     }
 
-    // Items that exist on both or only on destination are locked (not clickable)
-    if ((status.existsOnBoth || status.existsOnlyOnDst) && isFolder) {
-      return;
-    }
-
-    // Determine if we're excluding or unexcluding based on copyStatus
-    // If currently pending (not excluded), clicking should EXCLUDE it
-    // If currently excluded, clicking should UNEXCLUDE it (back to pending)
-    const isExcluding = !status.isExcluded;
-    // Separate src and dst node IDs to ensure they stay in sync
+    const isExcluding = excludeActionSetsExcluded(item, displayPhase, status);
     const srcNodeId = item.src?.id;
-    const dstNodeId = item.dst?.id && (!item.src?.id || item.dst.id !== item.src.id) ? item.dst.id : null;
-
-    if (!srcNodeId && !dstNodeId) {
+    if (!srcNodeId) {
       onToast?.("No node ID available for this item.", "error");
       return;
     }
 
-    const primaryId = srcNodeId || dstNodeId || item.id;
-    if (!canStartMutation(mutationOps, primaryId)) {
+    if (!canStartMutation(mutationOps, srcNodeId)) {
       onToast?.(
         "An operation is already running on this path; try again once it finishes.",
         "error"
@@ -1450,131 +1502,78 @@ export default function PathReviewListView({
       return;
     }
 
-    // Store original item state for rollback
     const originalItem = { ...item };
-
     setMutationOps((prev) =>
-      withInFlightOp(prev, [primaryId, srcNodeId, dstNodeId, item.id], EXCLUSION_OP_TITLE)
+      withInFlightOp(prev, [srcNodeId, item.id], EXCLUSION_OP_TITLE)
     );
-
-    // Optimistic update: immediately update item's copyStatus
     setItems((prevItems) =>
-      prevItems.map((i) => {
-        if (i.id === item.id) {
-          const newCopyStatus = isExcluding ? "exclusion_explicit" : "pending";
-          return {
-            ...i,
-            copyStatus: newCopyStatus,
-            src: i.src ? { ...i.src, copyStatus: newCopyStatus } : i.src,
-          };
-        }
-        return i;
-      })
+      prevItems.map((i) =>
+        i.id === item.id
+          ? applyExcludeOptimistic(i, isExcluding, displayPhase)
+          : i
+      )
     );
 
     try {
-      // Make API calls for src and dst nodes sequentially to avoid database conflicts
-      // Update src first, then dst - if src fails, don't try dst
-      // If dst fails, rollback src to keep them in sync
-      
-      let srcResult: any = null;
-      let dstResult: any = null;
-      
-      // Step 1: Update src node (if it exists)
-      if (srcNodeId) {
-        srcResult = isExcluding
-          ? await excludeNode(migrationId, srcNodeId)
-          : await unexcludeNode(migrationId, srcNodeId);
-        
-        // If src fails, stop and revert
-        if (!srcResult.success) {
-          // Revert optimistic update
-          setItems((prevItems) =>
-            prevItems.map((i) => {
-              if (i.id === item.id) {
-                return originalItem;
-              }
-              return i;
-            })
-          );
-          let errorMessage = srcResult.error || "Failed to update source node. Please try again.";
-          if (srcResult.error && (
-            srcResult.error.includes("copy phase") ||
-            srcResult.error.includes("exclusion operations are not available")
-          )) {
-            errorMessage = "Exclusion is only available during traversal review";
+      const srcResult = isExcluding
+        ? await excludeNode(migrationId, srcNodeId)
+        : await unexcludeNode(migrationId, srcNodeId);
+
+      if (!srcResult.success) {
+        setItems((prevItems) =>
+          prevItems.map((i) => (i.id === item.id ? originalItem : i))
+        );
+        if (!isNoItemsChangedError(srcResult.error)) {
+          let errorMessage =
+            srcResult.error || "Failed to update source node. Please try again.";
+          if (
+            srcResult.error &&
+            (srcResult.error.includes("copy phase") ||
+              srcResult.error.includes(
+                "exclusion operations are not available"
+              ))
+          ) {
+            errorMessage = "Exclusion is not available in the current phase";
           }
           onToast?.(errorMessage, "error");
-          return;
         }
-      }
-      
-      // Step 2: Update dst node (if it exists and src succeeded)
-      if (dstNodeId) {
-        dstResult = isExcluding
-          ? await excludeNode(migrationId, dstNodeId)
-          : await unexcludeNode(migrationId, dstNodeId);
-        
-        // If dst fails, rollback src to keep them in sync
-        if (!dstResult.success) {
-          // Rollback src node
-          if (srcNodeId) {
-            await (isExcluding
-              ? unexcludeNode(migrationId, srcNodeId)  // Opposite operation to rollback
-              : excludeNode(migrationId, srcNodeId));
-          }
-          
-          // Revert optimistic update
-          setItems((prevItems) =>
-            prevItems.map((i) => {
-              if (i.id === item.id) {
-                return originalItem;
-              }
-              return i;
-            })
-          );
-          onToast?.(dstResult.error || "Failed to update destination node. Changes have been rolled back.", "error");
-          return;
-        }
+        return;
       }
 
-      // Both succeeded (or only one node exists and it succeeded)
-      const merged: Record<string, number> = {};
-      for (const r of [srcResult, dstResult]) {
-        if (r?.deltas) {
-          for (const [k, v] of Object.entries(r.deltas)) {
-            if (typeof v !== "number" || !Number.isFinite(v)) continue;
-            merged[k] = (merged[k] ?? 0) + v;
-          }
-        }
+      if (srcResult.deltas && Object.keys(srcResult.deltas).length > 0) {
+        onApplyStatsDeltas?.(srcResult.deltas);
       }
-      if (Object.keys(merged).length > 0) onApplyStatsDeltas?.(merged);
-      // Exclude also ignores naming warnings; unexclude restores them.
       try {
         const refreshed = await listPathIssues(migrationId);
         onPathIssuesChange?.(refreshed.issues || []);
       } catch {
-        // list reload below still refreshes row state
+        // keep optimistic row; issues refresh is best-effort
       }
-      await loadItems(false, { silent: true });
-      onListDataMutated?.();
       onToast?.(isExcluding ? "Item excluded" : "Item unexcluded", "success");
-    } catch (err) {
-      // Revert optimistic update on network error
-      setItems((prevItems) =>
-        prevItems.map((i) => {
-          if (i.id === item.id) {
-            return originalItem;
-          }
-          return i;
-        })
+      const opIds: Array<string | null | undefined> = [srcNodeId, item.id];
+      setMutationOps((prev) =>
+        withInFlightOp(prev, opIds, EXCLUSION_OP_TITLE, "confirmed")
       );
-      const message = err instanceof Error ? err.message : `Network error: Failed to ${isExcluding ? "exclude" : "unexclude"} node.`;
+      window.setTimeout(() => {
+        setMutationOps((prev) => withInFlightOp(prev, opIds, null));
+      }, MUTATION_CONFIRM_MS);
+      return;
+    } catch (err) {
+      setItems((prevItems) =>
+        prevItems.map((i) => (i.id === item.id ? originalItem : i))
+      );
+      const message =
+        err instanceof Error
+          ? err.message
+          : `Network error: Failed to ${isExcluding ? "exclude" : "unexclude"} node.`;
       onToast?.(message, "error");
     } finally {
-      setMutationOps((prev) =>
-        withInFlightOp(prev, [primaryId, srcNodeId, dstNodeId, item.id], null)
-      );
+      setMutationOps((prev) => {
+        const opIds: Array<string | null | undefined> = [srcNodeId, item.id];
+        const st = inFlightOpState(prev, opIds);
+        if (st?.phase === "confirmed") return prev;
+        return withInFlightOp(prev, opIds, null);
+      });
     }
   };
 
@@ -1593,10 +1592,6 @@ export default function PathReviewListView({
         setMutationOps,
         notify: (message, type) => onToast?.(message, type),
         applyDeltas: onApplyStatsDeltas,
-        afterSuccess: async () => {
-          await loadItems(false, { silent: true });
-          onListDataMutated?.();
-        },
       });
       return;
     }
@@ -1688,10 +1683,21 @@ export default function PathReviewListView({
         return;
       }
 
-      if (result.deltas && Object.keys(result.deltas).length > 0) onApplyStatsDeltas?.(result.deltas);
-      await loadItems(false, { silent: true });
-      onListDataMutated?.();
-      onToast?.(newRetryState ? "Item marked for retry" : "Item unmarked for retry", "success");
+      if (result.deltas && Object.keys(result.deltas).length > 0) {
+        onApplyStatsDeltas?.(result.deltas);
+      }
+      onToast?.(
+        newRetryState ? "Item marked for retry" : "Item unmarked for retry",
+        "success"
+      );
+      const opIds: Array<string | null | undefined> = [nodeIdToUpdate, item.id];
+      setMutationOps((prev) =>
+        withInFlightOp(prev, opIds, RETRY_OP_TITLE, "confirmed")
+      );
+      window.setTimeout(() => {
+        setMutationOps((prev) => withInFlightOp(prev, opIds, null));
+      }, MUTATION_CONFIRM_MS);
+      return;
     } catch (err) {
       // Revert optimistic update on network error
       setItems((prevItems) =>
@@ -1702,12 +1708,18 @@ export default function PathReviewListView({
           return i;
         })
       );
-      const message = err instanceof Error ? err.message : "Network error: Failed to update node. Please try again.";
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Network error: Failed to update node. Please try again.";
       onToast?.(message, "error");
     } finally {
-      setMutationOps((prev) =>
-        withInFlightOp(prev, [nodeIdToUpdate, item.id], null)
-      );
+      setMutationOps((prev) => {
+        const opIds: Array<string | null | undefined> = [nodeIdToUpdate, item.id];
+        const st = inFlightOpState(prev, opIds);
+        if (st?.phase === "confirmed") return prev;
+        return withInFlightOp(prev, opIds, null);
+      });
     }
   };
 
@@ -1721,30 +1733,56 @@ export default function PathReviewListView({
   const bulkPartitions = useMemo<Record<BulkActionKind, BulkActionPartition>>(
     () => {
       const selected = selectedListItems();
-      const phase = itemStatusPhase(getDisplayPhase());
+      const displayPhase = getDisplayPhase();
       return {
-        exclude: partitionBulkAction(selected, "exclude", getItemStatus, phase),
-        unexclude: partitionBulkAction(selected, "unexclude", getItemStatus, phase),
-        mark_retry: partitionBulkAction(selected, "mark_retry", getItemStatus, phase),
-        mark_failed: partitionBulkAction(selected, "mark_failed", getItemStatus, phase),
+        exclude: partitionBulkAction(
+          selected,
+          "exclude",
+          getItemStatus,
+          displayPhase
+        ),
+        unexclude: partitionBulkAction(
+          selected,
+          "unexclude",
+          getItemStatus,
+          displayPhase
+        ),
+        mark_retry: partitionBulkAction(
+          selected,
+          "mark_retry",
+          getItemStatus,
+          displayPhase
+        ),
+        mark_failed: partitionBulkAction(
+          selected,
+          "mark_failed",
+          getItemStatus,
+          displayPhase
+        ),
         force_replace: partitionBulkAction(
           selected,
           "force_replace",
           getItemStatus,
-          phase,
+          displayPhase,
           forceReplaceAllowed
         ),
         unforce_replace: partitionBulkAction(
           selected,
           "unforce_replace",
           getItemStatus,
-          phase,
+          displayPhase,
           forceReplaceAllowed
         ),
       };
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [explicitSelected, explicitSelectedItemData, migrationStatus, forceReplaceAllowed]
+    [
+      explicitSelected,
+      explicitSelectedItemData,
+      migrationStatus,
+      forceReplaceAllowed,
+      reviewView,
+    ]
   );
 
   const handleIncludeRuleExcludedSubtree = async (item: DiffItem) => {
@@ -1819,6 +1857,7 @@ export default function PathReviewListView({
 
   const buildListContextActions = (item: DiffItem): PathReviewContextAction[] => {
     const status = getItemStatus(item);
+    const displayPhase = getDisplayPhase();
     const phase = getCurrentPhase();
     const isCopy = phase === "copy";
     const isDelete = phase === "delete";
@@ -1829,37 +1868,16 @@ export default function PathReviewListView({
       : isCopy
         ? copyStatus === "pending" && item.src?.copyRetryMarked === true
         : isTraversalRetryPending(item);
-    const canExclude =
-      (isCopyPlanView || (!isCopy && !isDelete)) &&
-      !isSourceCleanupView &&
-      !status.isTraversalSkipped &&
-      !(
-        item.type === "folder" &&
-        (status.existsOnBoth || status.existsOnlyOnDst)
-      );
-    const canForceReplace = canForceReplaceCopy(item, forceReplaceAllowed);
-    const canUnforceReplace = canUnforceReplaceCopy(item, forceReplaceAllowed);
-    const copyStep =
-      isCopy && !isRuleExcluded(item) ? copyCycleStep(item) : null;
-    const canRetry =
-      status.isFailed ||
-      status.isTraversalSkipped ||
-      isMarkedForRetry ||
-      copyStep !== null;
-    const canRename =
-      showCompatUI &&
-      !!(
-        item.pathIssueStatus ||
-        item.proposedPath ||
-        (item.resolvedDstName && item.resolvedDstName !== item.name)
-      );
+    const acts = getPathReviewItemActions(item, status, displayPhase, {
+      showCompatUI,
+      forceReplaceAllowed,
+      isMarkedForRetry,
+      folderPeers: items,
+    });
     const canToggleIgnoreWarning =
-      showCompatUI && !!(item.pathIssueStatus || item.proposedPath);
-    const canSkipDelete =
-      isSourceCleanupView &&
-      !!onSkipDeleteClick &&
-      !!item.src &&
-      isCopyComplete(item.src.copyStatus || item.copyStatus || "");
+      showCompatUI &&
+      !!(item.pathIssueStatus || item.proposedPath) &&
+      canIgnorePathIssue(item);
 
     const actions: PathReviewContextAction[] = [];
     actions.push({
@@ -1890,29 +1908,25 @@ export default function PathReviewListView({
         },
       });
     }
-    if (canExclude) {
+    if (acts.canExclude) {
       actions.push({
         key: "exclude",
-        label: status.isExcluded ? "Unexclude" : "Exclude",
+        label: acts.excludeLabel,
         onClick: () => {
-          void handleCheckboxChange(item, !status.isExcluded);
+          void handleCheckboxChange(item, true);
         },
       });
     }
-    if (canRetry) {
+    if (acts.canRetry) {
       actions.push({
         key: "retry",
-        label: copyStep
-          ? COPY_CYCLE_LABELS[copyStep]
-          : isMarkedForRetry
-            ? "Unmark retry"
-            : "Mark for retry",
+        label: acts.retryLabel,
         onClick: () => {
           void handleRetryClick(item);
         },
       });
     }
-    if (canForceReplace) {
+    if (acts.canForceReplace) {
       actions.push({
         key: "force-replace",
         label: "Replace with source",
@@ -1921,7 +1935,7 @@ export default function PathReviewListView({
         },
       });
     }
-    if (canUnforceReplace) {
+    if (acts.canUnforceReplace) {
       actions.push({
         key: "unforce-replace",
         label: "Keep destination (undo replace)",
@@ -1930,15 +1944,47 @@ export default function PathReviewListView({
         },
       });
     }
-    if (canSkipDelete) {
-      const skipped = deleteStatus === "skipped";
+    if (acts.canSkipDelete && onSkipDeleteClick) {
       actions.push({
         key: "skip-delete",
-        label: skipped ? "Schedule removal" : "Keep on source",
-        onClick: () => onSkipDeleteClick?.(item),
+        label: acts.skipDeleteLabel,
+        onClick: () => onSkipDeleteClick(item),
       });
     }
-    if (canRename && onOpenRename) {
+    if (acts.canUniqueName) {
+      const uniqueLabel = acts.uniqueNameSuggestion
+        ? PATH_REVIEW_COPY.acceptUniqueName(acts.uniqueNameSuggestion)
+        : PATH_REVIEW_COPY.useUniqueName;
+      if (onAcceptUniqueName) {
+        actions.push({
+          key: "unique-name",
+          label: uniqueLabel,
+          onClick: () =>
+            onAcceptUniqueName(
+              item,
+              acts.uniqueNameSuggestion || undefined
+            ),
+        });
+      }
+      if (onOpenRename) {
+        actions.push({
+          key: "edit-unique-name",
+          label: PATH_REVIEW_COPY.editUniqueName,
+          onClick: () =>
+            onOpenRename(item, {
+              initialName: acts.uniqueNameSuggestion || undefined,
+            }),
+        });
+      }
+    }
+    if (acts.canUndoAcceptedRename && onUndoAcceptedRename) {
+      actions.push({
+        key: "undo-rename",
+        label: PATH_REVIEW_COPY.undoAcceptedRename,
+        onClick: () => onUndoAcceptedRename(item),
+      });
+    }
+    if (acts.canRename && onOpenRename) {
       actions.push({
         key: "rename",
         label: PATH_REVIEW_COPY.renameDestination,
@@ -1998,7 +2044,7 @@ export default function PathReviewListView({
   };
 
   const isFilterActive = hasActiveFilters();
-  const searchPredicateActive = hasListSearchPredicate({
+  const searchPredicateInput = {
     query: activeSearchQuery,
     pathSegments: activePathSegments,
     underPath,
@@ -2009,32 +2055,16 @@ export default function PathReviewListView({
     pathIssueStatusFilter,
     pathIssueCategoryFilter,
     hasAdvancedRules: advancedRulesActive,
-  });
+  };
+  const searchPredicateActive = hasListSearchPredicate(searchPredicateInput);
+  const emptyLargeSearchPending =
+    shouldWarnEmptyListSearch(searchPredicateInput, sourceItemCount) &&
+    !emptyLargeSearchAccepted;
+  const listResultsReady = !emptyLargeSearchPending;
   const draftPathSegments = pathSegments
     .map((s) => s.trim())
     .filter((s) => s !== "");
-  const canSubmitSearch = hasListSearchPredicate({
-    query:
-      searchField === "name"
-        ? searchQuery.trim() !== ""
-          ? searchQuery
-          : activeSearchQuery
-        : "",
-    pathSegments:
-      searchField === "path"
-        ? draftPathSegments.length > 0
-          ? draftPathSegments
-          : activePathSegments
-        : undefined,
-    underPath,
-    typeFilter,
-    depthFilter,
-    sizeFilter,
-    traversalStatusFilter,
-    pathIssueStatusFilter,
-    pathIssueCategoryFilter,
-    hasAdvancedRules: draftAdvancedRulesActive,
-  });
+  const canSubmitSearch = true;
 
   // Check if sort is active (not default: "path" with "asc")
   const isSortActive = sortField !== "path" || sortDir !== "asc";
@@ -2403,7 +2433,27 @@ export default function PathReviewListView({
         </select>
       </div>
 
-      {showCompatUI ? (
+      {showSearchSideToggle && onSearchSideChange ? (
+        <div className="path-review-list__filter-menu-section">
+          <label className="path-review-list__filter-menu-label" htmlFor="search-side">
+            Search side
+          </label>
+          <select
+            id="search-side"
+            className="path-review-list__filter-menu-select"
+            value={searchSide}
+            onChange={(e) =>
+              onSearchSideChange(e.target.value as "src" | "dst" | "both")
+            }
+          >
+            <option value="both">Both</option>
+            <option value="src">Source</option>
+            <option value="dst">Destination</option>
+          </select>
+        </div>
+      ) : null}
+
+      {showCompatUI && searchSide !== "dst" ? (
         <div className="path-review-list__filter-menu-section">
           <label
             className="path-review-list__filter-menu-label"
@@ -2765,18 +2815,7 @@ export default function PathReviewListView({
             </div>
           ) : null}
           {sourceItemCount > 500_000 ? (
-            <HelpTooltip
-              tipId="path-review-large-search"
-              category="path-review"
-              position="below"
-              content={
-                <p>
-                  This migration has a lot of items. Searching by name or path
-                  across everything can be slow or time out. Browse into a
-                  folder first and search from there, or filter by status.
-                </p>
-              }
-            />
+            <HelpTooltip tipId="path-review-large-search" position="below" />
           ) : null}
           {searchField === "path" ? (
             <div className="path-review-list__path-segments">
@@ -3063,13 +3102,7 @@ export default function PathReviewListView({
             type="button"
             className="path-review-list__search-button"
             onClick={handleSearch}
-            title={
-              canSubmitSearch
-                ? "Search"
-                : "Add a text query or filter before searching"
-            }
-            disabled={!canSubmitSearch}
-            aria-disabled={!canSubmitSearch}
+            title="Search"
           >
             <ArrowRight size={18} />
           </button>
@@ -3108,180 +3141,8 @@ export default function PathReviewListView({
         </div>
       )}
 
-      {/* Bulk Actions */}
-      {(allMatchingSelected ||
-        explicitSelected.size > 0 ||
-        getInheritedSelections(explicitSelected).size > 0) && (
-        <div className="path-review-list__bulk-actions">
-          <span className="path-review-list__bulk-count">
-            {allMatchingSelected
-              ? allMatchingSelectedLabel(calculatedTotal, calculatedTotalTruncated)
-              : `${explicitSelected.size + getInheritedSelections(explicitSelected).size} item${
-                  explicitSelected.size + getInheritedSelections(explicitSelected).size !== 1
-                    ? "s"
-                    : ""
-                } selected`}
-          </span>
-          <div className="path-review-list__bulk-buttons">
-            <div className="path-review-list__apply-action" ref={applyMenuRef}>
-              <button
-                type="button"
-                className="action-button action-button--small"
-                disabled={bulkLoading}
-                onClick={() => setApplyMenuOpen((open) => !open)}
-                aria-haspopup="menu"
-                aria-expanded={applyMenuOpen}
-              >
-                {bulkLoading ? "Working…" : "Apply action"}
-                <ChevronDown size={14} style={{ marginLeft: "0.35rem" }} />
-              </button>
-              {applyMenuOpen ? (
-                <div className="path-review-list__apply-action-menu" role="menu">
-                  {(isCopyPlanView ||
-                    (!isCopyPhase(migrationStatus) &&
-                      !isDeletePhase(migrationStatus))) &&
-                  !isSourceCleanupView ? (
-                    <>
-                      <button
-                        type="button"
-                        className="path-review-list__apply-action-option"
-                        role="menuitem"
-                        disabled={
-                          bulkLoading ||
-                          (!allMatchingSelected &&
-                            bulkPartitions.exclude.valid.length === 0)
-                        }
-                        title={
-                          !allMatchingSelected &&
-                          bulkPartitions.exclude.valid.length === 0
-                            ? "No selected items can be excluded"
-                            : undefined
-                        }
-                        onClick={() => void handleApplyAction("exclude")}
-                      >
-                        {excludeApplyLabel(allMatchingSelected)}
-                      </button>
-                      <button
-                        type="button"
-                        className="path-review-list__apply-action-option"
-                        role="menuitem"
-                        disabled={
-                          bulkLoading ||
-                          (!allMatchingSelected &&
-                            bulkPartitions.unexclude.valid.length === 0)
-                        }
-                        title={
-                          !allMatchingSelected &&
-                          bulkPartitions.unexclude.valid.length === 0
-                            ? "No selected items are excluded"
-                            : undefined
-                        }
-                        onClick={() => void handleApplyAction("unexclude")}
-                      >
-                        {unexcludeApplyLabel(allMatchingSelected)}
-                      </button>
-                    </>
-                  ) : null}
-                  <button
-                    type="button"
-                    className="path-review-list__apply-action-option"
-                    role="menuitem"
-                    disabled={
-                      bulkLoading ||
-                      allMatchingSelected ||
-                      bulkPartitions.mark_retry.valid.length === 0
-                    }
-                    title={
-                      allMatchingSelected
-                        ? "Needs an explicit row selection"
-                        : bulkPartitions.mark_retry.valid.length === 0
-                          ? "No selected items can be marked for retry"
-                          : undefined
-                    }
-                    onClick={() => void handleApplyAction("mark_retry")}
-                  >
-                    Mark for retry
-                  </button>
-                  <button
-                    type="button"
-                    className="path-review-list__apply-action-option"
-                    role="menuitem"
-                    disabled={
-                      bulkLoading ||
-                      allMatchingSelected ||
-                      bulkPartitions.mark_failed.valid.length === 0
-                    }
-                    title={
-                      allMatchingSelected
-                        ? "Needs an explicit row selection"
-                        : bulkPartitions.mark_failed.valid.length === 0
-                          ? "No selected items are marked for retry"
-                          : undefined
-                    }
-                    onClick={() => void handleApplyAction("mark_failed")}
-                  >
-                    Mark failed
-                  </button>
-                  {forceReplaceAllowed ? (
-                    <>
-                      <button
-                        type="button"
-                        className="path-review-list__apply-action-option"
-                        role="menuitem"
-                        disabled={
-                          bulkLoading ||
-                          allMatchingSelected ||
-                          bulkPartitions.force_replace.valid.length === 0
-                        }
-                        title={
-                          allMatchingSelected
-                            ? "Needs an explicit row selection"
-                            : bulkPartitions.force_replace.valid.length === 0
-                              ? "No selected items exist on both sides"
-                              : undefined
-                        }
-                        onClick={() => void handleApplyAction("force_replace")}
-                      >
-                        Replace with source
-                      </button>
-                      <button
-                        type="button"
-                        className="path-review-list__apply-action-option"
-                        role="menuitem"
-                        disabled={
-                          bulkLoading ||
-                          allMatchingSelected ||
-                          bulkPartitions.unforce_replace.valid.length === 0
-                        }
-                        title={
-                          allMatchingSelected
-                            ? "Needs an explicit row selection"
-                            : bulkPartitions.unforce_replace.valid.length === 0
-                              ? "No selected items are marked to replace with source"
-                              : undefined
-                        }
-                        onClick={() => void handleApplyAction("unforce_replace")}
-                      >
-                        Keep destination (undo replace)
-                      </button>
-                    </>
-                  ) : null}
-                </div>
-              ) : null}
-            </div>
-            <button
-              type="button"
-              className="path-review-list__clear-selection"
-              onClick={clearSelection}
-            >
-              Clear Selection
-            </button>
-          </div>
-        </div>
-      )}
-
       {/* Controls + icon legend (legend on its own full-width band) */}
-      {!loading && searchPredicateActive && (
+      {!loading && listResultsReady && (
         <div className="path-review-list__legend-wrapper">
           <div className="path-review-list__legend-toolbar">
             <div className="path-review-list__legend-start">
@@ -3289,12 +3150,139 @@ export default function PathReviewListView({
                 <PathReviewIssuesButton
                   issueCount={issuesAttentionCount}
                   warningCount={issuesWarningCount}
+                  showWarnings={showCompatUI}
                   active={issuesPanelOpen}
                   onClick={onOpenIssuesPanel}
                 />
               ) : null}
+              {items.length > 0 ? (
+                <div className="path-review__legend path-review__legend--compact path-review__legend--inline">
+                  <div className="path-review__legend-item">
+                    <span className="path-review__legend-label">Selection</span>
+                    <HelpTooltip tipId="path-review-selection" position="above" />
+                  </div>
+                </div>
+              ) : null}
             </div>
             <div className="path-review-list__legend-end">
+              {(allMatchingSelected ||
+                explicitSelected.size > 0 ||
+                getInheritedSelections(explicitSelected).size > 0) && (
+                <PathReviewSelectionControls
+                  selectedLabel={
+                    allMatchingSelected
+                      ? allMatchingSelectedLabel(
+                          calculatedTotal,
+                          calculatedTotalTruncated
+                        )
+                      : `${
+                          explicitSelected.size +
+                          getInheritedSelections(explicitSelected).size
+                        } selected`
+                  }
+                  loading={bulkLoading}
+                  menuOpen={applyMenuOpen}
+                  onToggleMenu={() => setApplyMenuOpen((open) => !open)}
+                  menuRef={applyMenuRef}
+                  actions={(() => {
+                    const canBulkExclude = displayPhaseAllowsBulkExclude(
+                      getDisplayPhase()
+                    );
+                    const actions: PathReviewSelectionAction[] = [];
+                    if (canBulkExclude) {
+                      actions.push(
+                        {
+                          key: "exclude",
+                          label: excludeApplyLabel(allMatchingSelected),
+                          disabled:
+                            !allMatchingSelected &&
+                            bulkPartitions.exclude.valid.length === 0,
+                          title:
+                            !allMatchingSelected &&
+                            bulkPartitions.exclude.valid.length === 0
+                              ? "No selected items can be excluded"
+                              : undefined,
+                          onClick: () => void handleApplyAction("exclude"),
+                        },
+                        {
+                          key: "unexclude",
+                          label: unexcludeApplyLabel(allMatchingSelected),
+                          disabled:
+                            !allMatchingSelected &&
+                            bulkPartitions.unexclude.valid.length === 0,
+                          title:
+                            !allMatchingSelected &&
+                            bulkPartitions.unexclude.valid.length === 0
+                              ? "No selected items are excluded"
+                              : undefined,
+                          onClick: () => void handleApplyAction("unexclude"),
+                        }
+                      );
+                    }
+                    actions.push(
+                      {
+                        key: "mark_retry",
+                        label: "Mark for retry",
+                        disabled:
+                          allMatchingSelected ||
+                          bulkPartitions.mark_retry.valid.length === 0,
+                        title: allMatchingSelected
+                          ? "Needs an explicit row selection"
+                          : bulkPartitions.mark_retry.valid.length === 0
+                            ? "No selected items can be marked for retry"
+                            : undefined,
+                        onClick: () => void handleApplyAction("mark_retry"),
+                      },
+                      {
+                        key: "mark_failed",
+                        label: "Mark failed",
+                        disabled:
+                          allMatchingSelected ||
+                          bulkPartitions.mark_failed.valid.length === 0,
+                        title: allMatchingSelected
+                          ? "Needs an explicit row selection"
+                          : bulkPartitions.mark_failed.valid.length === 0
+                            ? "No selected items are marked for retry"
+                            : undefined,
+                        onClick: () => void handleApplyAction("mark_failed"),
+                      }
+                    );
+                    if (forceReplaceAllowed) {
+                      actions.push(
+                        {
+                          key: "force_replace",
+                          label: "Replace with source",
+                          disabled:
+                            allMatchingSelected ||
+                            bulkPartitions.force_replace.valid.length === 0,
+                          title: allMatchingSelected
+                            ? "Needs an explicit row selection"
+                            : bulkPartitions.force_replace.valid.length === 0
+                              ? "No selected items exist on both sides"
+                              : undefined,
+                          onClick: () => void handleApplyAction("force_replace"),
+                        },
+                        {
+                          key: "unforce_replace",
+                          label: "Keep destination (undo replace)",
+                          disabled:
+                            allMatchingSelected ||
+                            bulkPartitions.unforce_replace.valid.length === 0,
+                          title: allMatchingSelected
+                            ? "Needs an explicit row selection"
+                            : bulkPartitions.unforce_replace.valid.length === 0
+                              ? "No selected items are marked to replace with source"
+                              : undefined,
+                          onClick: () =>
+                            void handleApplyAction("unforce_replace"),
+                        }
+                      );
+                    }
+                    return actions;
+                  })()}
+                  onClear={clearSelection}
+                />
+              )}
               {(countError ||
                 countingTotal ||
                 calculatedTotal !== null) && (
@@ -3355,16 +3343,25 @@ export default function PathReviewListView({
           <div className="path-review-list__empty">Loading...</div>
         ) : error ? (
           <div className="path-review-list__error">{error}</div>
-        ) : !searchPredicateActive ? (
+        ) : emptyLargeSearchPending ? (
           <div className="path-review-list__empty path-review-list__empty--prompt">
             <p className="path-review-list__empty-title">
-              Browse the tree, or add a list filter
+              Large migration: unfiltered search may be slow
             </p>
             <p className="path-review-list__empty-body">
-              List search needs at least one filter (status, type, size, naming
-              issue, or text). The tree stays the primary way to navigate.
+              This migration has more than{" "}
+              {LIST_SEARCH_EMPTY_WARN_ITEMS.toLocaleString()} items. Searching
+              everything with no filters can take a minute or more. Add a filter
+              for a faster search, or continue with an unfiltered scan.
             </p>
             <div className="path-review-list__empty-suggestions">
+              <button
+                type="button"
+                className="path-review-list__empty-suggestion"
+                onClick={() => setShowEmptyLargeSearchConfirm(true)}
+              >
+                Search all anyway
+              </button>
               <button
                 type="button"
                 className="path-review-list__empty-suggestion"
@@ -3405,7 +3402,7 @@ export default function PathReviewListView({
               const isInherited = !isExplicit && inherited.has(item.id);
               const isSelected = isExplicit || isInherited;
               const isFolder = item.type === "folder";
-              const isLocked = isFolder && (status.existsOnBoth || status.existsOnlyOnDst);
+              const isLocked = isFolder && status.existsOnBoth;
               const failureMessage = getDiffItemFailureMessage(item);
 
               const isMarkedForRetry =
@@ -3419,15 +3416,15 @@ export default function PathReviewListView({
                 <div
                   key={item.id}
                   className={`path-review-list__item ${
-                    status.isExcluded ? "path-review-list__item--excluded" : ""
+                    status.isExcluded || isTraversalAckFromFailed(item)
+                      ? "path-review-list__item--excluded"
+                      : ""
                   } ${
                     status.isTraversalSkipped
                       ? "path-review-list__item--traversal-skipped"
                       : ""
                   } ${
                     status.isDeleted ? "path-review-list__item--deleted" : ""
-                  } ${
-                    status.existsOnlyOnDst ? "path-review-list__item--destination-only" : ""
                   } ${
                     isExplicit ? "path-review-list__item--selected" : ""
                   } ${isInherited ? "path-review-list__item--inherited" : ""} ${
@@ -3441,6 +3438,10 @@ export default function PathReviewListView({
                   }`}
                   onClick={() => {
                     if (altTextSelect) return;
+                    if (inspectorItemId === item.id) {
+                      onInspectorClear?.();
+                      return;
+                    }
                     onInspectorSelect?.(item);
                   }}
                   onContextMenu={(e) => {
@@ -3483,7 +3484,7 @@ export default function PathReviewListView({
                       size={16}
                       className="path-review-list__item-status-icon"
                       phase={getDisplayPhase()}
-                      opInProgressTitle={inFlightOpTitle(mutationOps, itemMutationIds(item))}
+                      opState={inFlightOpState(mutationOps, itemMutationIds(item))}
                       onRetryClick={handleRetryClick}
                       onExcludeClick={(item, currentChecked) => handleCheckboxChange(item, currentChecked)}
                       onSkipDeleteClick={onSkipDeleteClick}
@@ -3495,7 +3496,7 @@ export default function PathReviewListView({
                     <FileTypeIcon
                       name={item.name}
                       type={isFolder ? "folder" : "file"}
-                      size={16}
+                      size={18}
                     />
                   </div>
 
@@ -3503,6 +3504,10 @@ export default function PathReviewListView({
                   <div className="path-review-list__item-name-col">
                     <div className="path-review__item-name-row">
                       <div className="path-review-list__item-name">{item.name}</div>
+                      <UnpairedSideChip
+                        item={item}
+                        existsOnlyOnDst={status.existsOnlyOnDst}
+                      />
                       {showCompatUI &&
                         !item.pathIssueIgnored &&
                         (item.pathIssueStatus || item.proposedPath) && (
@@ -3519,10 +3524,11 @@ export default function PathReviewListView({
                       ) : null}
                     </div>
                     {showCompatUI ? (
-                      <DestinationRenameHint
-                        item={item}
-                        phase={getDisplayPhase()}
-                      />
+                        <DestinationRenameHint
+                          item={item}
+                          phase={getDisplayPhase()}
+                          folderPeers={items}
+                        />
                     ) : null}
                     {failureMessage && (
                       <div
@@ -3613,6 +3619,25 @@ export default function PathReviewListView({
           onCancel={() => setPendingBulk(null)}
         />
       )}
+
+      {showEmptyLargeSearchConfirm ? (
+        <ConfirmDialog
+          title="Unfiltered search may be slow"
+          message={`This migration has more than ${LIST_SEARCH_EMPTY_WARN_ITEMS.toLocaleString()} items. Searching with no filters can take a minute or more. Continue?`}
+          confirmLabel="Search all"
+          cancelLabel="Cancel"
+          onConfirm={() => {
+            setShowEmptyLargeSearchConfirm(false);
+            setEmptyLargeSearchAccepted(true);
+            const sanitized = sanitizeSearchQuery(searchQuery);
+            const sanitizedSegments = pathSegments
+              .map((s) => sanitizeSearchQuery(s))
+              .filter((s) => s !== "");
+            commitSearch(sanitized, sanitizedSegments);
+          }}
+          onCancel={() => setShowEmptyLargeSearchConfirm(false)}
+        />
+      ) : null}
 
       {forceReplaceConfirm && (
         <ConfirmDialog

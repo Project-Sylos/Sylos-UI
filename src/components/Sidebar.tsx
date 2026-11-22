@@ -2,6 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useLocation } from "react-router";
 import "./Sidebar.css";
 import SylosLogo from "./SylosLogo";
+import {
+  ActiveTaskDetail,
+  ActiveTasksSidebarSection,
+  type ActiveTask,
+} from "./ActiveTasksPanel";
+import { useActiveTasks } from "../contexts/ActiveTasksContext";
 import { useAuth } from "../contexts/AuthContext";
 import { usePreferences } from "../contexts/PreferencesContext";
 import { useSelection } from "../context/SelectionContext";
@@ -18,13 +24,22 @@ import type {
   QueueMetrics,
   RootInfo,
 } from "../types/migrations";
-import { getMigrationPhase, isMigrationLive } from "../types/migrations";
+import {
+  getMigrationPhase,
+  isMigrationActivelyRunning,
+  isMigrationLive,
+} from "../types/migrations";
 import { formatEtaSeconds } from "../utils/formatBytes";
 import {
   getPathReviewStepperState,
   type PathReviewLifecycleStep,
 } from "../utils/pathReviewPhase";
+import {
+  fetchLiveMigrations,
+  softStopMigrationsById,
+} from "../utils/liveMigrations";
 import { useRecoveryCode } from "../contexts/RecoveryCodeContext";
+import ConfirmDialog from "./ConfirmDialog";
 import googleDriveLogo from "../assets/external/Google_Drive_Logo.svg";
 import dropboxLogo from "../assets/external/dropbox-1-logo-png-transparent.png";
 import oneDriveLogo from "../assets/external/onedrive.webp";
@@ -45,7 +60,7 @@ import {
   Settings,
 } from "lucide-react";
 import {
-  defaultHelpModalBody,
+  DefaultHelpBody,
   useHelpModal,
 } from "../contexts/HelpModalContext";
 import { useSettingsModal } from "../contexts/SettingsModalContext";
@@ -274,6 +289,14 @@ export default function Sidebar() {
   const { preferences, updatePreferences } = usePreferences();
   const { user, logout } = useAuth();
   const isCollapsed = preferences.sidebarCollapsed;
+  const { tasks: activeTasks } = useActiveTasks();
+  const [detailTask, setDetailTask] = useState<ActiveTask | null>(null);
+  useEffect(() => {
+    if (!detailTask) return;
+    if (!activeTasks.some((t) => t.id === detailTask.id)) {
+      setDetailTask(null);
+    }
+  }, [activeTasks, detailTask]);
   const navigate = useNavigate();
   const location = useLocation();
   const { openHelp } = useHelpModal();
@@ -309,6 +332,12 @@ export default function Sidebar() {
     Record<string, MigrationQueueMetricsResponse>
   >({});
   const [openingId, setOpeningId] = useState<string | null>(null);
+  const [logoutConfirm, setLogoutConfirm] = useState<{
+    open: boolean;
+    liveIds: string[];
+  }>({ open: false, liveIds: [] });
+  const [logoutChecking, setLogoutChecking] = useState(false);
+  const [logoutStopping, setLogoutStopping] = useState(false);
 
   const active = routeMigration(location);
   const activeMigrationId = active.id;
@@ -439,7 +468,7 @@ export default function Sidebar() {
   };
 
   const handleHelpClick = () => {
-    openHelp({ title: "Help", body: defaultHelpModalBody() });
+    openHelp({ title: "Help", body: <DefaultHelpBody /> });
   };
 
   const handleContributeClick = () => {
@@ -567,6 +596,12 @@ export default function Sidebar() {
           )}
         </div>
 
+        <ActiveTasksSidebarSection
+          tasks={activeTasks}
+          collapsed={isCollapsed}
+          onSelectTask={setDetailTask}
+        />
+
         <div className="sidebar__section sidebar__section--footer">
           {user && !isCollapsed && (
             <div className="sidebar__user">
@@ -624,7 +659,33 @@ export default function Sidebar() {
               <button
                 type="button"
                 className="sidebar__icon-button"
-                onClick={() => void logout()}
+                disabled={logoutChecking}
+                onClick={() => {
+                  void (async () => {
+                    setLogoutChecking(true);
+                    try {
+                      let liveIds = migrations
+                        .filter((m) => isMigrationActivelyRunning(m))
+                        .map((m) => m.id);
+                      if (liveIds.length === 0) {
+                        try {
+                          liveIds = (await fetchLiveMigrations()).map(
+                            (m) => m.id
+                          );
+                        } catch {
+                          // List failed: sign out without a scary confirm.
+                        }
+                      }
+                      if (liveIds.length > 0) {
+                        setLogoutConfirm({ open: true, liveIds });
+                        return;
+                      }
+                      await logout();
+                    } finally {
+                      setLogoutChecking(false);
+                    }
+                  })();
+                }}
                 aria-label="Sign out"
                 title="Sign out"
               >
@@ -634,6 +695,56 @@ export default function Sidebar() {
           </div>
         </div>
       </div>
+      {logoutConfirm.open ? (
+        <ConfirmDialog
+          title="Sign out while migrations run?"
+          message={
+            logoutConfirm.liveIds.length === 1
+              ? "One migration is still running. You can leave it going (sign back in anytime to monitor), or soft-stop it now and then sign out. Soft stop saves progress in the background after you leave."
+              : `${logoutConfirm.liveIds.length} migrations are still running. You can leave them going (sign back in anytime to monitor), or soft-stop all of them now and then sign out. Soft stop saves progress in the background after you leave.`
+          }
+          cancelLabel="Stay signed in"
+          secondaryLabel="Sign out only"
+          confirmLabel={
+            logoutStopping
+              ? "Stopping…"
+              : logoutConfirm.liveIds.length === 1
+                ? "Soft-stop then sign out"
+                : "Soft-stop all then sign out"
+          }
+          confirmTone="magenta"
+          onCancel={() => {
+            if (logoutStopping) return;
+            setLogoutConfirm({ open: false, liveIds: [] });
+          }}
+          onSecondary={() => {
+            if (logoutStopping) return;
+            setLogoutConfirm({ open: false, liveIds: [] });
+            void logout();
+          }}
+          onConfirm={() => {
+            if (logoutStopping) return;
+            void (async () => {
+              setLogoutStopping(true);
+              try {
+                await softStopMigrationsById(logoutConfirm.liveIds);
+              } finally {
+                setLogoutConfirm({ open: false, liveIds: [] });
+                setLogoutStopping(false);
+                await logout();
+              }
+            })();
+          }}
+        />
+      ) : null}
+      {detailTask ? (
+        <ActiveTaskDetail
+          task={
+            activeTasks.find((t) => t.id === detailTask.id) ?? detailTask
+          }
+          onClose={() => setDetailTask(null)}
+        />
+      ) : null}
     </div>
   );
 }

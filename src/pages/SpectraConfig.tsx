@@ -453,18 +453,7 @@ export default function SpectraConfigPage() {
               Ephemeral Mode
               <HelpTooltip
                 tipId="spectra-ephemeral-mode"
-                category="spectra-config"
                 position="right"
-                content={
-                  <>
-                    <p>
-                      When enabled, Spectra will run in ephemeral mode, skipping database operations in spectra's internals.
-                    </p>
-                    <p style={{ marginTop: '0.5rem' }}>
-                      This automatically disables caching and destination probability since ephemeral mode doesn't persist data between sessions.
-                    </p>
-                  </>
-                }
               />
             </label>
           </div>
@@ -481,17 +470,37 @@ export default function SpectraConfigPage() {
               Diverging Tree Mode
               <HelpTooltip
                 tipId="spectra-diverging-tree-mode"
-                category="spectra-config"
                 position="right"
-                content={
-                  <p>When enabled, and if ephermal mode is selected, the tree structure may diverge. Without ephemeral, trees diverge by default.</p>
-                }
               />
             </label>
           </div>
         </div>
 
         <FormSection title="Seed Configuration">
+          <div className="form-field">
+            <label htmlFor="item_name_style" className="form-field__label-with-tooltip">
+              Item name style
+              <HelpTooltip
+                tipId="spectra-item-name-style"
+                position="right"
+              />
+            </label>
+            <select
+              id="item_name_style"
+              className="form-field__input"
+              value={config.seed.unique_id_names ? "unique_id" : "numbered"}
+              onChange={(e) =>
+                handleBooleanInputChange(
+                  "seed",
+                  "unique_id_names",
+                  e.target.value === "unique_id"
+                )
+              }
+            >
+              <option value="numbered">Numbered (folder_1, file_1.txt)</option>
+              <option value="unique_id">Unique ID names</option>
+            </select>
+          </div>
           <FormField
             id="max_depth"
             label="Max Depth"
@@ -624,13 +633,7 @@ export default function SpectraConfigPage() {
             disabled={config.mode === "ephemeral"}
             helpTooltip={{
               tipId: "spectra-destination-probability",
-              category: "spectra-config",
               position: "right",
-              content: (
-                <p>
-                  This is the chance each item has for existing on the destination once it's created in the source world.
-                </p>
-              ),
             }}
           />
         </FormSection>
@@ -669,13 +672,7 @@ export default function SpectraConfigPage() {
             }
             helpTooltip={{
               tipId: "spectra-auth-ttl",
-              category: "spectra-config",
               position: "right",
-              content: (
-                <p>
-                  Access token lifetime in seconds. Use -1 for tokens that never expire. Refresh tokens always last forever.
-                </p>
-              ),
             }}
           />
         </FormSection>

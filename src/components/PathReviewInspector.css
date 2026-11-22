@@ -1,10 +1,10 @@
 .path-review-inspector {
   display: flex;
   flex-direction: column;
-  flex: 0 0 260px;
-  width: 260px;
-  max-width: 32%;
-  min-width: 220px;
+  flex: 0 0 300px;
+  width: 300px;
+  max-width: 36%;
+  min-width: 260px;
   min-height: 0;
   border-left: 1px solid rgba(
     var(--color-base-slate-r),
@@ -121,7 +121,7 @@
 }
 
 .path-review-inspector__section--compat-info .path-review-inspector__section-title {
-  color: #7dd3fc;
+  color: var(--accent);
 }
 
 .path-review-inspector__section-body {
@@ -167,9 +167,9 @@
   border-radius: 6px;
   font-size: 0.75rem;
   font-weight: 550;
-  color: #7dd3fc;
-  background: rgba(56, 189, 248, 0.1);
-  border: 1px solid rgba(56, 189, 248, 0.28);
+  color: var(--accent);
+  background: var(--accent-opacity-10);
+  border: 1px solid var(--accent-opacity-20);
 }
 
 .path-review-inspector__compat-short {
@@ -219,6 +219,7 @@
   gap: 0.35rem;
   padding: 0.55rem 0.75rem 0.75rem;
   border-top: 1px solid rgba(148, 163, 184, 0.2);
+  min-width: 0;
 }
 
 /* Override the large primary action-button chrome for inspector actions. */
@@ -231,8 +232,13 @@
   font-weight: 560;
   line-height: 1.2;
   min-height: 0;
+  min-width: 0;
   box-shadow: none;
   transform: none;
+  white-space: normal;
+  text-align: center;
+  overflow-wrap: anywhere;
+  hyphens: auto;
 }
 
 .path-review-inspector__actions .action-button:hover:not(:disabled) {
@@ -264,10 +270,33 @@
   color: rgba(148, 163, 184, 0.95);
 }
 
+.path-review-inspector__pair-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin-top: 0.35rem;
+}
+
+.path-review-inspector__pair-card {
+  padding: 0.4rem 0.45rem;
+  border-radius: 6px;
+  background: rgba(148, 163, 184, 0.08);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.path-review-inspector__pair-card-title {
+  margin: 0 0 0.3rem;
+  font-size: 0.68rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  font-weight: 650;
+}
+
 @media (max-width: 900px) {
   .path-review-inspector {
-    flex-basis: 220px;
-    width: 220px;
-    min-width: 200px;
+    flex-basis: 260px;
+    width: 260px;
+    min-width: 240px;
   }
 }

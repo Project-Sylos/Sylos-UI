@@ -20,6 +20,13 @@
     transform 0.2s ease;
 }
 
+.help-modal__link-row--button {
+  width: 100%;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
 .help-modal__link-row:hover {
   background: var(--ui-icon-button-bg-hover);
   border-color: var(--ui-icon-button-border-hover);

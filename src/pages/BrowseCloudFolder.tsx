@@ -47,6 +47,9 @@ import ConfirmDialog from "../components/ConfirmDialog";
 import NewFolderModal from "../components/NewFolderModal";
 import BrowseContextMenu from "../components/BrowseContextMenu";
 import FileBrowserPane, { BROWSE_SELECTION_HELP } from "../components/FileBrowserPane";
+import OriginalRootCard, {
+  PreviousRootBadge,
+} from "../components/OriginalRootCard";
 import StorageMeter from "../components/StorageMeter";
 import { BrowseDensityProvider, useBrowseDensity } from "../contexts/BrowseDensityContext";
 import { useSelection } from "../context/SelectionContext";
@@ -57,6 +60,7 @@ import type { DestDualRow } from "../utils/destDualList";
 import {
   buildDeleteConfirmMessage,
   BrowseSelectableItem,
+  FOLDER_SELECT_BOUNCE_MS,
   formatDeleteErrors,
   isMultiSelectModifier,
   useBrowseSelection,
@@ -73,6 +77,10 @@ import {
   clearAccountFields,
   clearEndpointCloudState,
 } from "../utils/cloudAccountLabel";
+import {
+  matchesPreviousRoot,
+  previousRootMatchIds,
+} from "../utils/previousRoot";
 import { isCloudServiceType } from "../utils/cloudProviders";
 import { folderToApiRoot, getBrowseTrailFromFolder } from "../utils/migrationRoots";
 import "./BrowseFolder.css";
@@ -269,25 +277,41 @@ function BrowseCloudFolderPage() {
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const { densityStyle } = useBrowseDensity();
+  const browseRootRef = useRef<HTMLElement>(null);
+  const scrollBrowseListToTop = () => {
+    const root = browseRootRef.current;
+    if (!root) return;
+    root
+      .querySelectorAll<HTMLElement>(".browse-folder__items, .browse-folder__list")
+      .forEach((node) => {
+        node.scrollTop = 0;
+      });
+  };
 
   const providerId = searchParams.get("providerId") ?? "";
   const connectionId = searchParams.get("connectionId") ?? "";
   const serviceId = searchParams.get("serviceId") ?? "";
   const role = (searchParams.get("role") as "source" | "destination") || "source";
+  const reauthRoot = searchParams.get("reauthRoot") === "1";
 
   const {
     services,
     migration,
     source,
+    destination,
     updateMigration,
+    persistSelections,
     selectSource,
     selectDestination,
   } = useSelection();
   const rootInclude = useRootIncludeSelection();
   const [browseSort, setBrowseSort] = useState<BrowseSortState>(DEFAULT_BROWSE_SORT);
   const [includeSubmitting, setIncludeSubmitting] = useState(false);
-  /** Locked destination root after Select; dual-list review is relative to this. */
-  const [destAlignRootId, setDestAlignRootId] = useState<string | null>(null);
+  /**
+   * Set-as-root anchor for this browse session. Source: include/exclude under it.
+   * Destination: locked pair root (Done commits this folder, not a deeper browse).
+   */
+  const [anchor, setAnchor] = useState<{ id: string; folder: Folder } | null>(null);
 
   const resumeFolder = (location.state as { resumeFolder?: Folder } | null)
     ?.resumeFolder;
@@ -314,7 +338,24 @@ function BrowseCloudFolderPage() {
   const [breadcrumbs, setBreadcrumbs] = useState<BreadcrumbItem[]>([]);
   const [currentIdentifier, setCurrentIdentifier] = useState<string | null>(null);
   const [isRootPicker, setIsRootPicker] = useState(true);
+  const previousRoot = useMemo(() => {
+    if (!reauthRoot) return undefined;
+    return (
+      resumeFolder ??
+      (role === "source" ? source?.root : destination?.root)
+    );
+  }, [reauthRoot, resumeFolder, role, source?.root, destination?.root]);
+  const previousRootIds = useMemo(
+    () => previousRootMatchIds(previousRoot),
+    [previousRoot]
+  );
+  const viewingOriginalRoot =
+    reauthRoot &&
+    !isRootPicker &&
+    matchesPreviousRoot(currentIdentifier, previousRootIds);
   const [loading, setLoading] = useState(true);
+  /** Folder-to-folder nav: keep showing the previous listing while the next loads. */
+  const [listingPending, setListingPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pagination, setPagination] = useState<PaginationInfo | null>(null);
   const [currentPage, setCurrentPage] = useState(0);
@@ -369,8 +410,19 @@ function BrowseCloudFolderPage() {
     [folders, files]
   );
 
-  /** Source browse include marks once we are inside a location. */
-  const includeMode = role === "source" && !isRootPicker;
+  /** True when browsing at or under the Set-as-root anchor. */
+  const atOrUnderAnchor = Boolean(
+    anchor &&
+      currentIdentifier &&
+      (currentIdentifier === anchor.id ||
+        breadcrumbs.some((crumb) => crumb.path === anchor.id))
+  );
+  /** Include/exclude checkboxes only after Set as root, and only under the anchor. */
+  const includeMode =
+    !reauthRoot && role === "source" && !isRootPicker && atOrUnderAnchor;
+  /** Single click opens a folder. Source include mode uses the checkbox instead. */
+  const folderNavOnly =
+    !reauthRoot && !isRootPicker && (role === "destination" || !includeMode);
   const parentKey = currentIdentifier ?? ROOT_INCLUDE_PARENT;
   const ancestorChain = useMemo(
     () => breadcrumbs.map((crumb) => crumb.path),
@@ -412,17 +464,13 @@ function BrowseCloudFolderPage() {
   const cascadePreviewKeyRef = useRef("");
 
   const prepareDestinationRoot =
-    role === "destination" && Boolean(migration.sourceRootPrepared);
-  /** After picking a dest root: relative dual-list review before final confirm. */
+    !reauthRoot && role === "destination" && Boolean(migration.sourceRootPrepared);
+  /** At the locked dest anchor: top-level name match preview vs source root. */
   const destRootReviewMode =
-    prepareDestinationRoot && Boolean(destAlignRootId) && !isRootPicker;
-
-  const destRelativeSegments = useMemo(() => {
-    if (!destAlignRootId || breadcrumbs.length === 0) return [] as string[];
-    const idx = breadcrumbs.findIndex((b) => b.path === destAlignRootId);
-    if (idx < 0) return [];
-    return breadcrumbs.slice(idx + 1).map((b) => b.name);
-  }, [breadcrumbs, destAlignRootId]);
+    prepareDestinationRoot &&
+    Boolean(anchor) &&
+    !isRootPicker &&
+    currentIdentifier === anchor?.id;
 
   const sourceRootId = source?.root?.ServiceID || source?.root?.Id;
   const sourceServiceId = source?.service?.id;
@@ -471,7 +519,7 @@ function BrowseCloudFolderPage() {
     destFolderId: currentIdentifier,
     destFolders: folders,
     destFiles: files,
-    relativeSegments: destRelativeSegments,
+    relativeSegments: [],
   });
 
   const deleteConfirmCopy = useMemo(
@@ -542,6 +590,8 @@ function BrowseCloudFolderPage() {
 
     if (resumeFolder && !resumeHandledRef.current) {
       resumeHandledRef.current = true;
+      // Mark loaded so clearing resume state does not call loadRoots.
+      rootsLoadedKeyRef.current = loadKey;
       void resumeAtFolder(resumeFolder);
       window.history.replaceState({}, document.title);
       return;
@@ -585,6 +635,7 @@ function BrowseCloudFolderPage() {
           roots.find((r) => r.id === trail[0]?.path) ?? roots[0];
         const rootId = rootFolder.ServiceID || matchedRoot?.id || "";
         rootInclude.restore(tree as MigrationRootChild[], rootId);
+        setAnchor({ id: rootId, folder: rootFolder });
 
         if (matchedRoot) {
           setActiveRoot(matchedRoot);
@@ -640,6 +691,7 @@ function BrowseCloudFolderPage() {
   }, [includeMode, reconfirmSourceInclude, cascadePreviewKey]);
 
   const loadRoots = async () => {
+    scrollBrowseListToTop();
     const loadKey = `${providerId}:${connectionId}`;
     setLoading(true);
     setError(null);
@@ -654,7 +706,6 @@ function BrowseCloudFolderPage() {
       setBreadcrumbs([]);
       setCurrentIdentifier(null);
       setPagination(null);
-      setDestAlignRootId(null);
 
       // Only auto-enter when Dropbox has a single personal root; otherwise show the
       // picker so team space / shared folders remain selectable.
@@ -732,9 +783,15 @@ function BrowseCloudFolderPage() {
     const page = options?.page ?? currentPage;
     const limit = options?.limit ?? itemsPerPage;
     const offset = page * limit;
+    scrollBrowseListToTop();
+    const soft = !isRootPicker && (folders.length > 0 || files.length > 0);
 
-    setLoading(true);
     setError(null);
+    if (soft) {
+      setListingPending(true);
+    } else {
+      setLoading(true);
+    }
 
     try {
       const response = await listCloudChildren(
@@ -770,6 +827,7 @@ function BrowseCloudFolderPage() {
       setError(err instanceof Error ? err.message : "Failed to load folders.");
     } finally {
       setLoading(false);
+      setListingPending(false);
     }
   };
 
@@ -875,9 +933,17 @@ function BrowseCloudFolderPage() {
     event.preventDefault();
     event.stopPropagation();
 
-    // In include mode the row is the checkbox. Delay plain folder toggles so a
-    // double-click can open without ever marking (explore mode stays at zero
-    // checks; onDoubleClick navigates).
+    // Before include mode, folder clicks only navigate (source and destination).
+    if (folderNavOnly && item.type === "folder") {
+      const folder = folders.find((f) => f.ServiceID === item.id);
+      if (folder) {
+        handleFolderClick(folder, event);
+      }
+      return;
+    }
+
+    // After Set as root, the row is the checkbox. Delay plain folder toggles so a
+    // double-click can open without also marking.
     if (includeMode) {
       const isPlainFolderClick =
         item.type === "folder" &&
@@ -912,7 +978,7 @@ function BrowseCloudFolderPage() {
             visibleItems,
             ancestorChain
           );
-        }, 150);
+        }, FOLDER_SELECT_BOUNCE_MS);
         return;
       }
 
@@ -953,7 +1019,7 @@ function BrowseCloudFolderPage() {
       folderClickTimerRef.current = window.setTimeout(() => {
         folderClickTimerRef.current = null;
         runSelect();
-      }, 150);
+      }, FOLDER_SELECT_BOUNCE_MS);
       return;
     }
 
@@ -1006,12 +1072,6 @@ function BrowseCloudFolderPage() {
     if (breadcrumbs.length > 1 && activeRoot) {
       const previous = breadcrumbs[breadcrumbs.length - 2];
       const trail = breadcrumbs.slice(0, -1);
-      const alignIdx = destAlignRootId
-        ? breadcrumbs.findIndex((b) => b.path === destAlignRootId)
-        : -1;
-      if (alignIdx >= 0 && breadcrumbs.length - 2 < alignIdx) {
-        setDestAlignRootId(null);
-      }
       setCurrentPage(0);
       void loadChildren(previous.path, activeRoot, trail, { page: 0 });
       return;
@@ -1019,12 +1079,10 @@ function BrowseCloudFolderPage() {
 
     // Single-root accounts have no picker to return to.
     if (roots.length <= 1) {
-      setDestAlignRootId(null);
       return;
     }
 
     if (activeRoot) {
-      setDestAlignRootId(null);
       setIsRootPicker(true);
       setActiveRoot(null);
       setFolders([]);
@@ -1116,23 +1174,22 @@ function BrowseCloudFolderPage() {
     reloadCurrentFolder();
   };
 
-  const commitSelectedRoot = async () => {
+  const clearAnchor = () => {
+    setAnchor(null);
+    rootInclude.reset();
+    clearSelection();
+  };
+
+  /** Anchor the folder you are in; include everything inside (source) or lock dest. */
+  const handleSetAsRoot = async () => {
     if (isRootPicker || !activeRoot || !currentIdentifier) {
       setError("Choose a cloud location and folder first.");
       return;
     }
-
     if (breadcrumbs.length <= 1 && activeRoot.migrationRootForbidden) {
       setError(
         activeRoot.migrationRootForbiddenReason ??
           "This virtual location cannot be used as a migration root. Select a folder inside it."
-      );
-      return;
-    }
-
-    if (role === "source" && pagination && pagination.total === 0) {
-      setError(
-        "You cannot use an empty folder as the source root. There is nothing to migrate."
       );
       return;
     }
@@ -1152,107 +1209,47 @@ function BrowseCloudFolderPage() {
       selectedFolder.browseTrail ?? getBrowseTrailFromFolder(selectedFolder);
 
     if (role === "source") {
-      await confirmSourceRoot(selectedFolder, currentIdentifier);
-      return;
-    }
-
-    if (prepareDestinationRoot) {
       try {
-        setLoading(true);
+        setIncludeSubmitting(true);
         setError(null);
-
-        if (!destAlignRootId) {
-          const children = await loadAllChildrenAt(currentIdentifier);
-          if (children.length === 0) {
-            await commitPreparedRoot(selectedFolder, []);
-            return;
-          }
-          setDestAlignRootId(currentIdentifier);
+        const rootChildren = await loadAllChildrenAt(currentIdentifier);
+        if (rootChildren.length === 0) {
+          setError(
+            "You cannot use an empty folder as the source root. There is nothing to migrate."
+          );
           return;
         }
-
-        const rootId = destAlignRootId;
-        const rootFolder =
-          rootId === currentIdentifier
-            ? selectedFolder
-            : folderFromBreadcrumbs(
-                activeRoot,
-                breadcrumbs.slice(
-                  0,
-                  breadcrumbs.findIndex((b) => b.path === rootId) + 1
-                ),
-                rootId
-              );
-
-        const names = migration.sourceRootChildNames;
-        const children = await loadAllChildrenAt(rootId);
-        await commitPreparedRoot(
-          rootFolder,
-          destinationRootChildrenPayload(children, names)
-        );
+        rootInclude.reset();
+        rootInclude.recordChildren(currentIdentifier, rootChildren, {
+          complete: true,
+        });
+        rootInclude.setAllForFolder(currentIdentifier, rootChildren, true);
+        setAnchor({ id: currentIdentifier, folder: selectedFolder });
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to list root children.");
+        setError(
+          err instanceof Error ? err.message : "Failed to set source root."
+        );
       } finally {
-        setLoading(false);
+        setIncludeSubmitting(false);
       }
       return;
     }
 
-    const destination = role === "destination" ? "/destination" : "/connect";
-    navigate(destination, {
-      state: {
-        selectedFolder,
-        serviceId,
-        role,
-        connectionId,
-      },
-    });
+    setAnchor({ id: currentIdentifier, folder: selectedFolder });
+    setError(null);
   };
 
-  /** Current folder becomes the source root; checkbox state becomes its include tree. */
-  const confirmSourceRoot = async (selectedFolder: Folder, rootId: string) => {
-    try {
-      setIncludeSubmitting(true);
-      setError(null);
-
-      const rootChildren = await loadAllChildrenAt(rootId);
-      if (rootChildren.length === 0) {
-        setError(
-          "You cannot use an empty folder as the source root. There is nothing to migrate."
-        );
-        return;
-      }
-      rootInclude.recordChildren(rootId, rootChildren, { complete: true });
-
-      // Folders the user pruned may only be partially listed; fill them in so
-      // unvisited siblings are not silently dropped from the allowlist.
-      for (const parentId of rootInclude.parentsNeedingFullListing()) {
-        if (parentId === rootId) continue;
-        const all = await loadAllChildrenAt(parentId);
-        rootInclude.recordChildren(parentId, all, { complete: true });
-      }
-
-      // No explicit picks: include everything under the current folder/drive.
-      if (rootInclude.includedCountUnder(rootId) < 1) {
-        rootInclude.setAllForFolder(rootId, rootChildren, true);
-      }
-
-      const children = rootInclude.buildPayload(rootId, { role: "source" });
-      await commitPreparedRoot(selectedFolder, children);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to confirm source root.");
-    } finally {
-      setIncludeSubmitting(false);
+  const commitSelectedRoot = async () => {
+    if (isRootPicker || !activeRoot || !currentIdentifier) {
+      setError("Choose a cloud location and folder first.");
+      return;
     }
-  };
 
-  const commitPreparedRoot = async (
-    rootFolder: Folder,
-    children: MigrationRootChild[]
-  ) => {
-    const service = services.find((s) => s.id === serviceId);
-    if (!service) {
-      setError("Service not found.");
+    if (breadcrumbs.length <= 1 && activeRoot.migrationRootForbidden) {
+      setError(
+        activeRoot.migrationRootForbiddenReason ??
+          "This virtual location cannot be used as a migration root. Select a folder inside it."
+      );
       return;
     }
 
@@ -1262,6 +1259,115 @@ function BrowseCloudFolderPage() {
       return;
     }
 
+    const selectedFolder = folderFromBreadcrumbs(
+      activeRoot,
+      breadcrumbs,
+      currentIdentifier
+    );
+    selectedFolder.browseTrail =
+      selectedFolder.browseTrail ?? getBrowseTrailFromFolder(selectedFolder);
+
+    if (reauthRoot) {
+      if (role === "source") {
+        const rootChildren = await loadAllChildrenAt(currentIdentifier);
+        if (rootChildren.length === 0) {
+          setError(
+            "You cannot use an empty folder as the source root. There is nothing to migrate."
+          );
+          return;
+        }
+      }
+      await commitPreparedRoot(selectedFolder, [], { reauth: true });
+      return;
+    }
+
+    if (!anchor) {
+      await handleSetAsRoot();
+      return;
+    }
+
+    if (role === "source") {
+      await confirmSourceRoot(anchor.folder, anchor.id);
+      return;
+    }
+
+    if (role === "destination") {
+      try {
+        setIncludeSubmitting(true);
+        setError(null);
+        const names = migration.sourceRootChildNames;
+        const children = await loadAllChildrenAt(anchor.id);
+        await commitPreparedRoot(
+          anchor.folder,
+          destinationRootChildrenPayload(children, names)
+        );
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to list root children.");
+        setIncludeSubmitting(false);
+      }
+      return;
+    }
+
+    navigate("/summary");
+  };
+
+  /** Commit the anchored source root and its include tree, then leave browse. */
+  const confirmSourceRoot = async (selectedFolder: Folder, rootId: string) => {
+    try {
+      setIncludeSubmitting(true);
+      setError(null);
+
+      // Folders the user pruned may only be partially listed; fill them in so
+      // unvisited siblings are not silently dropped from the allowlist.
+      for (const parentId of rootInclude.parentsNeedingFullListing()) {
+        if (parentId === rootId) continue;
+        const all = await loadAllChildrenAt(parentId);
+        rootInclude.recordChildren(parentId, all, { complete: true });
+      }
+
+      let children = rootInclude.buildPayload(rootId, { role: "source" });
+      // No listing yet (should be rare after Set as root): load and include all.
+      if (children.length === 0) {
+        const rootChildren = await loadAllChildrenAt(rootId);
+        if (rootChildren.length === 0) {
+          setError(
+            "You cannot use an empty folder as the source root. There is nothing to migrate."
+          );
+          setIncludeSubmitting(false);
+          return;
+        }
+        rootInclude.recordChildren(rootId, rootChildren, { complete: true });
+        rootInclude.setAllForFolder(rootId, rootChildren, true);
+        children = rootInclude.buildPayload(rootId, { role: "source" });
+      }
+
+      await commitPreparedRoot(selectedFolder, children);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to confirm source root.");
+      setIncludeSubmitting(false);
+    }
+  };
+
+  const commitPreparedRoot = async (
+    rootFolder: Folder,
+    children: MigrationRootChild[],
+    opts?: { reauth?: boolean }
+  ) => {
+    const service = services.find((s) => s.id === serviceId);
+    if (!service) {
+      setError("Service not found.");
+      setIncludeSubmitting(false);
+      return;
+    }
+
+    const stillValid = await recheckConnection();
+    if (!stillValid) {
+      setError("Your cloud connection expired. Reconnect to continue.");
+      setIncludeSubmitting(false);
+      return;
+    }
+
+    const quietReauth = Boolean(opts?.reauth);
     try {
       setIncludeSubmitting(true);
       setError(null);
@@ -1271,33 +1377,62 @@ function BrowseCloudFolderPage() {
         serviceId: service.id,
         connectionId,
         root: folderToApiRoot(rootFolder),
-        children,
-        excludedIds:
-          role === "source"
-            ? children.filter((c) => c.excluded).map((c) => c.id)
-            : undefined,
+        ...(quietReauth
+          ? { reauth: true }
+          : {
+              children,
+              excludedIds:
+                role === "source"
+                  ? children.filter((c) => c.excluded).map((c) => c.id)
+                  : undefined,
+            }),
       });
 
+      const boundConnectionId =
+        (role === "source"
+          ? response.sourceConnectionId
+          : response.destinationConnectionId) || connectionId;
       updateMigration({
         migrationId: response.migrationId,
-        sourceConnectionId: response.sourceConnectionId,
-        destinationConnectionId: response.destinationConnectionId,
+        sourceConnectionId:
+          role === "source"
+            ? boundConnectionId
+            : response.sourceConnectionId || migration.sourceConnectionId,
+        destinationConnectionId:
+          role === "destination"
+            ? boundConnectionId
+            : response.destinationConnectionId ||
+              migration.destinationConnectionId,
         ready: response.ready,
-        ...(role === "source"
-          ? {
-              sourceRootPrepared: true,
-              sourceRootChildNames: includedSourceChildNames(children),
-              sourceRootChildren: children,
-              ...(isCloudServiceType(service.type)
-                ? {}
-                : clearEndpointCloudState("source")),
-            }
-          : {
-              destinationRootPrepared: true,
-              ...(isCloudServiceType(service.type)
-                ? {}
-                : clearEndpointCloudState("destination")),
-            }),
+        ...(quietReauth
+          ? {}
+          : role === "source"
+            ? {
+                sourceRootPrepared: true,
+                sourceRootChildNames: includedSourceChildNames(children),
+                sourceRootChildren: children,
+                ...(isCloudServiceType(service.type)
+                  ? {}
+                  : clearEndpointCloudState("source")),
+              }
+            : {
+                destinationRootPrepared: true,
+                ...(isCloudServiceType(service.type)
+                  ? {}
+                  : clearEndpointCloudState("destination")),
+              }),
+      });
+      persistSelections({
+        migrationId: response.migrationId,
+        sourceConnectionId:
+          role === "source"
+            ? boundConnectionId
+            : response.sourceConnectionId || migration.sourceConnectionId,
+        destinationConnectionId:
+          role === "destination"
+            ? boundConnectionId
+            : response.destinationConnectionId ||
+              migration.destinationConnectionId,
       });
 
       if (role === "source") {
@@ -1305,20 +1440,14 @@ function BrowseCloudFolderPage() {
       } else {
         selectDestination(service, rootFolder);
       }
-      rootInclude.reset();
-      if (response.ready) {
-        navigate("/summary");
-      } else if (role === "source") {
-        navigate("/destination");
-      } else {
-        navigate("/summary");
-      }
+      navigate("/summary");
     } catch (err) {
-      updateMigration(clearAccountFields(role));
+      if (!quietReauth) {
+        updateMigration(clearAccountFields(role));
+      }
       setError(
         err instanceof Error ? err.message : "Failed to confirm root children."
       );
-    } finally {
       setIncludeSubmitting(false);
     }
   };
@@ -1401,21 +1530,37 @@ function BrowseCloudFolderPage() {
     activeRoot?.migrationRootForbiddenReason ??
     "This virtual location cannot be used as a migration root. Select a folder inside it.";
   return (
-    <section className="browse-folder">
+    <section className="browse-folder" ref={browseRootRef}>
       <PageShell className="browse-folder__content">
         <PageBackButton
-          onClick={() => navigate(returnPath)}
+          onClick={() => navigate(reauthRoot ? "/summary" : returnPath)}
           title={
-            role === "destination"
-              ? "Back to destination service selection"
-              : "Back to source service selection"
+            reauthRoot
+              ? "Back to setup"
+              : role === "destination"
+                ? "Back to destination service selection"
+                : "Back to source service selection"
           }
           className="browse-folder__page-back"
         />
 
         <header className="browse-folder__header">
           <h1 className="browse-folder__title">
-            {role === "source" ? (
+            {reauthRoot ? (
+              <>
+                Confirm your{" "}
+                <span
+                  className={
+                    role === "source"
+                      ? "browse-folder__highlight--magenta"
+                      : "browse-folder__highlight--cyan"
+                  }
+                >
+                  {role}
+                </span>{" "}
+                root
+              </>
+            ) : role === "source" ? (
               <>
                 Choose your{" "}
                 <span className="browse-folder__highlight--magenta">source</span>{" "}
@@ -1429,24 +1574,37 @@ function BrowseCloudFolderPage() {
               </>
             )}
           </h1>
-          {includeMode ? (
+          {reauthRoot ? (
+            <p className="browse-folder__include-hint browse-folder__include-hint--reauth">
+              Re-authentication only: open the same root folder used for this
+              migration, then Confirm. No include checkboxes or extra review
+              steps on this pass.
+            </p>
+          ) : role === "source" && !isRootPicker ? (
             <p className="browse-folder__include-hint">
-              Browse freely to the folder you want; Confirm uses this folder (or
-              drive) as the source root. You can check folders and files. Leave
-              items unchecked to include everything under it, or narrow the
-              selection (double-click opens a folder). After you start checking,
-              unselected branches show as skipped.
+              {anchor
+                ? "This folder is your source root. Uncheck items to leave them out. Open folders to refine deeper. Done saves the root and your selection."
+                : "Open folders to navigate. Set as root when you are in the folder you want to migrate from. Everything inside starts included; you can uncheck after."}
             </p>
           ) : !isRootPicker && role === "destination" ? (
             <p className="browse-folder__include-hint">
               {destRootReviewMode
-                ? "Review how this destination lines up with your source root. Checks show names that already exist on source at the same relative path (read-only). Double-click opens a destination folder. Confirm when ready."
-                : prepareDestinationRoot
-                  ? "Browse to the destination folder that should receive your source root, then Select. If it already has contents, you will review relative matches next. An empty folder is confirmed immediately."
-                  : "Select uses the folder you are in as the destination root. Open a location, then Select without picking children to use that root as-is (double-click opens a folder)."}
+                ? "This folder is your destination root. Checks show names that already exist on the source root (read-only). Open folders to look around; Done still uses this root."
+                : anchor
+                  ? "Destination root is set. Browse freely to look around; Done still uses the root you set. Use Change root to pick a different folder."
+                  : prepareDestinationRoot
+                    ? "Open folders to navigate. Set as root on the destination folder that should receive your source. You can review top-level matches before Done."
+                    : "Open folders to navigate. Set as root on the folder you want as the destination."}
             </p>
           ) : null}
         </header>
+
+        {reauthRoot && (
+          <OriginalRootCard
+            root={previousRoot}
+            viewingOriginal={Boolean(viewingOriginalRoot)}
+          />
+        )}
 
         {error && <div className="browse-folder__error">{error}</div>}
 
@@ -1498,12 +1656,6 @@ function BrowseCloudFolderPage() {
                     onClick={() => {
                       if (!activeRoot) return;
                       if (index < breadcrumbs.length - 1) {
-                        const alignIdx = destAlignRootId
-                          ? breadcrumbs.findIndex((b) => b.path === destAlignRootId)
-                          : -1;
-                        if (alignIdx >= 0 && index < alignIdx) {
-                          setDestAlignRootId(null);
-                        }
                         clearSelection();
                         const trail = breadcrumbs.slice(0, index + 1);
                         setCurrentPage(0);
@@ -1543,7 +1695,13 @@ function BrowseCloudFolderPage() {
             visible={rootInclude.shouldCascadeParentExclusion(parentKey)}
           />
         )}
-        <div className="browse-folder__list-container" style={densityStyle}>
+        <div
+          className={`browse-folder__list-container${
+            listingPending ? " browse-folder__list-container--pending" : ""
+          }`}
+          style={densityStyle}
+          aria-busy={listingPending || loading}
+        >
           {loading || checkingConnection ? (
             <div className="browse-folder__empty">Loading…</div>
           ) : connectionValid === false ? (
@@ -1555,18 +1713,28 @@ function BrowseCloudFolderPage() {
               {roots.length === 0 ? (
                 <div className="browse-folder__empty">No cloud locations found.</div>
               ) : (
-                roots.map((root) => (
+                roots.map((root) => {
+                  const isPrevious =
+                    reauthRoot &&
+                    (matchesPreviousRoot(root.id, previousRootIds) ||
+                      matchesPreviousRoot(root.driveId, previousRootIds));
+                  return (
                   <button
                     key={root.id}
                     type="button"
-                    className="browse-folder__item browse-folder__item--drive"
+                    className={`browse-folder__item browse-folder__item--drive${
+                      isPrevious ? " browse-folder__item--previous-root" : ""
+                    }`}
                     onClick={() => handleRootSelect(root)}
                   >
                     <div className="browse-folder__item-icon">
                       <Cloud size={32} />
                     </div>
                     <div className="browse-folder__item-info">
-                      <div className="browse-folder__item-name">{root.displayName}</div>
+                      <div className="browse-folder__item-name">
+                        {root.displayName}
+                        {isPrevious ? <PreviousRootBadge /> : null}
+                      </div>
                       <div className="browse-folder__item-meta">
                         {rootTypeLabel(root.rootType)}
                         {root.migrationRootForbidden ? " · Browse only" : ""}
@@ -1583,7 +1751,8 @@ function BrowseCloudFolderPage() {
                     </div>
                     <ChevronRight size={20} className="browse-folder__item-arrow" />
                   </button>
-                ))
+                  );
+                })
               )}
             </div>
           ) : (
@@ -1692,6 +1861,9 @@ function BrowseCloudFolderPage() {
                       folder.ServiceID
                     );
                     const filterReason = rootInclude.filterReason(folder.ServiceID);
+                    const isPrevious =
+                      reauthRoot &&
+                      matchesPreviousRoot(folder.ServiceID, previousRootIds);
                     return (
                       <div
                         key={folder.ServiceID}
@@ -1707,6 +1879,8 @@ function BrowseCloudFolderPage() {
                           filterReason && !included
                             ? " browse-folder__item--filter-excluded"
                             : ""
+                        }${
+                          isPrevious ? " browse-folder__item--previous-root" : ""
                         }`}
                         onClick={(event) => {
                           if (
@@ -1752,6 +1926,7 @@ function BrowseCloudFolderPage() {
                           type="folder"
                           showArrow
                           lastUpdated={folder.lastUpdated}
+                          badge={isPrevious ? <PreviousRootBadge /> : null}
                         />
                       </div>
                     );
@@ -1835,23 +2010,37 @@ function BrowseCloudFolderPage() {
           ) : null}
           <div className="browse-folder__footer-actions">
             {canSelect && connectionValid === true && (
-              <button
-                type="button"
-                className="action-button action-button--primary"
-                onClick={() => void handleSelectRoot()}
-                disabled={selectedRootForbidden || includeSubmitting}
-                title={selectedRootForbidden ? forbiddenRootReason : undefined}
-              >
-                {selectedRootForbidden
-                  ? "Select a folder inside"
-                  : includeSubmitting
-                    ? "Saving…"
-                    : role === "source"
-                      ? "Confirm"
-                      : destRootReviewMode
-                        ? "Confirm destination"
-                        : "Select"}
-              </button>
+              <>
+                {anchor && !reauthRoot ? (
+                  <button
+                    type="button"
+                    className="action-button"
+                    onClick={clearAnchor}
+                    disabled={includeSubmitting || loading}
+                  >
+                    Change root
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className={`action-button action-button--primary${
+                    reauthRoot ? " browse-folder__confirm--reauth" : ""
+                  }`}
+                  onClick={() => void handleSelectRoot()}
+                  disabled={selectedRootForbidden || includeSubmitting || loading}
+                  title={selectedRootForbidden ? forbiddenRootReason : undefined}
+                >
+                  {selectedRootForbidden
+                    ? "Select a folder inside"
+                    : includeSubmitting
+                      ? "Saving…"
+                      : reauthRoot
+                        ? "Confirm root"
+                        : anchor
+                          ? "Done"
+                          : "Set as root"}
+                </button>
+              </>
             )}
           </div>
         </div>

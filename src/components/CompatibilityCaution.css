@@ -15,7 +15,7 @@
 }
 
 .compatibility-caution--info {
-  color: #7dd3fc;
+  color: var(--accent);
 }
 
 .compatibility-caution--action {

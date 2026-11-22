@@ -12,6 +12,7 @@ import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 
 import { usePreferences } from "../contexts/PreferencesContext";
+import { resolveTipContent } from "../tips";
 import {
   claimInteractionHint,
   releaseInteractionHint,
@@ -19,9 +20,10 @@ import {
 import "./InteractionHint.css";
 
 export type InteractionHintProps = {
-  /** Stable id; also the tips.categories key when dismissed. */
+  /** Stable registry tipId (a11y + claim key). */
   tipId: string;
-  content: ReactNode;
+  /** Optional override; registry content is used when omitted. */
+  content?: ReactNode;
   position?: "above" | "right" | "left" | "below";
   /** When false, never claim or show (e.g. locked / wrong status). */
   eligible?: boolean;
@@ -120,7 +122,7 @@ function bubbleStyleFor(
  */
 export default function InteractionHint({
   tipId,
-  content,
+  content: contentProp,
   position = "right",
   eligible = true,
   children,
@@ -134,9 +136,11 @@ export default function InteractionHint({
   const [claimed, setClaimed] = useState(false);
   const [style, setStyle] = useState<CSSProperties>({});
 
+  const content = resolveTipContent(tipId, contentProp);
+
   const tipsEnabled = preferences.tips?.enabled !== false;
   const tipOpen = preferences.tips?.categories?.[tipId] !== false;
-  const canCompete = tipsEnabled && tipOpen && eligible && inView;
+  const canCompete = tipsEnabled && tipOpen && eligible && inView && !!content;
   const active = canCompete && claimed;
 
   useEffect(() => {

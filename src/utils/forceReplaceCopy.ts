@@ -20,27 +20,33 @@ function srcCopyStatus(item: DiffItem): string {
   return item.src?.copyStatus || item.copyStatus || "";
 }
 
-/** Prefer-source enroll: already_existed on SRC. */
+/** Paired SRC+DST file (discovery match or cascade map). */
+export function isExistsOnBothFile(item: DiffItem): boolean {
+  if (item.type !== "file") return false;
+  return !!item.src?.id && !!item.dst?.id;
+}
+
+/**
+ * Replace with source: exists-on-both file currently keeping destination
+ * (already_existed).
+ */
 export function canForceReplaceCopy(
   item: DiffItem,
   reviewAllows: boolean
 ): boolean {
-  if (!reviewAllows || !item.src?.id) return false;
+  if (!reviewAllows || !isExistsOnBothFile(item)) return false;
   return srcCopyStatus(item) === "already_existed";
 }
 
 /**
- * Undo prefer-source: forced pending file, or folder container (cascades undo
- * to forced descendants under the path).
+ * Keep destination: exists-on-both file currently preferring source (pending),
+ * including force-replace and mtime keep-src picks.
  */
 export function canUnforceReplaceCopy(
   item: DiffItem,
   reviewAllows: boolean
 ): boolean {
-  if (!reviewAllows || !item.src?.id) return false;
+  if (!reviewAllows || !isExistsOnBothFile(item)) return false;
   const cs = srcCopyStatus(item);
-  if (item.src.copyForceReplaceMarked && (cs === "pending" || cs === "")) {
-    return true;
-  }
-  return item.type === "folder" && cs === "already_existed";
+  return cs === "pending" || cs === "";
 }

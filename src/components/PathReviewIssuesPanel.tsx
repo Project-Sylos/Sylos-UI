@@ -27,11 +27,15 @@ export type PathReviewListJumpTarget = {
   underPathLabel?: string;
   /** Prefill name contains-search (switches list search to name mode). */
   nameQuery?: string;
+  /** Dual-list search side when jumping from a tree pane. */
+  side?: "src" | "dst" | "both";
 };
 
 type PathReviewIssuesPanelProps = {
   failedCount: number;
   pathIssues: PathIssue[];
+  /** Manual rename + naming warnings (copy-plan only). */
+  showNamingIssues?: boolean;
   onClose: () => void;
   onJump: (target: PathReviewListJumpTarget) => void;
 };
@@ -82,16 +86,20 @@ function HelpContent({
 export default function PathReviewIssuesPanel({
   failedCount,
   pathIssues,
+  showNamingIssues = true,
   onClose,
   onJump,
 }: PathReviewIssuesPanelProps) {
   const { manualCount, categoryDetails } = useMemo(
-    () => summarizePathIssues(pathIssues),
-    [pathIssues]
+    () =>
+      showNamingIssues
+        ? summarizePathIssues(pathIssues)
+        : { manualCount: 0, suggestionCount: 0, categoryCounts: {}, categoryDetails: [] },
+    [pathIssues, showNamingIssues]
   );
 
   const attentionTotal = failedCount + manualCount;
-  const hasReference = categoryDetails.length > 0;
+  const hasReference = showNamingIssues && categoryDetails.length > 0;
 
   return (
     <aside className="path-review-issues-panel" aria-label="Issues overview">
@@ -128,8 +136,6 @@ export default function PathReviewIssuesPanel({
             label="Failed"
             count={failedCount}
             tipId="path-review-issues-failed"
-            tipCategory="path-review-issues-failed"
-            tipContent={<p>{PATH_REVIEW_COPY.issuesHelpFailed}</p>}
             onJump={
               failedCount > 0
                 ? () => onJump({ statusFilter: "failed" })
@@ -137,24 +143,26 @@ export default function PathReviewIssuesPanel({
             }
           />
 
-          <IssueRow
-            icon={<Pencil size={14} aria-hidden />}
-            tone="manual"
-            label={PATH_REVIEW_COPY.compatibilityFilterManual}
-            count={manualCount}
-            tipId="path-review-issues-manual"
-            tipCategory="path-review-issues-manual"
-            tipContent={<p>{PATH_REVIEW_COPY.manualReviewTip}</p>}
-            onJump={
-              manualCount > 0
-                ? () => onJump({ pathIssueStatus: "manual" })
-                : undefined
-            }
-          />
+          {showNamingIssues ? (
+            <IssueRow
+              icon={<Pencil size={14} aria-hidden />}
+              tone="manual"
+              label={PATH_REVIEW_COPY.compatibilityFilterManual}
+              count={manualCount}
+              tipId="path-review-issues-manual"
+              onJump={
+                manualCount > 0
+                  ? () => onJump({ pathIssueStatus: "manual" })
+                  : undefined
+              }
+            />
+          ) : null}
 
           {attentionTotal === 0 ? (
             <p className="path-review-issues-panel__empty-note">
-              {PATH_REVIEW_COPY.issuesPanelNoneAttentionDetail}
+              {showNamingIssues
+                ? PATH_REVIEW_COPY.issuesPanelNoneAttentionDetail
+                : PATH_REVIEW_COPY.issuesPanelNoneAttentionDetailDiscover}
             </p>
           ) : null}
         </section>
@@ -168,9 +176,7 @@ export default function PathReviewIssuesPanel({
               <span className="path-review-issues-panel__tip">
                 <HelpTooltip
                   tipId="path-review-issues-naming-warnings"
-                  category="path-review-issues-naming-warnings"
                   position="left"
-                  content={<p>{PATH_REVIEW_COPY.issuesHelpReference}</p>}
                 />
               </span>
             </div>
@@ -241,7 +247,7 @@ function IssueRow({
             <span className="path-review-issues-panel__row-icon">{icon}</span>
           ) : null}
           <span className="path-review-issues-panel__row-label">{label}</span>
-          {tipId && tipCategory && tipContent ? (
+          {tipId ? (
             <span className="path-review-issues-panel__tip">
               <HelpTooltip
                 tipId={tipId}

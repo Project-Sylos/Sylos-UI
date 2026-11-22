@@ -2,10 +2,7 @@ import type { ReactElement } from "react";
 import { Clock, X, Check, AlertCircle, RotateCw, Trash2, Ban } from "lucide-react";
 import { DiffItem } from "../api/services";
 import InteractionHint from "./InteractionHint";
-import {
-  STATUS_HINT,
-  STATUS_HINT_COPY,
-} from "./pathReviewStatusHints";
+import { STATUS_HINT } from "./pathReviewStatusHints";
 import {
   excludedByRuleText,
   isRuleExcluded,
@@ -17,6 +14,7 @@ import {
 } from "../utils/pathReviewTraversalStatus";
 import { isCopyComplete } from "../utils/copyStatus";
 import { PATH_REVIEW_COPY } from "../utils/pathReviewCopy";
+import type { MutationOpState } from "../utils/pathReviewMutationGuard";
 
 export interface PathReviewStatusIconProps {
   item: DiffItem;
@@ -29,22 +27,10 @@ export interface PathReviewStatusIconProps {
   onRetryClick?: (item: DiffItem) => void;
   onExcludeClick?: (item: DiffItem, currentChecked: boolean) => void;
   onSkipDeleteClick?: (item: DiffItem) => void;
-  /** When set, replace the status glyph with a spinner until the backend op finishes. */
+  /** Optimistic glyph stays; overlay spinner then green check while this is set. */
+  opState?: MutationOpState;
+  /** @deprecated Prefer opState; treated as pending when set. */
   opInProgressTitle?: string;
-}
-
-function maybeHint(
-  tipId: string,
-  content: string,
-  canToggle: boolean,
-  icon: ReactElement
-): ReactElement {
-  if (!canToggle) return icon;
-  return (
-    <InteractionHint tipId={tipId} content={content} position="right">
-      {icon}
-    </InteractionHint>
-  );
 }
 
 function interactiveClass(baseClass: string, canToggle: boolean): string {
@@ -62,21 +48,15 @@ export default function PathReviewStatusIcon({
   onRetryClick,
   onExcludeClick,
   onSkipDeleteClick,
+  opState,
   opInProgressTitle,
 }: PathReviewStatusIconProps) {
   const iconSize = size || 20 * zoomLevel;
-  if (opInProgressTitle) {
-    const spinner = Math.max(10, Math.round(iconSize * 0.72));
-    return (
-      <span
-        className={`path-review-op-spinner ${className}`.trim()}
-        style={{ width: spinner, height: spinner }}
-        title={opInProgressTitle}
-        aria-label={opInProgressTitle}
-        role="status"
-      />
-    );
-  }
+  const resolvedOp: MutationOpState | undefined =
+    opState ??
+    (opInProgressTitle
+      ? { title: opInProgressTitle, phase: "pending" }
+      : undefined);
   const isSourceCleanup = phase === "source-cleanup";
   const isDeleteReview = phase === "delete";
   const isCopyPlan = phase === "copy-plan";
@@ -89,9 +69,55 @@ export default function PathReviewStatusIcon({
 
   const baseClass = className || "path-review__item-status-icon";
 
+  const wrapWithOpOverlay = (glyph: ReactElement): ReactElement => {
+    if (!resolvedOp) return glyph;
+    const overlay =
+      resolvedOp.phase === "confirmed" ? (
+        <span
+          className="path-review-op-confirm"
+          title={resolvedOp.title}
+          aria-label="Update confirmed"
+          role="status"
+        >
+          ✓
+        </span>
+      ) : (
+        <span
+          className="path-review-op-spinner path-review-op-spinner--overlay"
+          title={resolvedOp.title}
+          aria-label={resolvedOp.title}
+          role="status"
+        />
+      );
+    return (
+      <span className="path-review-op-wrap">
+        {glyph}
+        {overlay}
+      </span>
+    );
+  };
+
+  const maybeHint = (
+    tipId: string,
+    canToggle: boolean,
+    icon: ReactElement
+  ): ReactElement => {
+    const hinted = !canToggle ? (
+      icon
+    ) : (
+      <InteractionHint tipId={tipId} position="right">
+        {icon}
+      </InteractionHint>
+    );
+    return wrapWithOpOverlay(hinted);
+  };
+
+  const staticIcon = (icon: ReactElement): ReactElement =>
+    wrapWithOpOverlay(icon);
+
   if (isSourceCleanup) {
     if (existsOnlyOnDst && !item.src) {
-      return (
+      return staticIcon(
         <Check
           size={iconSize}
           className={`${baseClass} ${baseClass}--exists-only-dst`}
@@ -107,7 +133,6 @@ export default function PathReviewStatusIcon({
       const canToggle = true;
       return maybeHint(
         STATUS_HINT.include,
-        STATUS_HINT_COPY.include,
         canToggle,
         <X
           size={iconSize}
@@ -119,7 +144,7 @@ export default function PathReviewStatusIcon({
       );
     }
     if (deleteStatus === "pending_inherited") {
-      return (
+      return staticIcon(
         <Trash2
           size={iconSize}
           className={`${baseClass} ${baseClass}--pending`}
@@ -130,8 +155,7 @@ export default function PathReviewStatusIcon({
     }
     const canToggle = true;
     return maybeHint(
-      STATUS_HINT.exclude,
-      STATUS_HINT_COPY.exclude,
+        STATUS_HINT.exclude,
       canToggle,
       <Trash2
         size={iconSize}
@@ -151,7 +175,7 @@ export default function PathReviewStatusIcon({
           item.dst?.traversalStatus === "not_on_src")) ||
       (existsOnlyOnDst && !item.src)
     ) {
-      return (
+      return staticIcon(
         <Check
           size={iconSize}
           className={`${baseClass} ${baseClass}--exists-only-dst`}
@@ -164,7 +188,7 @@ export default function PathReviewStatusIcon({
     }
     const deleteStatus = item.src?.deleteStatus || "";
     if (deleteStatus === "deleted") {
-      return (
+      return staticIcon(
         <Check
           size={iconSize}
           className={`${baseClass} ${baseClass}--deleted`}
@@ -176,7 +200,6 @@ export default function PathReviewStatusIcon({
       const canToggle = true;
       return maybeHint(
         STATUS_HINT.markRetry,
-        STATUS_HINT_COPY.markRetry,
         canToggle,
         <AlertCircle
           size={iconSize}
@@ -191,7 +214,6 @@ export default function PathReviewStatusIcon({
       const canToggle = true;
       return maybeHint(
         STATUS_HINT.undoRetry,
-        STATUS_HINT_COPY.undoRetry,
         canToggle,
         <RotateCw
           size={iconSize}
@@ -217,7 +239,6 @@ export default function PathReviewStatusIcon({
       const canToggle = !isLocked && !ruleExcluded;
       return maybeHint(
         STATUS_HINT.include,
-        STATUS_HINT_COPY.include,
         canToggle,
         <X
           size={iconSize}
@@ -236,7 +257,7 @@ export default function PathReviewStatusIcon({
       );
     }
     if (existsOnlyOnDst) {
-      return (
+      return staticIcon(
         <Check
           size={iconSize}
           className={`${baseClass} ${baseClass}--exists-only-dst`}
@@ -245,7 +266,7 @@ export default function PathReviewStatusIcon({
       );
     }
     if (isCopyComplete(copyStatus)) {
-      return (
+      return staticIcon(
         <Check
           size={iconSize}
           className={`${baseClass} ${baseClass}--exists ${baseClass}--exists-on-both`}
@@ -257,7 +278,6 @@ export default function PathReviewStatusIcon({
       const canToggle = !isLocked;
       return maybeHint(
         STATUS_HINT.exclude,
-        STATUS_HINT_COPY.exclude,
         canToggle,
         <Clock
           size={iconSize}
@@ -276,7 +296,6 @@ export default function PathReviewStatusIcon({
       const canToggle = true;
       return maybeHint(
         STATUS_HINT.markRetry,
-        STATUS_HINT_COPY.markRetry,
         canToggle,
         <AlertCircle
           size={iconSize}
@@ -290,16 +309,29 @@ export default function PathReviewStatusIcon({
 
     if (copyStatus === "pending") {
       const canToggle = true;
-      return maybeHint(
+      const retryMarked = item.src?.copyRetryMarked === true;
+      if (retryMarked) {
+        return maybeHint(
         STATUS_HINT.undoRetry,
-        STATUS_HINT_COPY.undoRetry,
+          canToggle,
+          <RotateCw
+            size={iconSize}
+            className={`${baseClass} ${baseClass}--retry${interactiveClass(baseClass, canToggle)}`}
+            onClick={() => onRetryClick?.(item)}
+            style={{ cursor: "pointer" }}
+            title="Marked for copy retry. Click to undo."
+          />
+        );
+      }
+      return maybeHint(
+        STATUS_HINT.exclude,
         canToggle,
-        <RotateCw
+        <Clock
           size={iconSize}
-          className={`${baseClass} ${baseClass}--retry${interactiveClass(baseClass, canToggle)}`}
+          className={`${baseClass} ${baseClass}--pending${interactiveClass(baseClass, canToggle)}`}
           onClick={() => onRetryClick?.(item)}
           style={{ cursor: "pointer" }}
-          title="Marked for copy retry. Click to undo."
+          title="Pending copy. Click to exclude."
         />
       );
     }
@@ -314,7 +346,6 @@ export default function PathReviewStatusIcon({
       const canToggle = !isLocked && !ruleExcluded;
       return maybeHint(
         STATUS_HINT.include,
-        STATUS_HINT_COPY.include,
         canToggle,
         <X
           size={iconSize}
@@ -329,7 +360,7 @@ export default function PathReviewStatusIcon({
     }
 
     if (existsOnlyOnDst) {
-      return (
+      return staticIcon(
         <Check
           size={iconSize}
           className={`${baseClass} ${baseClass}--exists-only-dst`}
@@ -339,7 +370,7 @@ export default function PathReviewStatusIcon({
     }
 
     if (isCopyComplete(copyStatus)) {
-      return (
+      return staticIcon(
         <Check
           size={iconSize}
           className={`${baseClass} ${baseClass}--exists ${baseClass}--exists-on-both`}
@@ -358,8 +389,7 @@ export default function PathReviewStatusIcon({
   if (skippedDiscovery) {
     const canToggle = true;
     return maybeHint(
-      STATUS_HINT.markRetry,
-      STATUS_HINT_COPY.markRetry,
+        STATUS_HINT.markRetry,
       canToggle,
       <Ban
         size={iconSize}
@@ -374,8 +404,7 @@ export default function PathReviewStatusIcon({
   if (hasFailedStatus) {
     const canToggle = true;
     return maybeHint(
-      STATUS_HINT.markRetry,
-      STATUS_HINT_COPY.markRetry,
+        STATUS_HINT.markRetry,
       canToggle,
       <AlertCircle
         size={iconSize}
@@ -390,8 +419,7 @@ export default function PathReviewStatusIcon({
   if (hasPendingRetry) {
     const canToggle = true;
     return maybeHint(
-      STATUS_HINT.undoRetry,
-      STATUS_HINT_COPY.undoRetry,
+        STATUS_HINT.undoRetry,
       canToggle,
       <RotateCw
         size={iconSize}
@@ -409,24 +437,24 @@ export default function PathReviewStatusIcon({
     srcTraversalStatus === "not_on_src" ||
     dstTraversalStatus === "not_on_src"
   ) {
-    return (
-      <Check
+    return staticIcon(
+        <Check
         size={iconSize}
         className={`${baseClass} ${baseClass}--exists-only-dst`}
         style={{ cursor: "default" }}
       />
-    );
+      );
   }
 
   if (item.src || item.dst) {
-    return (
-      <Check
+    return staticIcon(
+        <Check
         size={iconSize}
         className={`${baseClass} ${baseClass}--exists`}
         style={{ cursor: "default" }}
         title="Discovered successfully"
       />
-    );
+      );
   }
 
   return null;

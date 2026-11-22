@@ -4,6 +4,10 @@ import { useLocation, useNavigate } from "react-router";
 import SylosLogo from "../components/SylosLogo";
 import { recoverPassword } from "../api/auth";
 import { useAuth } from "../contexts/AuthContext";
+import {
+  fetchLiveMigrations,
+  postLoginPathForLiveMigrations,
+} from "../utils/liveMigrations";
 import "../App.css";
 
 export default function Login() {
@@ -31,7 +35,18 @@ export default function Login() {
     setRecoverySuccess(null);
     try {
       await login(username.trim(), password, remember);
-      navigate(from ? `/${from}` : "/", { replace: true });
+      if (from) {
+        navigate(`/${from}`, { replace: true });
+        return;
+      }
+      // Reattach to in-process migrations after a fresh browser session.
+      let dest = "/";
+      try {
+        dest = postLoginPathForLiveMigrations(await fetchLiveMigrations());
+      } catch {
+        // List failed: land on home; Progress Monitor still rehydrates from API.
+      }
+      navigate(dest, { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed.");
     } finally {

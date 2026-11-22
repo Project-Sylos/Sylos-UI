@@ -1229,6 +1229,25 @@
   line-height: 1.4;
 }
 
+.browse-folder__include-hint--reauth {
+  max-width: 36rem;
+  padding: 0.65rem 0.9rem;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--brand-cyan, #3db8c5) 35%, transparent);
+  background: color-mix(in srgb, var(--brand-cyan, #3db8c5) 8%, transparent);
+  color: var(--text-primary);
+}
+
+.browse-folder__confirm--reauth {
+  background: color-mix(in srgb, var(--brand-cyan, #3db8c5) 88%, #0a3a40);
+  border-color: color-mix(in srgb, var(--brand-cyan, #3db8c5) 88%, #0a3a40);
+}
+
+.browse-folder__confirm--reauth:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--brand-cyan, #3db8c5) 78%, #062428);
+  border-color: color-mix(in srgb, var(--brand-cyan, #3db8c5) 78%, #062428);
+}
+
 .browse-folder__presence {
   flex-shrink: 0;
   margin-left: auto;
@@ -1405,3 +1424,9 @@
   gap: 0.4rem;
 }
 
+
+.browse-folder__list-container--pending {
+  opacity: 0.55;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}

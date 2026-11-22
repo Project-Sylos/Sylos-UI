@@ -10,6 +10,8 @@ type PathReviewIssuesButtonProps = {
   issueCount: number;
   /** Auto-fixable naming warning count (informational). */
   warningCount: number;
+  /** Naming warnings are copy-plan only; hide the Warnings segment elsewhere. */
+  showWarnings?: boolean;
   active?: boolean;
   onClick: () => void;
 };
@@ -18,14 +20,15 @@ type PathReviewIssuesButtonProps = {
 export default function PathReviewIssuesButton({
   issueCount,
   warningCount,
+  showWarnings = true,
   active = false,
   onClick,
 }: PathReviewIssuesButtonProps) {
   const hasAttention = issueCount > 0;
-  const label = PATH_REVIEW_COPY.issuesButtonLabelWithCounts(
-    issueCount,
-    warningCount
-  );
+  const warningsVisible = showWarnings;
+  const label = warningsVisible
+    ? PATH_REVIEW_COPY.issuesButtonLabelWithCounts(issueCount, warningCount)
+    : PATH_REVIEW_COPY.issuesButtonLabelIssuesOnly(issueCount);
 
   return (
     <button
@@ -33,12 +36,16 @@ export default function PathReviewIssuesButton({
       className={`path-review-issues-button${
         active ? " path-review-issues-button--active" : ""
       }${hasAttention ? " path-review-issues-button--attention" : ""}${
-        !hasAttention && warningCount > 0
+        !hasAttention && warningsVisible && warningCount > 0
           ? " path-review-issues-button--warnings"
           : ""
       }`}
       onClick={onClick}
-      title={PATH_REVIEW_COPY.issuesButtonTip}
+      title={
+        warningsVisible
+          ? PATH_REVIEW_COPY.issuesButtonTip
+          : PATH_REVIEW_COPY.issuesButtonTipDiscover
+      }
       aria-label={label}
       aria-pressed={active}
     >
@@ -47,12 +54,16 @@ export default function PathReviewIssuesButton({
         <span className="path-review-issues-button__stat">
           Issues {issueCount > 99 ? "99+" : issueCount}
         </span>
-        <span className="path-review-issues-button__sep" aria-hidden>
-          ·
-        </span>
-        <span className="path-review-issues-button__stat">
-          Warnings {warningCount > 99 ? "99+" : warningCount}
-        </span>
+        {warningsVisible ? (
+          <>
+            <span className="path-review-issues-button__sep" aria-hidden>
+              ·
+            </span>
+            <span className="path-review-issues-button__stat">
+              Warnings {warningCount > 99 ? "99+" : warningCount}
+            </span>
+          </>
+        ) : null}
       </span>
     </button>
   );

@@ -20,6 +20,9 @@ export interface ListSearchPredicateInput {
   hasAdvancedRules?: boolean;
 }
 
+/** Above this SRC item count, empty (unfiltered) list search shows a duration warning. */
+export const LIST_SEARCH_EMPTY_WARN_ITEMS = 1_000_000;
+
 /** True when the request would include at least one search condition. */
 export function hasListSearchPredicate(input: ListSearchPredicateInput): boolean {
   if (input.hasAdvancedRules) {
@@ -63,6 +66,20 @@ export function hasListSearchPredicate(input: ListSearchPredicateInput): boolean
     return true;
   }
   return false;
+}
+
+/**
+ * True when an empty/unfiltered list search should warn that it may be slow.
+ * Filtered searches never warn, regardless of migration size.
+ */
+export function shouldWarnEmptyListSearch(
+  input: ListSearchPredicateInput,
+  sourceItemCount: number
+): boolean {
+  return (
+    !hasListSearchPredicate(input) &&
+    sourceItemCount > LIST_SEARCH_EMPTY_WARN_ITEMS
+  );
 }
 
 function nonEmpty(value: string | null | undefined): boolean {

@@ -12,6 +12,8 @@ type DestinationRenameHintProps = {
   item: DiffItem;
   /** Review phase — drives label and whether the hint is shown. */
   phase?: PathReviewDisplayPhase;
+  /** Sibling rows in the current folder (detect soft proposal collisions). */
+  folderPeers?: DiffItem[];
 };
 
 /**
@@ -22,9 +24,10 @@ type DestinationRenameHintProps = {
 export default function DestinationRenameHint({
   item,
   phase = "traversal",
+  folderPeers = [],
 }: DestinationRenameHintProps) {
   if (phase === "delete" || phase === "source-cleanup") return null;
-  if (!hasDestinationRename(item)) return null;
+  if (!hasDestinationRename(item, folderPeers)) return null;
 
   const dest = destinationDisplayName(item);
   if (!dest || dest === item.name) return null;

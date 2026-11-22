@@ -45,7 +45,15 @@ export async function readErrorMessage(response: Response): Promise<string> {
     return response.statusText || "Unknown error";
   }
   try {
-    const parsed = JSON.parse(text) as { message?: string; error?: string };
+    const parsed = JSON.parse(text) as {
+      message?: string;
+      error?: string;
+      details?: string;
+    };
+    // Prefer details when present (e.g. OAuth provider body behind a generic error).
+    if (parsed.details?.trim()) {
+      return parsed.details.trim();
+    }
     return parsed.message || parsed.error || text;
   } catch {
     return text;

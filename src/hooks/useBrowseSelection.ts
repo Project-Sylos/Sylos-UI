@@ -1,5 +1,11 @@
 import { useCallback, useRef, useState } from "react";
 
+/** Delay plain folder select so a double-click can navigate first (root browse). */
+export const FOLDER_SELECT_BOUNCE_MS = 150;
+
+/** Path Review dual/merged tree: delay plain folder select so dblclick can navigate. */
+export const PATH_REVIEW_FOLDER_SELECT_BOUNCE_MS = 250;
+
 export type BrowseSelectableItem = {
   id: string;
   type: "file" | "folder";
@@ -12,8 +18,49 @@ export type BrowseSelectModifiers = {
   metaKey: boolean;
 };
 
+export type FolderSelectBounceTimer = { current: number | null };
+
 export function isMultiSelectModifier(modifiers: BrowseSelectModifiers): boolean {
   return modifiers.ctrlKey || modifiers.metaKey;
+}
+
+export function clearFolderSelectBounce(timerRef: FolderSelectBounceTimer): void {
+  if (timerRef.current != null) {
+    globalThis.clearTimeout(timerRef.current);
+    timerRef.current = null;
+  }
+}
+
+/**
+ * Run select immediately, or after bounceMs for a plain folder click so a
+ * double-click can navigate first (second click cancels the timer).
+ * Default delay is root-browse FOLDER_SELECT_BOUNCE_MS.
+ */
+export function runWithFolderSelectBounce(
+  timerRef: FolderSelectBounceTimer,
+  itemType: "file" | "folder",
+  event: BrowseSelectModifiers & { detail: number },
+  runSelect: () => void,
+  bounceMs: number = FOLDER_SELECT_BOUNCE_MS
+): void {
+  const isPlainFolderClick =
+    itemType === "folder" &&
+    !event.shiftKey &&
+    !isMultiSelectModifier(event);
+  if (isPlainFolderClick && event.detail > 1) {
+    clearFolderSelectBounce(timerRef);
+    return;
+  }
+  if (isPlainFolderClick) {
+    clearFolderSelectBounce(timerRef);
+    timerRef.current = globalThis.setTimeout(() => {
+      timerRef.current = null;
+      runSelect();
+    }, bounceMs) as unknown as number;
+    return;
+  }
+  clearFolderSelectBounce(timerRef);
+  runSelect();
 }
 
 function nextSelection(
@@ -51,8 +98,8 @@ function nextSelection(
   }
 
   // Plain click: exclusive select, or deselect when this is already the only
-  // selection. Ctrl/Cmd still toggles; Shift still ranges. Path Review delays
-  // plain folder clicks so a double-click can navigate before this runs.
+  // selection. Ctrl/Cmd still toggles; Shift still ranges. Callers delay plain
+  // folder clicks (FOLDER_SELECT_BOUNCE_MS) so a double-click can navigate.
   if (prev.has(item.id)) {
     if (prev.size === 1) {
       return new Map();

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type { Folder } from "../types/services";
 import {
@@ -45,65 +45,66 @@ export function useDestDualList({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fetchGen = useRef(0);
+  const relativeKey = relativeSegments.join("\0");
 
-  const resolveAndFetch = useCallback(async () => {
+  useEffect(() => {
     if (!enabled || !listSourceChildren || !sourceRootId || !destFolderId) {
       setSourceItems([]);
       setSourceParentId(null);
       setError(null);
+      setLoading(false);
       return;
     }
 
     const gen = ++fetchGen.current;
+    const segments = relativeKey ? relativeKey.split("\0") : [];
     setLoading(true);
     setError(null);
 
-    try {
-      let parentId = sourceRootId;
-      for (const segment of relativeSegments) {
-        const page = await listSourceChildren(parentId, { foldersOnly: true });
-        if (gen !== fetchGen.current) return;
-        const kids = [...(page.folders || []), ...(page.files || [])];
-        const match = kids.find(
-          (k) =>
-            (k.name || "").toLowerCase() === segment.toLowerCase() &&
-            k.type !== "file"
-        );
-        if (!match) {
-          setSourceItems([]);
-          setSourceParentId(null);
-          setError(null);
-          setLoading(false);
-          return;
+    void (async () => {
+      try {
+        let parentId = sourceRootId;
+        for (const segment of segments) {
+          const page = await listSourceChildren(parentId, { foldersOnly: true });
+          if (gen !== fetchGen.current) return;
+          const kids = [...(page.folders || []), ...(page.files || [])];
+          const match = kids.find(
+            (k) =>
+              (k.name || "").toLowerCase() === segment.toLowerCase() &&
+              k.type !== "file"
+          );
+          if (!match) {
+            setSourceItems([]);
+            setSourceParentId(null);
+            setError(null);
+            setLoading(false);
+            return;
+          }
+          parentId = match.ServiceID || match.Id;
         }
-        parentId = match.ServiceID || match.Id;
-      }
 
-      const listing = await listSourceChildren(parentId);
-      if (gen !== fetchGen.current) return;
-      setSourceParentId(parentId);
-      setSourceItems([...(listing.folders || []), ...(listing.files || [])]);
-    } catch (err) {
-      if (gen !== fetchGen.current) return;
-      setSourceItems([]);
-      setSourceParentId(null);
-      setError(
-        err instanceof Error ? err.message : "Failed to list source counterpart."
-      );
-    } finally {
-      if (gen === fetchGen.current) setLoading(false);
-    }
+        const listing = await listSourceChildren(parentId);
+        if (gen !== fetchGen.current) return;
+        setSourceParentId(parentId);
+        setSourceItems([...(listing.folders || []), ...(listing.files || [])]);
+      } catch (err) {
+        if (gen !== fetchGen.current) return;
+        setSourceItems([]);
+        setSourceParentId(null);
+        setError(
+          err instanceof Error ? err.message : "Failed to list source counterpart."
+        );
+      } finally {
+        if (gen === fetchGen.current) setLoading(false);
+      }
+    })();
   }, [
     enabled,
     listSourceChildren,
     sourceRootId,
     destFolderId,
-    relativeSegments,
+    relativeKey,
   ]);
-
-  useEffect(() => {
-    void resolveAndFetch();
-  }, [resolveAndFetch, destFolders, destFiles]);
 
   const rows =
     enabled && destFolderId

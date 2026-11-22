@@ -1,27 +1,13 @@
-import { useState } from "react";
-import { DUCKDB_MEMORY_PRESETS } from "../api/performance";
 import "./ConfirmDialog.css";
 import "./FinalizeRetryDialog.css";
 
-export const RECOMMENDED_FINALIZE_MEMORY_GB = 2;
-export const RECOMMENDED_FINALIZE_THREADS = 1;
-export const MAX_FINALIZE_THREADS = 4;
-
-/** Memory presets for index-build retry (includes recommended 2GB; no Auto). */
-export const FINALIZE_MEMORY_PRESETS = [
-  ...new Set([RECOMMENDED_FINALIZE_MEMORY_GB, ...DUCKDB_MEMORY_PRESETS.filter((g) => g > 0)]),
-].sort((a, b) => a - b);
-
-export type FinalizeRetryOverrides = {
-  memoryLimitGB: number;
-  threads: number;
-};
+export type FinalizeRetryMode = "resume" | "refold";
 
 type FinalizeRetryDialogProps = {
   errorMessage?: string | null;
   busy?: boolean;
   onCancel: () => void;
-  onConfirm: (overrides: FinalizeRetryOverrides) => void;
+  onConfirm: (mode: FinalizeRetryMode) => void;
 };
 
 export default function FinalizeRetryDialog({
@@ -30,9 +16,6 @@ export default function FinalizeRetryDialog({
   onCancel,
   onConfirm,
 }: FinalizeRetryDialogProps) {
-  const [memoryLimitGB, setMemoryLimitGB] = useState(RECOMMENDED_FINALIZE_MEMORY_GB);
-  const [threads, setThreads] = useState(RECOMMENDED_FINALIZE_THREADS);
-
   return (
     <div className="confirm-dialog__overlay" onClick={busy ? undefined : onCancel}>
       <div
@@ -45,49 +28,16 @@ export default function FinalizeRetryDialog({
           Retry database finalize?
         </h2>
         <p className="confirm-dialog__message">
-          Queues finished, but saving indexes or checkpointing failed. This retries only
-          that step (not discovery, copy, or delete workers). Recommended for large trees:
-          memory {RECOMMENDED_FINALIZE_MEMORY_GB} GB, threads {RECOMMENDED_FINALIZE_THREADS}.
-          Raising threads above 1 can use much more RAM.
+          Queues finished, but sealing, folder-size totals, or checkpointing failed.
+          Resume continues from the last sealed depth. Recalculate rebuilds all folder
+          sizes from the discovered tree without re-running discovery.
         </p>
         {errorMessage ? (
           <p className="finalize-retry-dialog__error" role="status">
             {errorMessage}
           </p>
         ) : null}
-        <div className="finalize-retry-dialog__fields">
-          <label className="finalize-retry-dialog__label">
-            DuckDB memory for index build
-            <select
-              value={memoryLimitGB}
-              disabled={busy}
-              onChange={(e) => setMemoryLimitGB(Number(e.target.value))}
-            >
-              {FINALIZE_MEMORY_PRESETS.map((gb) => (
-                <option key={gb} value={gb}>
-                  {gb} GB
-                  {gb === RECOMMENDED_FINALIZE_MEMORY_GB ? " (recommended)" : ""}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="finalize-retry-dialog__label">
-            Threads for index build
-            <select
-              value={threads}
-              disabled={busy}
-              onChange={(e) => setThreads(Number(e.target.value))}
-            >
-              {Array.from({ length: MAX_FINALIZE_THREADS }, (_, i) => i + 1).map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                  {n === RECOMMENDED_FINALIZE_THREADS ? " (recommended)" : ""}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-        <div className="confirm-dialog__actions">
+        <div className="confirm-dialog__actions finalize-retry-dialog__actions">
           <button
             type="button"
             className="confirm-dialog__button confirm-dialog__button--cancel"
@@ -98,11 +48,19 @@ export default function FinalizeRetryDialog({
           </button>
           <button
             type="button"
+            className="confirm-dialog__button confirm-dialog__button--secondary"
+            disabled={busy}
+            onClick={() => onConfirm("refold")}
+          >
+            {busy ? "Starting…" : "Recalculate folder sizes"}
+          </button>
+          <button
+            type="button"
             className="confirm-dialog__button confirm-dialog__button--confirm"
             disabled={busy}
-            onClick={() => onConfirm({ memoryLimitGB, threads })}
+            onClick={() => onConfirm("resume")}
           >
-            {busy ? "Starting…" : "Retry finalize"}
+            {busy ? "Starting…" : "Resume finalize"}
           </button>
         </div>
       </div>

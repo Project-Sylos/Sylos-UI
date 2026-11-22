@@ -6,19 +6,14 @@ import { useBrowseDensity } from "../contexts/BrowseDensityContext";
 import { PaginationInfo } from "../types/services";
 import "../pages/PathReview.css";
 
+/** @deprecated Prefer tipId "browse-folder-selection" from the tips registry. */
 export const BROWSE_SELECTION_HELP = {
   tipId: "browse-folder-selection",
-  category: "browse-folder-selection",
-  content: (
-    <>
-      <p>Click to select; click again to deselect. Double-click a folder to open it.</p>
-      <p>Ctrl/Cmd+click or Shift+click to multi-select.</p>
-      <p>Hold Alt to select text in a row.</p>
-      <p>
-        Right-click to delete selected items, or the clicked item if none are selected.
-      </p>
-    </>
-  ),
+} as const;
+
+/** @deprecated Prefer tipId "path-review-selection" from the tips registry. */
+export const PATH_REVIEW_SELECTION_HELP = {
+  tipId: "path-review-selection",
 } as const;
 
 interface FileBrowserPaneProps {
@@ -28,10 +23,9 @@ interface FileBrowserPaneProps {
   onPageChange: (page: number) => void;
   onItemsPerPageChange: (itemsPerPage: number) => void;
   toolbarLeft?: ReactNode;
+  /** tipId for Selection help; category/content come from the tips registry. */
   helpTooltip?: {
     tipId: string;
-    category: string;
-    content: ReactNode;
   };
   listClassName?: string;
   children: ReactNode;
@@ -66,12 +60,7 @@ export default function FileBrowserPane({
               <div className="path-review__legend path-review__legend--compact path-review__legend--inline">
                 <div className="path-review__legend-item">
                   <span className="path-review__legend-label">Selection</span>
-                  <HelpTooltip
-                    tipId={helpTooltip.tipId}
-                    category={helpTooltip.category}
-                    content={helpTooltip.content}
-                    position="above"
-                  />
+                  <HelpTooltip tipId={helpTooltip.tipId} position="above" />
                 </div>
               </div>
             )}

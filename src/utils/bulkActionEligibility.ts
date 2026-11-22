@@ -4,8 +4,12 @@ import {
   canUnforceReplaceCopy,
 } from "./forceReplaceCopy";
 import { isDeletePendingExplicit } from "./pathReviewDeletePlan";
+import {
+  excludeActionSetsExcluded,
+  getPathReviewItemActions,
+} from "./pathReviewItemActions";
 import type { PathReviewItemStatus } from "./pathReviewItemStatus";
-import type { PathReviewUIPhase } from "./pathReviewPhase";
+import type { PathReviewDisplayPhase } from "./pathReviewPhase";
 import { isTraversalRetryPending } from "./pathReviewTraversalStatus";
 
 export type BulkActionKind =
@@ -35,12 +39,15 @@ export interface BulkActionPartition {
   invalid: BulkInvalidItem[];
 }
 
-/** Whether the item is currently marked to be retried, per review phase. */
-function isBulkMarkedForRetry(item: DiffItem, phase: PathReviewUIPhase): boolean {
-  if (phase === "delete") {
+/** Whether the item is currently marked to be retried, per review display phase. */
+function isBulkMarkedForRetry(
+  item: DiffItem,
+  displayPhase: PathReviewDisplayPhase
+): boolean {
+  if (displayPhase === "delete" || displayPhase === "source-cleanup") {
     return isDeletePendingExplicit(item.src?.deleteStatus || "");
   }
-  if (phase === "copy") {
+  if (displayPhase === "copy" || displayPhase === "copy-plan") {
     // Only retry-marked pending counts; a never-attempted pending item has
     // no failure to return to.
     return (
@@ -53,40 +60,65 @@ function isBulkMarkedForRetry(item: DiffItem, phase: PathReviewUIPhase): boolean
 
 /**
  * Why an item cannot have the action applied, or null when it can.
- * Mirrors the single-item rules used by the row context menus.
+ * Uses the same eligibility as getPathReviewItemActions.
  */
 export function bulkActionInvalidReason(
   action: BulkActionKind,
   item: DiffItem,
   status: PathReviewItemStatus,
-  phase: PathReviewUIPhase,
+  displayPhase: PathReviewDisplayPhase,
   forceReplaceAllowed = false
 ): string | null {
+  const acts = getPathReviewItemActions(item, status, displayPhase, {
+    forceReplaceAllowed,
+  });
   switch (action) {
-    case "exclude":
-      if (status.existsOnlyOnDst) return "Destination only";
-      if (status.existsOnBoth) return "Already on the destination";
-      if (status.isExcluded) return "Already excluded";
-      if (status.isTraversalSkipped) return "Skipped during discovery";
+    case "exclude": {
+      if (!acts.canExclude) {
+        return acts.excludeDisabledReason || "Cannot exclude";
+      }
+      if (!excludeActionSetsExcluded(item, displayPhase, status)) {
+        return "Already excluded";
+      }
       return null;
-    case "unexclude":
-      return status.isExcluded ? null : "Not excluded";
-    case "mark_retry":
-      if (status.existsOnlyOnDst) return "Destination only";
-      if (isBulkMarkedForRetry(item, phase)) return "Already marked for retry";
-      if (status.isFailed || status.isTraversalSkipped) return null;
-      if (status.existsOnBoth) return "Already on the destination";
-      return "Not in a failed state";
+    }
+    case "unexclude": {
+      if (!acts.canExclude) {
+        return acts.excludeDisabledReason || "Not excluded";
+      }
+      if (excludeActionSetsExcluded(item, displayPhase, status)) {
+        return "Not excluded";
+      }
+      return null;
+    }
+    case "mark_retry": {
+      if (isBulkMarkedForRetry(item, displayPhase)) {
+        return "Already marked for retry";
+      }
+      if (acts.canRetry && acts.retryLabel === "Mark for retry") {
+        return null;
+      }
+      // Copy cycle "mark" step
+      if (acts.copyStep === "mark") {
+        return null;
+      }
+      if (status.isFailed || status.isTraversalSkipped) {
+        return null;
+      }
+      return acts.retryDisabledReason || "Not in a failed state";
+    }
     case "mark_failed":
-      return isBulkMarkedForRetry(item, phase) ? null : "Not marked for retry";
+      return isBulkMarkedForRetry(item, displayPhase)
+        ? null
+        : "Not marked for retry";
     case "force_replace":
       return canForceReplaceCopy(item, forceReplaceAllowed)
         ? null
-        : "Not exists-on-both";
+        : "Only paired files that keep destination";
     case "unforce_replace":
       return canUnforceReplaceCopy(item, forceReplaceAllowed)
         ? null
-        : "Not marked to replace with source";
+        : "Only paired files that prefer source";
   }
 }
 
@@ -95,7 +127,7 @@ export function partitionBulkAction(
   items: DiffItem[],
   action: BulkActionKind,
   statusOf: (item: DiffItem) => PathReviewItemStatus,
-  phase: PathReviewUIPhase,
+  displayPhase: PathReviewDisplayPhase,
   forceReplaceAllowed = false
 ): BulkActionPartition {
   const valid: DiffItem[] = [];
@@ -105,7 +137,7 @@ export function partitionBulkAction(
       action,
       item,
       statusOf(item),
-      phase,
+      displayPhase,
       forceReplaceAllowed
     );
     if (reason === null) {

@@ -48,7 +48,15 @@ export function loadMigrationSetup(): PersistedMigrationSetup | null {
 }
 
 export function saveMigrationSetup(setup: PersistedMigrationSetup): void {
-  sessionStorage.setItem(MIGRATION_SETUP_KEY, JSON.stringify(setup));
+  const raw = JSON.stringify(setup);
+  try {
+    sessionStorage.setItem(MIGRATION_SETUP_KEY, raw);
+  } catch {
+    // A previous save of the full include tree can fill the origin quota.
+    // Drop that entry and write the small snapshot so history.pushState can run.
+    sessionStorage.removeItem(MIGRATION_SETUP_KEY);
+    sessionStorage.setItem(MIGRATION_SETUP_KEY, raw);
+  }
 }
 
 export function clearMigrationSetup(): void {

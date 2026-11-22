@@ -86,7 +86,7 @@ export default function WorkerCapOverridesDialog({
 
         <div className="worker-cap-dialog__warning" role="alert">
           <strong>NOT RECOMMENDED.</strong> Raising these hard caps can trigger
-          provider rate limits, stalls, or account restrictions. Soft-cap AIMD
+          provider rate limits, stalls, or account restrictions. The soft-cap autoscaler
           still runs inside the limit you set. Only change this if you know what
           you are doing.
         </div>

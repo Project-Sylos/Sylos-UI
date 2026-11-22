@@ -1,5 +1,9 @@
 import { apiFetch } from "./client";
 import type {
+  MigrationAutoscalerView,
+  SetMigrationAutoscalerRequest,
+} from "../types/autoscaler";
+import type {
   MigrationScalingView,
   ProviderWorkerCaps,
   ScalingOverrideEntry,
@@ -111,6 +115,38 @@ export async function putMigrationScaling(
   if (!response.ok) {
     const text = await response.text();
     throw new Error(text || `Failed to apply scaling (${response.status})`);
+  }
+  return response.json();
+}
+
+export async function getMigrationAutoscaler(
+  migrationId: string
+): Promise<MigrationAutoscalerView> {
+  const response = await apiFetch(
+    `/api/migrations/${encodeURIComponent(migrationId)}/autoscaler`,
+    { method: "GET" }
+  );
+  if (!response.ok) {
+    throw new Error(`Failed to load autoscaler (${response.status})`);
+  }
+  return response.json();
+}
+
+export async function putMigrationAutoscaler(
+  migrationId: string,
+  req: SetMigrationAutoscalerRequest
+): Promise<MigrationAutoscalerView> {
+  const response = await apiFetch(
+    `/api/migrations/${encodeURIComponent(migrationId)}/autoscaler`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req),
+    }
+  );
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `Failed to apply autoscaler overrides (${response.status})`);
   }
   return response.json();
 }

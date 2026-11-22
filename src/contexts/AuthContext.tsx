@@ -38,6 +38,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setRecoveryOffer(null);
   }, []);
 
+  // 401 clears browser auth only. Do not stop migrations; they keep running
+  // in the Sylos process until explicitly stopped or the process exits.
   const handleUnauthorized = useCallback(() => {
     clearAuthToken();
     setUser(null);
@@ -136,6 +138,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [refresh]);
 
+  // Client JWT clear only. Server logout is audit-only; migrations keep running.
   const logout = useCallback(async () => {
     try {
       await logoutRequest();

@@ -6,7 +6,15 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { BookOpen, Bug, ExternalLink, MessagesSquare, type LucideIcon } from "lucide-react";
+import {
+  BookOpen,
+  Bug,
+  ExternalLink,
+  Lightbulb,
+  MessagesSquare,
+  type LucideIcon,
+} from "lucide-react";
+import TipsLibraryModal from "../components/TipsLibraryModal";
 import "../components/ConfirmDialog.css";
 import "../components/HelpModal.css";
 
@@ -22,12 +30,15 @@ export type HelpModalPayload = {
 type HelpModalContextValue = {
   openHelp: (payload: HelpModalPayload) => void;
   closeHelp: () => void;
+  openTipsLibrary: () => void;
+  closeTipsLibrary: () => void;
 };
 
 const HelpModalContext = createContext<HelpModalContextValue | null>(null);
 
 export function HelpModalProvider({ children }: { children: ReactNode }) {
   const [payload, setPayload] = useState<HelpModalPayload | null>(null);
+  const [tipsOpen, setTipsOpen] = useState(false);
 
   const openHelp = useCallback((p: HelpModalPayload) => {
     setPayload(p);
@@ -35,6 +46,14 @@ export function HelpModalProvider({ children }: { children: ReactNode }) {
 
   const closeHelp = useCallback(() => {
     setPayload(null);
+  }, []);
+
+  const openTipsLibrary = useCallback(() => {
+    setTipsOpen(true);
+  }, []);
+
+  const closeTipsLibrary = useCallback(() => {
+    setTipsOpen(false);
   }, []);
 
   useEffect(() => {
@@ -47,7 +66,9 @@ export function HelpModalProvider({ children }: { children: ReactNode }) {
   }, [payload, closeHelp]);
 
   return (
-    <HelpModalContext.Provider value={{ openHelp, closeHelp }}>
+    <HelpModalContext.Provider
+      value={{ openHelp, closeHelp, openTipsLibrary, closeTipsLibrary }}
+    >
       {children}
       {payload && (
         <div className="confirm-dialog__overlay" onClick={closeHelp}>
@@ -75,6 +96,7 @@ export function HelpModalProvider({ children }: { children: ReactNode }) {
           </div>
         </div>
       )}
+      <TipsLibraryModal open={tipsOpen} onClose={closeTipsLibrary} />
     </HelpModalContext.Provider>
   );
 }
@@ -115,9 +137,30 @@ const HELP_LINKS: HelpLink[] = [
   },
 ];
 
-export function defaultHelpModalBody(): ReactNode {
+/** Default Help body with wiki links plus Tips library entry. */
+export function DefaultHelpBody() {
+  const { openTipsLibrary, closeHelp } = useHelpModal();
+
   return (
     <div className="help-modal__links">
+      <button
+        type="button"
+        className="help-modal__link-row help-modal__link-row--button"
+        onClick={() => {
+          closeHelp();
+          openTipsLibrary();
+        }}
+      >
+        <span className="help-modal__brand-icon" aria-hidden="true">
+          <Lightbulb size={20} strokeWidth={1.8} />
+        </span>
+        <span className="help-modal__link-copy">
+          <span className="help-modal__link-title">Tips</span>
+          <span className="help-modal__link-description">
+            Browse, restore, or reset contextual help tips
+          </span>
+        </span>
+      </button>
       {HELP_LINKS.map(({ href, title, description, Icon }) => (
         <a
           key={href}
@@ -144,4 +187,9 @@ export function defaultHelpModalBody(): ReactNode {
       ))}
     </div>
   );
+}
+
+/** @deprecated Prefer {@link DefaultHelpBody} so Tips can open the library. */
+export function defaultHelpModalBody(): ReactNode {
+  return <DefaultHelpBody />;
 }

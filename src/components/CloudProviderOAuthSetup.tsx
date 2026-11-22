@@ -229,8 +229,14 @@ export default function CloudProviderOAuthSetup({
         <div className="cloud-oauth-row__main">
           <div className="cloud-oauth-row__title-line">
             <span className="cloud-oauth-row__name">{displayName}</span>
-            {canEdit && !app?.configured && (
+            {canEdit && !app?.configured && providerId === "google_drive" && (
               <span className="cloud-oauth-row__badge">Setup required</span>
+            )}
+            {canEdit && !app?.configured && providerId !== "google_drive" && (
+              <span className="cloud-oauth-row__badge">Optional override</span>
+            )}
+            {canEdit && app?.configured && app?.isDefault && (
+              <span className="cloud-oauth-row__badge">Built-in</span>
             )}
           </div>
           <p className="cloud-oauth-row__meta">
@@ -285,7 +291,11 @@ export default function CloudProviderOAuthSetup({
 
       {variant === "expanded" && (
         <p className="cloud-oauth-setup__lead cloud-oauth-setup__lead--expanded">
-          Sylos does not ship cloud OAuth credentials. Create your own developer app, then store the {providerCredentialText} here.
+          {providerId === "google_drive"
+            ? `Google Drive is bring-your-own-app. Create a Google Cloud OAuth client, then store the ${providerCredentialText} here.`
+            : app?.configured
+              ? `This install already has ${displayName} credentials. Sign in above, or override the ${providerCredentialText} if you use your own developer app.`
+              : `Add ${providerCredentialText} for ${displayName}, or use a release binary that ships Sylos-owned OAuth apps.`}
         </p>
       )}
 

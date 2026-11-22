@@ -346,7 +346,7 @@ export default function Settings({ onClose, initialSection = null }: SettingsPro
               <h1 className="settings__section-title">Cloud providers</h1>
               <p className="settings__subsection-description">
                 {isAdmin
-                  ? "Configure OAuth app credentials for cloud storage and manage remembered SFTP hosts. Sylos checks OAuth connection health on startup and can re-check on a schedule you choose."
+                  ? "Google Drive always needs your own OAuth client. Dropbox, Box, OneDrive, and SharePoint may already be seeded from the binary; override them here if needed. Manage remembered SFTP hosts below. Sylos checks OAuth health on startup and on a schedule you choose."
                   : "View cloud OAuth connection status and remembered SFTP hosts. You can run an OAuth connection test; only admins can add or change OAuth credentials."}
               </p>
 

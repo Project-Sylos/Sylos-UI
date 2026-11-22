@@ -50,7 +50,10 @@ export function isCloudProviderOAuthConfigured(oauthClientId?: string): boolean 
 
 export function getCloudProviderOAuthEnvHint(providerId: string): string {
   const name = getCloudProviderDisplayName(providerId);
-  return `${name} OAuth credentials are not configured. An administrator must add a developer app Client ID and Client Secret before you can sign in.`;
+  if (providerId === "google_drive") {
+    return `${name} needs your own Google Cloud OAuth client. An administrator must paste Client ID and Client Secret in Settings → Cloud providers (or here) before you can sign in.`;
+  }
+  return `${name} OAuth credentials are not configured for this install. An administrator must add a developer app Client ID and Client Secret in Settings before you can sign in.`;
 }
 
 export function resolveCloudProviderScopes(

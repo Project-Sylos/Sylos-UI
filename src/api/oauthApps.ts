@@ -11,6 +11,7 @@ export type OAuthAppSummary = {
   providerId: string;
   displayName: string;
   configured: boolean;
+  isDefault?: boolean;
   clientId?: string;
   tenantId?: string;
   healthStatus: OAuthHealthStatus;

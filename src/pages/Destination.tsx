@@ -232,6 +232,8 @@ export default function Destination() {
             id: service.id,
             name: service.displayName,
             description: visual.description,
+            disabled: visual.disabled,
+            stamp: visual.stamp,
             icon: visual.icon,
             iconAccent: visual.iconAccent,
           };
@@ -253,6 +255,13 @@ export default function Destination() {
     const selected = services.find((service) => service.id === id);
     if (!selected) {
       console.warn(`Service with id "${id}" not found.`);
+      return;
+    }
+
+    const visual =
+      serviceSelectionOptions[selected.id] ??
+      serviceSelectionOptions[selected.type];
+    if (visual?.disabled) {
       return;
     }
 

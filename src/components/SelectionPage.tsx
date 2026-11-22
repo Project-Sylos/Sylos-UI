@@ -10,6 +10,10 @@ export type SelectionOption = {
   id: string;
   name: string;
   description?: string;
+  /** When true, the card is greyed out and not selectable. */
+  disabled?: boolean;
+  /** Diagonal stamp drawn over a disabled card (e.g. "Under construction"). */
+  stamp?: string;
   icon: ReactNode;
   /** Maps to theme accent tokens (a ≈ cyan, b ≈ magenta) */
   iconAccent?: SelectionIconAccent;
@@ -71,35 +75,62 @@ export default function SelectionPage({
 
           <div className="selection-page__grid">
             {options.length > 0 ? (
-              options.map((option) => (
-                <button
-                  key={option.id}
-                  type="button"
-                  className={`selection-page__card${
-                    isBusy ? " selection-page__card--disabled" : ""
-                  }`}
-                  onClick={() => onSelect(option.id)}
-                  disabled={isBusy}
-                >
-                  <span
+              options.map((option) => {
+                const unavailable = Boolean(option.disabled) || isBusy;
+                return (
+                  <button
+                    key={option.id}
+                    type="button"
                     className={[
-                      "selection-page__icon",
-                      option.iconAccent === "a" && "selection-page__icon--accent-a",
-                      option.iconAccent === "b" && "selection-page__icon--accent-b",
+                      "selection-page__card",
+                      unavailable && "selection-page__card--disabled",
+                      option.disabled && "selection-page__card--unavailable",
                     ]
                       .filter(Boolean)
                       .join(" ")}
+                    onClick={() => {
+                      if (option.disabled || isBusy) {
+                        return;
+                      }
+                      onSelect(option.id);
+                    }}
+                    disabled={unavailable}
+                    aria-disabled={unavailable}
+                    title={
+                      option.disabled
+                        ? option.stamp || "Unavailable"
+                        : undefined
+                    }
                   >
-                    {option.icon}
-                  </span>
-                  <span className="selection-page__name">{option.name}</span>
-                  {option.description ? (
-                    <span className="selection-page__description">
-                      {option.description}
+                    {option.disabled && option.stamp ? (
+                      <span className="selection-page__stamp" aria-hidden="true">
+                        <span className="selection-page__stamp-text">
+                          {option.stamp}
+                        </span>
+                      </span>
+                    ) : null}
+                    <span
+                      className={[
+                        "selection-page__icon",
+                        option.iconAccent === "a" &&
+                          "selection-page__icon--accent-a",
+                        option.iconAccent === "b" &&
+                          "selection-page__icon--accent-b",
+                      ]
+                        .filter(Boolean)
+                        .join(" ")}
+                    >
+                      {option.icon}
                     </span>
-                  ) : null}
-                </button>
-              ))
+                    <span className="selection-page__name">{option.name}</span>
+                    {option.description ? (
+                      <span className="selection-page__description">
+                        {option.description}
+                      </span>
+                    ) : null}
+                  </button>
+                );
+              })
             ) : (
               <div className="selection-page__empty">
                 {emptyMessage ?? "No services available."}

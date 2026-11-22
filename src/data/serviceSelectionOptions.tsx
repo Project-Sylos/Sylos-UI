@@ -13,6 +13,10 @@ export type ServiceIconAccent = "a" | "b";
 export type ServiceSelectionVisual = {
   icon: ReactNode;
   description?: string;
+  /** When true, the card is greyed out and not selectable. */
+  disabled?: boolean;
+  /** Diagonal stamp drawn over a disabled card (e.g. "Under construction"). */
+  stamp?: string;
   iconAccent?: ServiceIconAccent;
 };
 
@@ -113,6 +117,8 @@ export const serviceSelectionOptions: Record<string, ServiceSelectionVisual> = {
     icon: sharePointSelectionIcon,
     description:
       "Sign in with Microsoft to browse SharePoint sites and document libraries.",
+    disabled: true,
+    stamp: "Under construction",
   },
   box: {
     icon: boxSelectionIcon,

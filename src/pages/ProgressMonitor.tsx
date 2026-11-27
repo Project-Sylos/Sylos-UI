@@ -19,6 +19,9 @@ import {
   ChevronDown,
   ChevronRight,
   Pencil,
+  Loader2,
+  Check,
+  X,
 } from "lucide-react";
 
 import {
@@ -31,6 +34,7 @@ import {
   resumeMigration,
   retryFinalize,
   probeMigrationFSHealth,
+  cancelMigrationInFlight,
 } from "../api/services";
 import CloudConnectionIssues from "../components/CloudConnectionIssues";
 import type { CloudConnectionCheckResult } from "../utils/cloudConnections";
@@ -63,6 +67,7 @@ import {
   isMigrationFinalizing,
   isMigrationFinalizeFailed,
   type InFlightTask,
+  type SettledInFlightTask,
   type LogLevel,
   type MigrationLog,
   type QueueMetrics,
@@ -124,7 +129,9 @@ function bytesPerSec(m?: QueueMetrics | null): number {
   );
 }
 
-function inflightItemType(task: InFlightTask): "folder" | "file" | null {
+function inflightItemType(
+  task: Pick<InFlightTask, "itemKind" | "taskType">
+): "folder" | "file" | null {
   if (task.itemKind === "folder" || task.taskType === "copy-folder" || task.taskType === "delete-folder") {
     return "folder";
   }
@@ -141,36 +148,277 @@ function inflightBaseName(path?: string): string {
   return slash >= 0 ? trimmed.slice(slash + 1) : trimmed;
 }
 
-function InFlightTaskList({
-  tasks,
-  showKindIcons = false,
+function formatLeaseElapsed(leaseAgeMs?: number, pollSkewMs = 0): string {
+  const ms = Math.max(0, (leaseAgeMs ?? 0) + Math.max(0, pollSkewMs));
+  const totalSec = Math.floor(ms / 1000);
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+function isCopyFileTask(task: Pick<InFlightTask, "taskType" | "itemKind">): boolean {
+  // Ring progress is copy-file only. itemKind===file also matches delete rows.
+  return task.taskType === "copy-file";
+}
+
+type WorkingOnRow = {
+  nodeId: string;
+  path?: string;
+  workerId?: string;
+  taskType?: string;
+  itemKind?: string;
+  leaseAgeMs?: number;
+  bytesDone?: number;
+  bytesTotal?: number;
+  settled?: "success" | "fail";
+};
+
+/** Stable Working-on stack: keep prior positions; append newcomers at the bottom; drop cleared. */
+function mergeWorkingOnStack(
+  active: InFlightTask[] | undefined,
+  settled: SettledInFlightTask[] | undefined,
+  prevOrder: string[]
+): { rows: WorkingOnRow[]; order: string[] } {
+  const byId = new Map<string, WorkingOnRow>();
+  for (const t of settled ?? []) {
+    const id = t.nodeId;
+    if (!id) continue;
+    byId.set(id, {
+      nodeId: id,
+      path: t.path,
+      taskType: t.taskType,
+      itemKind: t.itemKind,
+      bytesDone: t.bytesDone,
+      bytesTotal: t.bytesTotal,
+      settled: t.success ? "success" : "fail",
+    });
+  }
+  for (const t of active ?? []) {
+    const id = t.nodeId ?? t.path;
+    if (!id) continue;
+    byId.set(id, {
+      nodeId: id,
+      path: t.path,
+      workerId: t.workerId,
+      taskType: t.taskType,
+      itemKind: t.itemKind,
+      leaseAgeMs: t.leaseAgeMs,
+      bytesDone: t.bytesDone,
+      bytesTotal: t.bytesTotal,
+    });
+  }
+  const alive = new Set(byId.keys());
+  const order = prevOrder.filter((id) => alive.has(id));
+  const seen = new Set(order);
+  const newcomers: string[] = [];
+  for (const id of alive) {
+    if (!seen.has(id)) newcomers.push(id);
+  }
+  // Oldest among the new batch first so they sit higher in the appended block.
+  newcomers.sort(
+    (a, b) => (byId.get(b)?.leaseAgeMs ?? 0) - (byId.get(a)?.leaseAgeMs ?? 0)
+  );
+  order.push(...newcomers);
+  return { rows: order.map((id) => byId.get(id)!), order };
+}
+
+function CircularCopyProgress({
+  done,
+  total,
+  settled,
 }: {
-  tasks: InFlightTask[];
-  showKindIcons?: boolean;
+  done: number;
+  total: number;
+  settled?: "success" | "fail";
 }) {
-  if (tasks.length === 0) {
+  const r = 7;
+  const c = 2 * Math.PI * r;
+  const pct =
+    settled === "success"
+      ? 1
+      : settled === "fail"
+        ? Math.min(1, Math.max(0, total > 0 ? done / total : 0))
+        : Math.min(1, Math.max(0, total > 0 ? done / total : 0));
+  const stroke =
+    settled === "fail"
+      ? "var(--color-danger, #c44)"
+      : settled === "success"
+        ? "var(--color-success, #2a8)"
+        : "var(--brand-cyan)";
+  return (
+    <svg
+      className="progress-monitor__inflight-ring"
+      width="18"
+      height="18"
+      viewBox="0 0 18 18"
+      aria-hidden
+    >
+      <circle
+        cx="9"
+        cy="9"
+        r={r}
+        fill="none"
+        stroke="currentColor"
+        strokeOpacity="0.2"
+        strokeWidth="2"
+      />
+      <circle
+        cx="9"
+        cy="9"
+        r={r}
+        fill="none"
+        stroke={stroke}
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeDasharray={c}
+        strokeDashoffset={c * (1 - pct)}
+        transform="rotate(-90 9 9)"
+      />
+    </svg>
+  );
+}
+
+function InFlightGlyph({
+  task,
+  hot,
+}: {
+  task: WorkingOnRow;
+  hot: boolean;
+}) {
+  if (hot && task.settled == null) {
+    return <X size={16} className="progress-monitor__inflight-fail" />;
+  }
+  const copyFile = isCopyFileTask(task);
+  // Skip ring until bytes move (or settle) so tiny files do not flash 0→full.
+  const showRing =
+    copyFile &&
+    (task.bytesTotal ?? 0) > 0 &&
+    (task.settled != null || (task.bytesDone ?? 0) > 0);
+  if (task.settled === "success") {
+    return showRing ? (
+      <CircularCopyProgress done={task.bytesTotal ?? 1} total={task.bytesTotal ?? 1} settled="success" />
+    ) : (
+      <Check size={14} className="progress-monitor__inflight-ok" />
+    );
+  }
+  if (task.settled === "fail") {
+    return showRing ? (
+      <CircularCopyProgress
+        done={task.bytesDone ?? 0}
+        total={task.bytesTotal ?? 1}
+        settled="fail"
+      />
+    ) : (
+      <X size={14} className="progress-monitor__inflight-fail" />
+    );
+  }
+  if (showRing) {
+    return (
+      <CircularCopyProgress done={task.bytesDone ?? 0} total={task.bytesTotal ?? 1} />
+    );
+  }
+  return <Loader2 size={14} className="progress-monitor__inflight-spin" />;
+}
+
+function InFlightRow({
+  task,
+  pollSkewMs,
+  cancelling,
+  onCancel,
+}: {
+  task: WorkingOnRow;
+  pollSkewMs: number;
+  cancelling: boolean;
+  onCancel?: (nodeId: string) => void;
+}) {
+  const [hot, setHot] = useState(false);
+  const kind = inflightItemType(task);
+  const live = task.settled == null;
+  return (
+    <li
+      onMouseEnter={() => setHot(true)}
+      onMouseLeave={() => setHot(false)}
+    >
+      {kind ? (
+        <FileTypeIcon
+          name={inflightBaseName(task.path) || task.path || "item"}
+          type={kind}
+          size={18}
+          className="progress-monitor__inflight-icon"
+        />
+      ) : null}
+      <span className="progress-monitor__inflight-path" title={task.path}>
+        {task.path || task.nodeId || "…"}
+      </span>
+      <span className="progress-monitor__inflight-meta">
+        {live ? (
+          <span className="progress-monitor__inflight-elapsed">
+            {formatLeaseElapsed(task.leaseAgeMs, pollSkewMs)}
+          </span>
+        ) : null}
+        {live ? (
+          <button
+            type="button"
+            className={
+              hot
+                ? "progress-monitor__inflight-glyph progress-monitor__inflight-glyph--hot"
+                : "progress-monitor__inflight-glyph"
+            }
+            title="Cancel task"
+            aria-label="Cancel task"
+            disabled={cancelling}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onCancel?.(task.nodeId);
+            }}
+          >
+            <InFlightGlyph task={task} hot={hot || cancelling} />
+          </button>
+        ) : (
+          <span className="progress-monitor__inflight-glyph" aria-hidden>
+            <InFlightGlyph task={task} hot={false} />
+          </span>
+        )}
+      </span>
+    </li>
+  );
+}
+
+function InFlightTaskList({
+  activeTasks,
+  settledTasks,
+  pollSkewMs = 0,
+  cancellingIds,
+  onCancel,
+}: {
+  activeTasks?: InFlightTask[];
+  settledTasks?: SettledInFlightTask[];
+  pollSkewMs?: number;
+  cancellingIds?: Set<string>;
+  onCancel?: (nodeId: string) => void;
+}) {
+  const stackOrderRef = useRef<string[]>([]);
+  const { rows, order } = mergeWorkingOnStack(
+    activeTasks,
+    settledTasks,
+    stackOrderRef.current
+  );
+  stackOrderRef.current = order;
+  if (rows.length === 0) {
     return <p className="progress-monitor__inflight-empty">Idle</p>;
   }
   return (
     <ul className="progress-monitor__inflight-list">
-      {tasks.map((t, i) => {
-        const kind = showKindIcons ? inflightItemType(t) : null;
-        return (
-          <li key={`${t.nodeId ?? t.path ?? i}-${t.workerId ?? ""}`}>
-            {kind ? (
-              <FileTypeIcon
-                name={inflightBaseName(t.path) || t.path || "item"}
-                type={kind}
-                size={14}
-                className="progress-monitor__inflight-icon"
-              />
-            ) : null}
-            <span className="progress-monitor__inflight-path" title={t.path}>
-              {t.path || t.nodeId || "…"}
-            </span>
-          </li>
-        );
-      })}
+      {rows.map((t) => (
+        <InFlightRow
+          key={t.nodeId}
+          task={t}
+          pollSkewMs={pollSkewMs}
+          cancelling={cancellingIds?.has(t.nodeId) ?? false}
+          onCancel={onCancel}
+        />
+      ))}
     </ul>
   );
 }
@@ -201,7 +449,11 @@ function keepQueueSide(
   if (prev) {
     // Parked totals stay, but refresh the live lease snapshot when the API sends one.
     if (incoming && incoming.activeTasks !== undefined) {
-      return { ...prev, activeTasks: incoming.activeTasks };
+      return {
+        ...prev,
+        activeTasks: incoming.activeTasks,
+        recentlySettled: incoming.recentlySettled,
+      };
     }
     return prev;
   }
@@ -617,6 +869,14 @@ export default function ProgressMonitor() {
   const [, setRateLimitTick] = useState(0);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [inflightOpen, setInflightOpen] = useState(true);
+  const [settledFlash, setSettledFlash] = useState<{
+    source: SettledInFlightTask[];
+    destination: SettledInFlightTask[];
+  }>({ source: [], destination: [] });
+  const settledFlashUntilRef = useRef<Map<string, number>>(new Map());
+  const [metricsPollAt, setMetricsPollAt] = useState(0);
+  const [elapsedTick, setElapsedTick] = useState(0);
+  const [cancellingIds, setCancellingIds] = useState<Set<string>>(() => new Set());
   const [logsOpen, setLogsOpen] = useState(false);
   const [logFilter, setLogFilter] = useState<LogLevel | "all">("all");
   const [logLines, setLogLines] = useState<MigrationLog[]>([]);
@@ -656,6 +916,9 @@ export default function ProgressMonitor() {
     setError(null);
     setStatus(null);
     setQueueMetrics(null);
+    setSettledFlash({ source: [], destination: [] });
+    settledFlashUntilRef.current.clear();
+    setCancellingIds(new Set());
   }, [migrationId]);
 
   useEffect(() => {
@@ -818,6 +1081,8 @@ export default function ProgressMonitor() {
         response.delete !== undefined ||
         response.sizeFold !== undefined
       ) {
+        const polledAt = Date.now();
+        setMetricsPollAt(polledAt);
         setQueueMetrics((prev: {
           srcTraversal?: QueueMetrics | null;
           dstTraversal?: QueueMetrics | null;
@@ -832,6 +1097,50 @@ export default function ProgressMonitor() {
           sizeFold: response.sizeFold ?? prev?.sizeFold ?? null,
           possibleStall: Boolean(response.possibleStall),
         }));
+        const mergeFlash = (
+          prev: SettledInFlightTask[],
+          incoming: SettledInFlightTask[] | undefined
+        ) => {
+          const map = new Map<string, SettledInFlightTask>();
+          for (const t of prev) {
+            if (!t.nodeId) continue;
+            const until = settledFlashUntilRef.current.get(t.nodeId);
+            if (until != null && until > polledAt) map.set(t.nodeId, t);
+          }
+          for (const t of incoming ?? []) {
+            if (!t.nodeId) continue;
+            map.set(t.nodeId, t);
+            settledFlashUntilRef.current.set(t.nodeId, polledAt + 1800);
+          }
+          return Array.from(map.values());
+        };
+        setSettledFlash((prev) => {
+          if (showDeleteUI) {
+            return {
+              source: mergeFlash(prev.source, response.delete?.recentlySettled),
+              destination: [],
+            };
+          }
+          if (showCopyUI) {
+            return {
+              source: [],
+              destination: mergeFlash(
+                prev.destination,
+                response.copy?.recentlySettled
+              ),
+            };
+          }
+          return {
+            source: mergeFlash(
+              prev.source,
+              response.srcTraversal?.recentlySettled
+            ),
+            destination: mergeFlash(
+              prev.destination,
+              response.dstTraversal?.recentlySettled
+            ),
+          };
+        });
       }
     } catch (err) {
       if (isMigrationNotFoundError(err)) {
@@ -841,7 +1150,33 @@ export default function ProgressMonitor() {
       // Only log actual network/HTTP errors
       console.error("Failed to fetch queue metrics:", err);
     }
-  }, [migrationId]);
+  }, [migrationId, showCopyUI, showDeleteUI]);
+
+  // Smooth elapsed + expire settled flash between metrics polls.
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      setElapsedTick((n) => n + 1);
+      const now = Date.now();
+      setSettledFlash((prev) => {
+        const keep = (list: SettledInFlightTask[]) =>
+          list.filter((t) => {
+            if (!t.nodeId) return false;
+            const until = settledFlashUntilRef.current.get(t.nodeId);
+            return until != null && until > now;
+          });
+        const source = keep(prev.source);
+        const destination = keep(prev.destination);
+        if (
+          source.length === prev.source.length &&
+          destination.length === prev.destination.length
+        ) {
+          return prev;
+        }
+        return { source, destination };
+      });
+    }, 250);
+    return () => window.clearInterval(id);
+  }, []);
 
   // Show “View … Results” when in the matching review phase and not running. Retries: ignore stale “review” until a run has actually started (see fetchStatus).
   useEffect(() => {
@@ -1183,22 +1518,69 @@ export default function ProgressMonitor() {
       return {
         source: take(queueMetrics?.delete?.activeTasks),
         destination: [] as InFlightTask[],
+        sourceSettled: settledFlash.source,
+        destinationSettled: [] as SettledInFlightTask[],
       };
     }
     if (showCopyUI) {
       return {
         source: [] as InFlightTask[],
         destination: take(queueMetrics?.copy?.activeTasks, 12),
+        sourceSettled: [] as SettledInFlightTask[],
+        destinationSettled: settledFlash.destination,
       };
     }
     return {
       source: take(queueMetrics?.srcTraversal?.activeTasks),
       destination: take(queueMetrics?.dstTraversal?.activeTasks),
+      sourceSettled: settledFlash.source,
+      destinationSettled: settledFlash.destination,
     };
-  }, [queueMetrics, showCopyUI, showDeleteUI]);
+  }, [queueMetrics, showCopyUI, showDeleteUI, settledFlash]);
 
-  const inflightTaskCount =
-    inflightSides.source.length + inflightSides.destination.length;
+  const inflightSourceCount =
+    inflightSides.source.length + inflightSides.sourceSettled.length;
+  const inflightDestinationCount =
+    inflightSides.destination.length + inflightSides.destinationSettled.length;
+  const inflightTaskCount = inflightSourceCount + inflightDestinationCount;
+
+  const pollSkewMs =
+    metricsPollAt > 0 ? Math.max(0, Date.now() - metricsPollAt) : 0;
+  void elapsedTick;
+
+  const handleCancelInFlight = useCallback(
+    async (nodeId: string) => {
+      if (!migrationId || !nodeId) return;
+      setCancellingIds((prev) => new Set(prev).add(nodeId));
+      try {
+        const res = await cancelMigrationInFlight(migrationId, nodeId);
+        if (res.ok && res.result === "cancelled") {
+          void fetchQueueMetrics();
+          return;
+        }
+        const msg =
+          res.message ||
+          (res.result === "already_succeeded"
+            ? "Task already completed"
+            : res.result === "already_failed"
+              ? "Task already failed"
+              : "No longer in progress");
+        setToast({ message: msg, type: "info" });
+      } catch (err) {
+        setToast({
+          message: err instanceof Error ? err.message : "Cancel failed",
+          type: "error",
+        });
+      } finally {
+        setCancellingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(nodeId);
+          return next;
+        });
+      }
+    },
+    [migrationId, fetchQueueMetrics]
+  );
 
   // Follow the live tail only while the user is at the bottom. Layout effect so the
   // jump happens before paint (a post-paint scroll shows the old position for a frame).
@@ -1641,22 +2023,6 @@ export default function ProgressMonitor() {
         {actionError && (
           <div className="progress-monitor__error progress-monitor__error--action">
             {actionError}
-          </div>
-        )}
-        {needsRecoverySweep && !live && (
-          <div className="progress-monitor__error" role="status">
-            <p>
-              This migration was interrupted without a clean checkpoint. Prefer
-              soft stop next time. You can still Resume; Sylos will run a recovery
-              sweep (it may re-check or redo some work).
-            </p>
-            <button
-              type="button"
-              className="progress-monitor__results-button"
-              onClick={() => navigate("/resume")}
-            >
-              Go to Resume Migration
-            </button>
           </div>
         )}
         {isFinalizing && (
@@ -2102,44 +2468,90 @@ export default function ProgressMonitor() {
               <summary className="progress-monitor__inflight-summary">
                 {inflightOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                 Working on
-                {inflightTaskCount > 0 ? (
-                  <span className="progress-monitor__inflight-count">
-                    {inflightTaskCount}
-                  </span>
-                ) : null}
               </summary>
               <div className="progress-monitor__inflight-body">
                 {showDeleteUI ? (
                   <div className="progress-monitor__inflight-pane">
                     <div className="progress-monitor__inflight-pane-title progress-monitor__inflight-pane-title--source">
-                      Source
-                    </div>
-                    <InFlightTaskList tasks={inflightSides.source} />
-                  </div>
-                ) : showCopyUI ? (
-                  <div className="progress-monitor__inflight-pane">
-                    <div className="progress-monitor__inflight-pane-title">
-                      Active transfers
+                      <span>Source</span>
+                      {inflightSourceCount > 0 ? (
+                        <span className="progress-monitor__inflight-count">
+                          {inflightSourceCount}
+                        </span>
+                      ) : null}
                     </div>
                     <InFlightTaskList
-                      tasks={inflightSides.destination}
-                      showKindIcons
+                      activeTasks={inflightSides.source}
+                      settledTasks={inflightSides.sourceSettled}
+                      pollSkewMs={pollSkewMs}
+                      cancellingIds={cancellingIds}
+                      onCancel={handleCancelInFlight}
+                    />
+                  </div>
+                ) : showCopyUI ||
+                  (Array.isArray(queueMetrics?.copy?.activeTasks) &&
+                    queueMetrics.copy.activeTasks.length > 0) ? (
+                  <div className="progress-monitor__inflight-pane">
+                    <div className="progress-monitor__inflight-pane-title">
+                      <span>Active transfers</span>
+                      {inflightDestinationCount > 0 ? (
+                        <span className="progress-monitor__inflight-count">
+                          {inflightDestinationCount}
+                        </span>
+                      ) : null}
+                    </div>
+                    <InFlightTaskList
+                      activeTasks={
+                        showCopyUI
+                          ? inflightSides.destination
+                          : queueMetrics?.copy?.activeTasks
+                      }
+                      settledTasks={
+                        showCopyUI
+                          ? inflightSides.destinationSettled
+                          : settledFlash.destination
+                      }
+                      pollSkewMs={pollSkewMs}
+                      cancellingIds={cancellingIds}
+                      onCancel={handleCancelInFlight}
                     />
                   </div>
                 ) : (
                   <div className="progress-monitor__inflight-split">
                     <div className="progress-monitor__inflight-pane">
                       <div className="progress-monitor__inflight-pane-title progress-monitor__inflight-pane-title--source">
-                        Source
+                        <span>Source</span>
+                        {inflightSourceCount > 0 ? (
+                          <span className="progress-monitor__inflight-count">
+                            {inflightSourceCount}
+                          </span>
+                        ) : null}
                       </div>
-                      <InFlightTaskList tasks={inflightSides.source} />
+                      <InFlightTaskList
+                        activeTasks={inflightSides.source}
+                        settledTasks={inflightSides.sourceSettled}
+                        pollSkewMs={pollSkewMs}
+                        cancellingIds={cancellingIds}
+                        onCancel={handleCancelInFlight}
+                      />
                     </div>
                     <div className="progress-monitor__inflight-pane-gap" aria-hidden="true" />
                     <div className="progress-monitor__inflight-pane">
                       <div className="progress-monitor__inflight-pane-title progress-monitor__inflight-pane-title--destination">
-                        Destination
+                        <span>Destination</span>
+                        {inflightDestinationCount > 0 ? (
+                          <span className="progress-monitor__inflight-count">
+                            {inflightDestinationCount}
+                          </span>
+                        ) : null}
                       </div>
-                      <InFlightTaskList tasks={inflightSides.destination} />
+                      <InFlightTaskList
+                        activeTasks={inflightSides.destination}
+                        settledTasks={inflightSides.destinationSettled}
+                        pollSkewMs={pollSkewMs}
+                        cancellingIds={cancellingIds}
+                        onCancel={handleCancelInFlight}
+                      />
                     </div>
                   </div>
                 )}

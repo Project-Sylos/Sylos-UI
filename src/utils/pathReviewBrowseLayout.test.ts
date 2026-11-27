@@ -22,10 +22,11 @@ describe("pathReviewBrowseLayout", () => {
     expect(browseLayoutPhaseKey("source-cleanup")).toBe("delete");
   });
 
-  it("forces merged layout on delete/cleanup", () => {
-    expect(effectiveBrowseLayout("dual", true)).toBe("merged");
-    expect(effectiveBrowseLayout("dual", false)).toBe("dual");
-    expect(effectiveBrowseLayout("merged", false)).toBe("merged");
+  it("forces dual on traversal and merged on delete/cleanup", () => {
+    expect(effectiveBrowseLayout("merged", false, "traversal")).toBe("dual");
+    expect(effectiveBrowseLayout("dual", true, "delete")).toBe("merged");
+    expect(effectiveBrowseLayout("dual", false, "copy")).toBe("dual");
+    expect(effectiveBrowseLayout("merged", false, "copy")).toBe("merged");
   });
 
   it("gates copy and path-issue filters by search side", () => {

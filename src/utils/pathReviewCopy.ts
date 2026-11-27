@@ -149,6 +149,11 @@ export const PATH_REVIEW_COPY = {
   issuesNeedsAttention: "Needs attention",
   issuesReferenceTitle: "Naming warnings",
   issuesJumpToList: "Show in list view",
+  issuesExcludeAllFailed: "Exclude all",
+  issuesExcludeAllFailedTitle: "Exclude all failed items?",
+  issuesExcludeAllFailedConfirm: (n: number) =>
+    `Are you sure you want to exclude all ${n.toLocaleString()} failed item${n === 1 ? "" : "s"}? They will be skipped going forward. You can unexclude them later if needed.`,
+  issuesExcludeAllFailedConfirmLabel: "Exclude all",
   issuesHelpFailed:
     "These items failed during discovery or copy. Open list view to inspect them and mark retries if needed.",
   issuesHelpReference:

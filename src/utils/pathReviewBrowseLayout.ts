@@ -35,6 +35,10 @@ function storageKeyForPhase(phase: PathReviewBrowseLayoutPhase): string {
 export function loadBrowseLayout(
   phase: PathReviewBrowseLayoutPhase
 ): PathReviewBrowseLayout {
+  // Traversal is dual-only; ignore any stale saved preference.
+  if (phase === "traversal") {
+    return "dual";
+  }
   try {
     const v = localStorage.getItem(storageKeyForPhase(phase));
     if (v === "merged" || v === "dual") return v;
@@ -48,6 +52,10 @@ export function saveBrowseLayout(
   phase: PathReviewBrowseLayoutPhase,
   layout: PathReviewBrowseLayout
 ): void {
+  // Traversal has no user preference; do not persist overrides.
+  if (phase === "traversal") {
+    return;
+  }
   try {
     localStorage.setItem(storageKeyForPhase(phase), layout);
   } catch {
@@ -55,11 +63,17 @@ export function saveBrowseLayout(
   }
 }
 
-/** Delete / source-cleanup force a single SRC pane. */
+/**
+ * Resolve browse layout for the current review mode.
+ * Traversal is always dual. Delete / source-cleanup force merged.
+ * Copy uses the caller preference (localStorage-backed).
+ */
 export function effectiveBrowseLayout(
   preferred: PathReviewBrowseLayout,
-  srcOnlyPhase: boolean
+  srcOnlyPhase: boolean,
+  layoutPhase: PathReviewBrowseLayoutPhase = "copy"
 ): PathReviewBrowseLayout {
+  if (layoutPhase === "traversal") return "dual";
   if (srcOnlyPhase) return "merged";
   return preferred;
 }

@@ -13,10 +13,6 @@ import {
   getMigrationDiffs,
   excludeNode, 
   unexcludeNode,
-  markNodeForRetryDiscovery,
-  unmarkNodeForRetryDiscovery,
-  markNodeForRetryDelete,
-  unmarkNodeForRetryDelete,
   bulkExcludeNodes,
   bulkUnexcludeNodes,
   bulkMarkNodesForRetry,
@@ -48,6 +44,7 @@ import {
   StorageInfo,
   ExclusionResponse,
   BulkRetryKind,
+  excludeMatchingSearch,
   forceReplaceCopyNode,
   unforceReplaceCopyNode,
   acceptUniquePathName,
@@ -109,12 +106,10 @@ import PathReviewFooterInfo from "../components/PathReviewFooterInfo";
 import PathReviewSizeColumnHeader from "../components/PathReviewSizeColumnHeader";
 import { getDiffItemFailureMessage } from "../utils/diffFailureMessage";
 import {
-  applyDiscoveryRetryOptimistic,
-  getTraversalRetryNodeId,
   hasTraversalFailure,
   isTraversalAckFromFailed,
   isTraversalRetryPending,
-  isTraversalSkipped,
+  traversalBlocksFolderNav,
 } from "../utils/pathReviewTraversalStatus";
 import {
   applyDeleteStatusInItems,
@@ -131,7 +126,13 @@ import {
   showsPathReviewPendingColumn,
   type PathReviewRouteView,
 } from "../utils/pathReviewPhase";
-import { runCopyCycleClick } from "../utils/copyStatusCycle";
+import {
+  REVIEW_STATUS_LABELS,
+  isReviewPeerItem,
+  runReviewStatusCycleClick,
+  runReviewStatusTransition,
+  type ReviewStatusAxis,
+} from "../utils/reviewStatusCycle";
 import {
   applyExcludeOptimistic,
   displayPhaseAllowsBulkExclude,
@@ -156,7 +157,6 @@ import {
 import {
   EXCLUSION_OP_TITLE,
   MUTATION_CONFIRM_MS,
-  RETRY_OP_TITLE,
   REMOVAL_OP_TITLE,
   canStartMutation,
   inFlightOpState,
@@ -171,6 +171,7 @@ import {
   formatBulkActionToast,
   isNoItemsChangedError,
 } from "../utils/bulkActionToast";
+import { mapPathReviewStatusFilter } from "../utils/pathReviewStatusFilters";
 import {
   BULK_ACTION_LABELS,
   bulkNodeIDs,
@@ -390,6 +391,9 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
   const [confirmDialogType, setConfirmDialogType] = useState<
     "copy" | "retry" | "delete" | "delete-retry" | "ignore-remaining"
   >("copy");
+  const [showExcludeAllFailedConfirm, setShowExcludeAllFailedConfirm] =
+    useState(false);
+  const [excludeAllFailedBusy, setExcludeAllFailedBusy] = useState(false);
   const [forceReplaceConfirm, setForceReplaceConfirm] = useState<{
     item?: DiffItem;
     items?: DiffItem[];
@@ -538,7 +542,6 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
   }, [migrationId, removeTask]);
   const statsPollingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isPollingStatsRef = useRef<boolean>(false);
-  const pendingRetryUpdatesRef = useRef<Map<string, boolean>>(new Map());
   const pendingUpdatesRef = useRef<Map<string, boolean>>(new Map());
   const [mutationOps, setMutationOps] = useState<Map<string, MutationOpState>>(
     () => new Map()
@@ -584,10 +587,6 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
   const [highlightedItemId, setHighlightedItemId] = useState<string | null>(null);
   const [deleteSummary, setDeleteSummary] = useState<DeleteSummaryResponse | null>(null);
   const sourceCleanupPreparedRef = useRef(false);
-  /** Prior traversal status when marking discovery retry (failed vs excluded/skipped). */
-  const discoveryRetryPriorRef = useRef<Map<string, "failed" | "excluded">>(
-    new Map()
-  );
   /** Source-cleanup / delete review: include destination-only rows in the tree. */
   const [showDestinationOnly, setShowDestinationOnly] = useState(true);
   
@@ -610,12 +609,18 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
   );
   const browseLayout = effectiveBrowseLayout(
     preferredBrowseLayout,
-    srcOnlyBrowsePhase
+    srcOnlyBrowsePhase,
+    layoutPhaseKey
   );
   const isDualBrowse = browseLayout === "dual";
 
   // Apply per-phase default (or remembered override) when the review mode changes.
+  // Traversal is dual-only; copy keeps a Dual/Merged preference; delete is forced merged.
   useEffect(() => {
+    if (layoutPhaseKey === "traversal") {
+      setPreferredBrowseLayout("dual");
+      return;
+    }
     setPreferredBrowseLayout(
       srcOnlyBrowsePhase ? "merged" : loadBrowseLayout(layoutPhaseKey)
     );
@@ -1127,6 +1132,59 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
     setIssuesPanelOpen(true);
   };
 
+  const handleConfirmExcludeAllFailed = async () => {
+    if (!migrationId || excludeAllFailedBusy) return;
+    const failedCount = stats?.failedCount ?? 0;
+    if (failedCount <= 0) {
+      setShowExcludeAllFailedConfirm(false);
+      return;
+    }
+    setShowExcludeAllFailedConfirm(false);
+    setExcludeAllFailedBusy(true);
+    try {
+      const mapped = mapPathReviewStatusFilter(getDisplayPhase(), "failed");
+      const result = await excludeMatchingSearch(
+        migrationId,
+        {
+          statusSearchType: mapped.statusSearchType,
+          traversalStatusFilter: mapped.traversalStatusFilter,
+          copyStatusFilter: mapped.copyStatusFilter,
+          deleteStatusFilter: mapped.deleteStatusFilter,
+          phase: getCurrentPhase(),
+        },
+        []
+      );
+      const toastInfo = formatBulkActionToast("Exclude", result);
+      if (toastInfo) {
+        setToast({ message: toastInfo.message, type: toastInfo.type });
+      }
+      if (result.deltas && Object.keys(result.deltas).length > 0) {
+        handleApplyStatsDeltas(result.deltas);
+      }
+      const pathForLoad =
+        breadcrumbs.length > 0
+          ? breadcrumbs[breadcrumbs.length - 1].path
+          : undefined;
+      await loadItems(pathForLoad, undefined, { silent: true });
+      if (isDualBrowse) {
+        const dstPath =
+          dstBreadcrumbs.length > 0
+            ? dstBreadcrumbs[dstBreadcrumbs.length - 1].path
+            : undefined;
+        await loadDstItems(dstPath, undefined, { silent: true });
+      }
+      setTreeListRefreshToken((t) => t + 1);
+    } catch (err) {
+      setToast({
+        message:
+          err instanceof Error ? err.message : "Failed to exclude all failed items",
+        type: "error",
+      });
+    } finally {
+      setExcludeAllFailedBusy(false);
+    }
+  };
+
   const handleTreeSearchSubmit = (pane: "src" | "dst" = "src") => {
     const q =
       pane === "dst" ? dstTreeSearchQuery.trim() : treeSearchQuery.trim();
@@ -1306,7 +1364,7 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
     }
   };
 
-  /** Reload current tree folder from API after list-view mutations (silent if tree tab hidden). */
+  /** Reload current tree folder(s) from API after list-view mutations (silent if tree tab hidden). */
   const handleListDataMutated = () => {
     const pathForLoad =
       breadcrumbs.length > 0
@@ -1314,6 +1372,13 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
         : undefined;
     const silent = activeTabRef.current === "list";
     void loadItems(pathForLoad, undefined, { silent });
+    if (isDualBrowse) {
+      const dstPath =
+        dstBreadcrumbs.length > 0
+          ? dstBreadcrumbs[dstBreadcrumbs.length - 1].path
+          : undefined;
+      void loadDstItems(dstPath, undefined, { silent });
+    }
   };
 
   const clearTreeMultiSelect = () => {
@@ -1529,222 +1594,51 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
     }, 2000);
   };
 
+  const reviewAxisForPhase = (): ReviewStatusAxis => {
+    const phase = getCurrentPhase();
+    if (phase === "copy") return "copy";
+    if (phase === "delete") return "delete";
+    return "discovery";
+  };
+
+  const reviewStatusDeps = () => ({
+    setItems,
+    setDstItems,
+    peerLists: [items, dstItems],
+    mutationOps,
+    setMutationOps,
+    notify: (message: string, type: "success" | "error") =>
+      setToast({ message, type }),
+    applyDeltas: handleApplyStatsDeltas,
+    setRetryItems,
+  });
+
+  /** Dual browse: exclusion / failure on either peer blocks folder open on both. */
+  const dualPeerBlocksFolderNav = (item: DiffItem): boolean => {
+    if (!isDualBrowse) return traversalBlocksFolderNav(item);
+    if (traversalBlocksFolderNav(item)) return true;
+    for (const list of [items, dstItems]) {
+      for (const peer of list) {
+        if (
+          peer.id !== item.id &&
+          isReviewPeerItem(peer, item) &&
+          traversalBlocksFolderNav(peer)
+        ) {
+          return true;
+        }
+      }
+    }
+    return false;
+  };
+
   const handleRetryClick = async (item: DiffItem) => {
     if (!migrationId) return;
-
-    const currentPhase = getCurrentPhase();
-    const isCopy = currentPhase === "copy";
-    const isDelete = currentPhase === "delete";
-    const srcNodeId = item.src?.id;
-
-    if (isCopy) {
-      await runCopyCycleClick(migrationId, item, {
-        setItems,
-        mutationOps,
-        setMutationOps,
-        notify: (message, type) => setToast({ message, type }),
-        applyDeltas: handleApplyStatsDeltas,
-      });
-      return;
-    }
-
-    // Determine which node has failed or pending status (failed takes priority)
-    let nodeIdToUpdate: string | null = null;
-    let isMarkedForRetry = false;
-    
-    if (isDelete) {
-      const deleteStatus = item.src?.deleteStatus || "";
-      if ((deleteStatus === "failed" || isDeletePendingExplicit(deleteStatus)) && srcNodeId) {
-        nodeIdToUpdate = srcNodeId;
-        isMarkedForRetry = isDeletePendingExplicit(deleteStatus) || retryItems.has(item.id);
-      }
-    } else {
-      const nodeId = getTraversalRetryNodeId(item);
-      if (nodeId) {
-        nodeIdToUpdate = nodeId;
-        isMarkedForRetry = isTraversalRetryPending(item);
-      }
-    }
-
-    if (!nodeIdToUpdate) {
-      setToast({
-        message:
-          "No node with failed, skipped, or pending status available for this item.",
-        type: "error",
-      });
-      return;
-    }
-
-    if (!canStartMutation(mutationOps, nodeIdToUpdate)) {
-      setToast({
-        message:
-          "An operation is already running on this path; try again once it finishes.",
-        type: "error",
-      });
-      return;
-    }
-
-    const fromSkippedDiscovery =
-      !isCopy && !isDelete && isTraversalSkipped(item);
-    
-    // Store original item state for rollback
-    const originalItem = { ...item };
-
-    setMutationOps((prev) =>
-      withInFlightOp(prev, [nodeIdToUpdate, item.id, srcNodeId], RETRY_OP_TITLE)
+    await runReviewStatusCycleClick(
+      migrationId,
+      item,
+      reviewAxisForPhase(),
+      reviewStatusDeps()
     );
-    
-    // Optimistic update
-    const newRetryState = !isMarkedForRetry;
-    let unmarkRestore: "failed" | "excluded" = "failed";
-    if (!isCopy && !isDelete) {
-      if (newRetryState) {
-        discoveryRetryPriorRef.current.set(
-          item.id,
-          fromSkippedDiscovery ? "excluded" : "failed"
-        );
-      } else {
-        unmarkRestore =
-          discoveryRetryPriorRef.current.get(item.id) === "excluded"
-            ? "excluded"
-            : "failed";
-        discoveryRetryPriorRef.current.delete(item.id);
-      }
-    }
-    setRetryItems((prev) => {
-      const newSet = new Set(prev);
-      if (newRetryState) {
-        newSet.add(item.id);
-      } else {
-        newSet.delete(item.id);
-      }
-      return newSet;
-    });
-
-    // Optimistically update every failed side (or revert them) so the icon flips immediately
-    setItems((prevItems) =>
-      prevItems.map((i) => {
-        if (i.id !== item.id) {
-          return i;
-        }
-        if (isDelete && i.src) {
-          return {
-            ...i,
-            src: {
-              ...i.src,
-              deleteStatus: isMarkedForRetry ? "failed" : "pending_explicit",
-            },
-          };
-        }
-        return applyDiscoveryRetryOptimistic(i, newRetryState, unmarkRestore);
-      })
-    );
-    
-    pendingRetryUpdatesRef.current.set(item.id, newRetryState);
-    
-    try {
-      // Mark or unmark for retry based on current state and phase
-      // Use phase-specific endpoints: discovery retry for traversal phase, copy retry for copy phase
-      const result = isMarkedForRetry
-        ? (isDelete
-            ? await unmarkNodeForRetryDelete(migrationId, nodeIdToUpdate)
-            : await unmarkNodeForRetryDiscovery(migrationId, nodeIdToUpdate))
-        : (isDelete
-            ? await markNodeForRetryDelete(migrationId, nodeIdToUpdate)
-            : await markNodeForRetryDiscovery(migrationId, nodeIdToUpdate));
-      
-      // If the call fails, revert optimistic update
-      if (!result.success) {
-        // Revert optimistic update
-        setRetryItems((prev) => {
-          const newSet = new Set(prev);
-          if (isMarkedForRetry) {
-            newSet.add(item.id);
-          } else {
-            newSet.delete(item.id);
-          }
-          return newSet;
-        });
-        setItems((prevItems) =>
-          prevItems.map((i) => {
-            if (i.id === item.id) {
-              return originalItem;
-            }
-            return i;
-          })
-        );
-        pendingRetryUpdatesRef.current.delete(item.id);
-        if (!isNoItemsChangedError(result.error)) {
-          setToast({
-            message: result.error || "Failed to update node. Please try again.",
-            type: "error",
-          });
-        }
-        return;
-      }
-      
-      // Success – apply deltas from response instead of refetching the table
-      pendingRetryUpdatesRef.current.delete(item.id);
-      if (result.deltas && Object.keys(result.deltas).length > 0) {
-        handleApplyStatsDeltas(result.deltas);
-      }
-
-      setToast({
-        message: newRetryState
-          ? "Item marked for retry"
-          : "Item unmarked for retry",
-        type: "success",
-      });
-      setMutationOps((prev) =>
-        withInFlightOp(
-          prev,
-          [nodeIdToUpdate, item.id, srcNodeId],
-          RETRY_OP_TITLE,
-          "confirmed"
-        )
-      );
-      window.setTimeout(() => {
-        setMutationOps((prev) =>
-          withInFlightOp(prev, [nodeIdToUpdate, item.id, srcNodeId], null)
-        );
-      }, MUTATION_CONFIRM_MS);
-      return;
-    } catch (err) {
-      // Revert optimistic update on network error
-      setRetryItems((prev) => {
-        const newSet = new Set(prev);
-        if (isMarkedForRetry) {
-          newSet.add(item.id);
-        } else {
-          newSet.delete(item.id);
-        }
-        return newSet;
-      });
-      setItems((prevItems) =>
-        prevItems.map((i) => {
-          if (i.id === item.id) {
-            return originalItem;
-          }
-          return i;
-        })
-      );
-      pendingRetryUpdatesRef.current.delete(item.id);
-
-      setToast({
-        message:
-          err instanceof Error
-            ? err.message
-            : "Network error: Failed to update node. Please try again.",
-        type: "error",
-      });
-    } finally {
-      // Success path returns early after scheduling confirm clear.
-      setMutationOps((prev) => {
-        const st = inFlightOpState(prev, [nodeIdToUpdate, item.id, srcNodeId]);
-        if (st?.phase === "confirmed") return prev;
-        return withInFlightOp(prev, [nodeIdToUpdate, item.id, srcNodeId], null);
-      });
-    }
   };
 
   const handleCheckboxChange = async (
@@ -2418,9 +2312,7 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
       (isDeleteReview
         ? !status.isFailed && !isMarkedForRetry
         : !status.isExcluded &&
-          !status.isTraversalSkipped &&
-          !isTraversalAckFromFailed(item) &&
-          !status.isFailed &&
+          !dualPeerBlocksFolderNav(item) &&
           !isMarkedForRetry);
     const canToggleIgnoreWarning =
       showCompatUI &&
@@ -2447,21 +2339,33 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
         },
       });
     }
-    if (acts.canExclude) {
+    if (
+      acts.reviewAxis &&
+      acts.statusTransitions.length > 0 &&
+      !inFlightOpTitle(mutationOps, itemMutationIds(item))
+    ) {
+      for (const status of acts.statusTransitions) {
+        actions.push({
+          key: `status-${status}`,
+          label: REVIEW_STATUS_LABELS[status],
+          onClick: () => {
+            if (!migrationId || !acts.reviewAxis) return;
+            void runReviewStatusTransition(
+              migrationId,
+              item,
+              acts.reviewAxis,
+              status,
+              reviewStatusDeps()
+            );
+          },
+        });
+      }
+    } else if (acts.canExclude) {
       actions.push({
         key: "exclude",
         label: acts.excludeLabel,
         onClick: () => {
           void handleCheckboxChange(item, true);
-        },
-      });
-    }
-    if (acts.canRetry) {
-      actions.push({
-        key: "retry",
-        label: acts.retryLabel,
-        onClick: () => {
-          void handleRetryClick(item);
         },
       });
     }
@@ -3143,7 +3047,7 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
               <span>Show destination-only items</span>
             </label>
           )}
-          {!srcOnlyBrowsePhase && activeTab === "tree" && (
+          {layoutPhaseKey === "copy" && activeTab === "tree" && (
             <div className="path-review__layout-toggle" role="group" aria-label="Browse layout">
               <button
                 type="button"
@@ -3384,8 +3288,7 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
                     isDeleteReview
                       ? !status.isFailed && !isMarkedForRetry
                       : !status.isExcluded &&
-                        !status.isTraversalSkipped &&
-                        !status.isFailed &&
+                        !dualPeerBlocksFolderNav(item) &&
                         !isMarkedForRetry
                   );
                   const folderOpTitle = inFlightOpTitle(mutationOps, itemMutationIds(item));
@@ -3751,9 +3654,9 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
                         const isMarkedForRetry = isTraversalRetryPending(item);
                         const canOpenFolder =
                           isFolder &&
-                          !status.isFailed &&
+                          !inFlightOpTitle(mutationOps, itemMutationIds(item)) &&
                           !status.isExcluded &&
-                          !status.isTraversalSkipped &&
+                          !dualPeerBlocksFolderNav(item) &&
                           !isMarkedForRetry;
                         const dstName = item.dst?.name || item.name;
                         const lastUpdated =
@@ -3764,7 +3667,7 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
                           <div
                             key={`dst-${item.id}`}
                             className={`path-review__item${
-                              status.isExcluded
+                              status.isExcluded || isTraversalAckFromFailed(item)
                                 ? " path-review__item--excluded"
                                 : ""
                             }${
@@ -3818,6 +3721,10 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
                                 isMarkedForRetry={isMarkedForRetry}
                                 zoomLevel={1}
                                 phase={getDisplayPhase()}
+                                opState={inFlightOpState(
+                                  mutationOps,
+                                  itemMutationIds(item)
+                                )}
                                 onRetryClick={handleRetryClick}
                                 onExcludeClick={handleCheckboxChange}
                                 onSkipDeleteClick={handleSkipDeleteClick}
@@ -3995,6 +3902,13 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
               failedCount={stats?.failedCount ?? 0}
               pathIssues={showCompatUI ? activePathIssues : []}
               showNamingIssues={showCompatUI}
+              onExcludeAllFailed={
+                displayPhaseAllowsBulkExclude(getDisplayPhase()) &&
+                (stats?.failedCount ?? 0) > 0
+                  ? () => setShowExcludeAllFailedConfirm(true)
+                  : undefined
+              }
+              excludeAllFailedBusy={excludeAllFailedBusy}
               onClose={() => setIssuesPanelOpen(false)}
               onJump={handleIssuesJump}
             />
@@ -4432,6 +4346,22 @@ function PathReviewPage({ reviewView }: { reviewView: PathReviewRouteView }) {
         </div>
         )}
       </PageShell>
+
+      {showExcludeAllFailedConfirm && (
+        <ConfirmDialog
+          title={PATH_REVIEW_COPY.issuesExcludeAllFailedTitle}
+          message={PATH_REVIEW_COPY.issuesExcludeAllFailedConfirm(
+            stats?.failedCount ?? 0
+          )}
+          confirmLabel={PATH_REVIEW_COPY.issuesExcludeAllFailedConfirmLabel}
+          cancelLabel="Cancel"
+          confirmTone="danger"
+          onConfirm={() => {
+            void handleConfirmExcludeAllFailed();
+          }}
+          onCancel={() => setShowExcludeAllFailedConfirm(false)}
+        />
+      )}
 
       {/* Confirmation Dialog */}
       {showConfirmDialog && (

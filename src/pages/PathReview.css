@@ -1025,6 +1025,16 @@
   border-width: 1.5px;
 }
 
+/* Full status-icon replacement while a mutation is in flight. */
+.path-review-op-spinner--icon {
+  position: relative;
+  right: auto;
+  bottom: auto;
+  border-width: 2px;
+  min-width: 0;
+  min-height: 0;
+}
+
 .path-review-op-confirm {
   position: absolute;
   right: -3px;
@@ -1035,6 +1045,29 @@
   color: var(--ui-status-success, #3d9a5f);
   text-shadow: 0 0 2px var(--surface-elevated, #fff);
   pointer-events: none;
+}
+
+.path-review-op-fail {
+  position: absolute;
+  right: -3px;
+  bottom: -4px;
+  font-size: 0.75em;
+  line-height: 1;
+  font-weight: 700;
+  color: var(--ui-status-danger, #c44);
+  text-shadow: 0 0 2px var(--surface-elevated, #fff);
+  pointer-events: none;
+  animation: path-review-op-fail-fade 1s ease-out forwards;
+}
+
+@keyframes path-review-op-fail-fade {
+  0%,
+  55% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
 }
 
 @keyframes path-review-op-spin {

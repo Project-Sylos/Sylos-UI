@@ -25,6 +25,13 @@ import {
   isTraversalRetryPending,
   isTraversalSkipped,
 } from "./pathReviewTraversalStatus";
+import {
+  REVIEW_STATUS_LABELS,
+  availableReviewStatusTransitions,
+  reviewCycleClickTarget,
+  type ReviewCycleStatus,
+  type ReviewStatusAxis,
+} from "./reviewStatusCycle";
 
 export type PathReviewItemActions = {
   /** Show Exclude in inspector / menus for this phase (may be disabled). */
@@ -39,6 +46,10 @@ export type PathReviewItemActions = {
   retryLabel: string;
   retryDisabledReason: string | null;
   copyStep: CopyCycleStep | null;
+  /** Axis for PUT status transitions (results phases). */
+  reviewAxis: ReviewStatusAxis | null;
+  /** Direct status targets for context menus (omits current). */
+  statusTransitions: ReviewCycleStatus[];
   canRename: boolean;
   renameDisabledReason: string | null;
   canForceReplace: boolean;
@@ -55,6 +66,10 @@ export type PathReviewItemActions = {
   /** Acknowledged-from-failed on the active axis (traversal ack or copy excluded-from-failed). */
   isAcknowledgedExcluded: boolean;
 };
+
+export function reviewStatusTransitionLabel(status: ReviewCycleStatus): string {
+  return REVIEW_STATUS_LABELS[status];
+}
 
 export type PathReviewItemActionsOptions = {
   showCompatUI?: boolean;
@@ -191,6 +206,8 @@ export function getPathReviewItemActions(
     retryLabel: "Mark for retry",
     retryDisabledReason: null,
     copyStep,
+    reviewAxis: null,
+    statusTransitions: [],
     canRename: false,
     renameDisabledReason: null,
     canForceReplace,
@@ -216,6 +233,9 @@ export function getPathReviewItemActions(
   }
 
   if (displayPhase === "delete") {
+    base.reviewAxis = "delete";
+    base.statusTransitions = availableReviewStatusTransitions(item, "delete");
+    const clickTarget = reviewCycleClickTarget(item, "delete");
     base.showExclude = true;
     base.excludeIsAcknowledge = true;
     if (status.existsOnlyOnDst || !item.src) {
@@ -232,13 +252,16 @@ export function getPathReviewItemActions(
       base.excludeDisabledReason = "Only failed removals can be acknowledged";
     }
     base.showRetry = true;
-    if (deleteFailed || deleteRetry) {
+    if (clickTarget) {
       base.canRetry = true;
-      base.retryLabel = deleteRetry ? "Unmark retry" : "Mark for retry";
+      base.retryLabel = REVIEW_STATUS_LABELS[clickTarget];
+    } else if (deleteFailed || deleteRetry) {
+      base.canRetry = true;
+      base.retryLabel = deleteRetry ? "Mark as failed" : "Mark for retry";
     } else {
       base.retryDisabledReason = "Not in a failed state";
     }
-    base.statusIconInteractive = base.canExclude || base.canRetry;
+    base.statusIconInteractive = base.statusTransitions.length > 0;
     return base;
   }
 
@@ -272,6 +295,9 @@ export function getPathReviewItemActions(
   }
 
   if (displayPhase === "copy") {
+    base.reviewAxis = "copy";
+    base.statusTransitions = availableReviewStatusTransitions(item, "copy");
+    const clickTarget = reviewCycleClickTarget(item, "copy");
     base.showExclude = true;
     base.excludeIsAcknowledge = true;
     if (status.existsOnlyOnDst) {
@@ -290,7 +316,6 @@ export function getPathReviewItemActions(
         : "Unexclude";
       base.isAcknowledgedExcluded = copyExcludedFromFailed || copyExcluded;
     } else if (copyRetryMarked) {
-      // Retry-marked pending can still be acknowledged via exclude.
       base.canExclude = true;
       base.excludeLabel = "Exclude";
     } else {
@@ -299,21 +324,29 @@ export function getPathReviewItemActions(
     }
 
     base.showRetry = true;
-    if (copyStep !== null) {
+    if (clickTarget) {
       base.canRetry = true;
-      base.retryLabel = COPY_CYCLE_LABELS[copyStep];
+      base.retryLabel =
+        copyStep !== null
+          ? COPY_CYCLE_LABELS[copyStep]
+          : REVIEW_STATUS_LABELS[clickTarget];
     } else if (copyFailed || copyRetryMarked) {
       base.canRetry = true;
-      base.retryLabel = copyRetryMarked ? "Unmark retry" : "Mark for retry";
+      base.retryLabel = copyRetryMarked ? "Mark as failed" : "Mark for retry";
     } else {
       base.retryDisabledReason = "Not in a failed state";
     }
     base.statusIconInteractive =
-      base.canExclude || base.canRetry || canForceReplace || canUnforceReplace;
+      base.statusTransitions.length > 0 ||
+      canForceReplace ||
+      canUnforceReplace;
     return base;
   }
 
   // Discovery results (traversal)
+  base.reviewAxis = "discovery";
+  base.statusTransitions = availableReviewStatusTransitions(item, "discovery");
+  const discoveryClick = reviewCycleClickTarget(item, "discovery");
   base.showExclude = true;
   base.excludeIsAcknowledge = true;
   if (status.existsOnlyOnDst) {
@@ -333,9 +366,12 @@ export function getPathReviewItemActions(
   }
 
   base.showRetry = true;
-  if (travFailed || travSkipped || travRetry || travAck) {
+  if (discoveryClick) {
     base.canRetry = true;
-    base.retryLabel = travRetry ? "Unmark retry" : "Mark for retry";
+    base.retryLabel = REVIEW_STATUS_LABELS[discoveryClick];
+  } else if (travFailed || travSkipped || travRetry || travAck) {
+    base.canRetry = true;
+    base.retryLabel = travRetry ? "Mark as failed" : "Mark for retry";
   } else {
     base.retryDisabledReason = "Not in a failed state";
   }
@@ -348,7 +384,7 @@ export function getPathReviewItemActions(
   }
 
   base.statusIconInteractive =
-    base.canExclude || base.canRetry || travSkipped || travAck;
+    base.statusTransitions.length > 0 || travSkipped || travAck;
   return base;
 }
 

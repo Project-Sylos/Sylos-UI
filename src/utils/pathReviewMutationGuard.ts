@@ -6,8 +6,10 @@ export const REMOVAL_OP_TITLE = "Removal op in progress";
 
 /** How long the green confirmation check stays after a successful mutation. */
 export const MUTATION_CONFIRM_MS = 700;
+/** How long the red failure X stays after a failed mutation. */
+export const MUTATION_FAIL_MS = 1000;
 
-export type MutationOpPhase = "pending" | "confirmed";
+export type MutationOpPhase = "pending" | "confirmed" | "failed";
 
 export type MutationOpState = {
   title: string;
@@ -87,4 +89,21 @@ export function itemMutationIds(item: {
   dst?: { id?: string | null } | null;
 }): Array<string | null | undefined> {
   return [item.id, item.src?.id, item.dst?.id];
+}
+
+/** True when none of the item's mutation ids are already in flight. */
+export function canStartItemMutation(
+  inFlight: { has(id: string): boolean },
+  item: {
+    id?: string | null;
+    src?: { id?: string | null } | null;
+    dst?: { id?: string | null } | null;
+  }
+): boolean {
+  for (const id of itemMutationIds(item)) {
+    if (id && inFlight.has(id)) {
+      return false;
+    }
+  }
+  return true;
 }

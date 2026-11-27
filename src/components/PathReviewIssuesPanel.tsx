@@ -36,6 +36,9 @@ type PathReviewIssuesPanelProps = {
   pathIssues: PathIssue[];
   /** Manual rename + naming warnings (copy-plan only). */
   showNamingIssues?: boolean;
+  /** When set, Failed row shows Exclude all (e.g. review phases that support it). */
+  onExcludeAllFailed?: () => void;
+  excludeAllFailedBusy?: boolean;
   onClose: () => void;
   onJump: (target: PathReviewListJumpTarget) => void;
 };
@@ -87,6 +90,8 @@ export default function PathReviewIssuesPanel({
   failedCount,
   pathIssues,
   showNamingIssues = true,
+  onExcludeAllFailed,
+  excludeAllFailedBusy = false,
   onClose,
   onJump,
 }: PathReviewIssuesPanelProps) {
@@ -141,6 +146,13 @@ export default function PathReviewIssuesPanel({
                 ? () => onJump({ statusFilter: "failed" })
                 : undefined
             }
+            actionLabel={
+              failedCount > 0 && onExcludeAllFailed
+                ? PATH_REVIEW_COPY.issuesExcludeAllFailed
+                : undefined
+            }
+            onAction={onExcludeAllFailed}
+            actionBusy={excludeAllFailedBusy}
           />
 
           {showNamingIssues ? (
@@ -224,6 +236,9 @@ function IssueRow({
   tipCategory,
   tipContent,
   onJump,
+  actionLabel,
+  onAction,
+  actionBusy = false,
 }: {
   icon?: ReactNode;
   tone: "failed" | "manual" | "compat";
@@ -233,13 +248,17 @@ function IssueRow({
   tipCategory?: string;
   tipContent?: ReactNode;
   onJump?: () => void;
+  actionLabel?: string;
+  onAction?: () => void;
+  actionBusy?: boolean;
 }) {
-  const disabled = count <= 0 || !onJump;
+  const jumpDisabled = count <= 0 || !onJump;
+  const muted = count <= 0;
   return (
     <div className="path-review-issues-panel__row-wrap">
       <div
         className={`path-review-issues-panel__row path-review-issues-panel__row--${tone}${
-          disabled ? " path-review-issues-panel__row--muted" : ""
+          muted ? " path-review-issues-panel__row--muted" : ""
         }`}
       >
         <div className="path-review-issues-panel__row-main">
@@ -265,7 +284,7 @@ function IssueRow({
           <button
             type="button"
             className="path-review-issues-panel__jump"
-            disabled={disabled}
+            disabled={jumpDisabled}
             onClick={onJump}
             title={PATH_REVIEW_COPY.issuesJumpToList}
             aria-label={`${PATH_REVIEW_COPY.issuesJumpToList}: ${label}`}
@@ -274,6 +293,16 @@ function IssueRow({
           </button>
         </div>
       </div>
+      {actionLabel && onAction && count > 0 ? (
+        <button
+          type="button"
+          className="path-review-issues-panel__row-action"
+          onClick={onAction}
+          disabled={actionBusy}
+        >
+          {actionBusy ? "Excluding…" : actionLabel}
+        </button>
+      ) : null}
     </div>
   );
 }

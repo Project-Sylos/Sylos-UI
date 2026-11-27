@@ -37,6 +37,8 @@ describe("pathReviewItemActions", () => {
     expect(failedActs.canExclude).toBe(true);
     expect(failedActs.excludeLabel).toBe("Exclude");
     expect(failedActs.canRetry).toBe(true);
+    expect(failedActs.retryLabel).toBe("Mark for retry");
+    expect(failedActs.statusTransitions).toEqual(["pending", "excluded"]);
 
     const ack = item({
       traversalStatus: "excluded",
@@ -52,6 +54,8 @@ describe("pathReviewItemActions", () => {
     expect(ackActs.excludeLabel).toBe("Unexclude");
     expect(ackActs.isAcknowledgedExcluded).toBe(true);
     expect(ackActs.canRetry).toBe(true);
+    expect(ackActs.retryLabel).toBe("Mark as failed");
+    expect(ackActs.statusTransitions).toEqual(["failed", "pending"]);
   });
 
   it("discovery: root-pick skipped cannot exclude", () => {
@@ -63,6 +67,7 @@ describe("pathReviewItemActions", () => {
     const acts = getPathReviewItemActions(skipped, status, "traversal");
     expect(acts.canExclude).toBe(false);
     expect(acts.canRetry).toBe(true);
+    expect(acts.statusTransitions).toEqual(["pending"]);
   });
 
   it("copy-plan: pending can exclude; complete cannot", () => {

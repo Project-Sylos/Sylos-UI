@@ -19,10 +19,6 @@ import {
   SearchOptions,
   excludeNode,
   unexcludeNode,
-  markNodeForRetryDiscovery,
-  unmarkNodeForRetryDiscovery,
-  markNodeForRetryDelete,
-  unmarkNodeForRetryDelete,
   bulkExcludeNodes,
   bulkUnexcludeNodes,
   bulkMarkNodesForRetry,
@@ -60,7 +56,6 @@ import {
 import {
   EXCLUSION_OP_TITLE,
   MUTATION_CONFIRM_MS,
-  RETRY_OP_TITLE,
   canStartMutation,
   inFlightOpState,
   inFlightOpTitle,
@@ -140,8 +135,6 @@ import {
 import BulkActionConfirmDialog from "../components/BulkActionConfirmDialog";
 import ConfirmDialog from "../components/ConfirmDialog";
 import {
-  applyDiscoveryRetryOptimistic,
-  getTraversalRetryNodeId,
   isTraversalAckFromFailed,
   isTraversalRetryPending,
 } from "../utils/pathReviewTraversalStatus";
@@ -151,7 +144,12 @@ import {
   excludedByRuleText,
   includeRuleExcludedSubtree,
 } from "../utils/pathReviewRuleExclusion";
-import { runCopyCycleClick } from "../utils/copyStatusCycle";
+import {
+  REVIEW_STATUS_LABELS,
+  runReviewStatusCycleClick,
+  runReviewStatusTransition,
+  type ReviewStatusAxis,
+} from "../utils/reviewStatusCycle";
 import {
   createEmptyRuleset,
   isRulesetEffectivelyEmpty,
@@ -1577,150 +1575,30 @@ export default function PathReviewListView({
     }
   };
 
+  const reviewAxisForPhase = (): ReviewStatusAxis => {
+    const phase = getCurrentPhase();
+    if (phase === "copy") return "copy";
+    if (phase === "delete") return "delete";
+    return "discovery";
+  };
+
+  const reviewStatusDeps = () => ({
+    setItems,
+    mutationOps,
+    setMutationOps,
+    notify: (message: string, type: "success" | "error") =>
+      onToast?.(message, type),
+    applyDeltas: onApplyStatsDeltas,
+  });
+
   const handleRetryClick = async (item: DiffItem) => {
     if (!migrationId) return;
-
-    const currentPhase = getCurrentPhase();
-    const isCopy = currentPhase === "copy";
-    const isDelete = currentPhase === "delete";
-    const srcNodeId = item.src?.id;
-
-    if (isCopy) {
-      await runCopyCycleClick(migrationId, item, {
-        setItems,
-        mutationOps,
-        setMutationOps,
-        notify: (message, type) => onToast?.(message, type),
-        applyDeltas: onApplyStatsDeltas,
-      });
-      return;
-    }
-
-    // Determine which node has failed or pending status (failed takes priority)
-    let nodeIdToUpdate: string | null = null;
-    let isMarkedForRetry = false;
-    
-    if (isDelete) {
-      const deleteStatus = item.src?.deleteStatus || "";
-      if ((deleteStatus === "failed" || isDeletePendingExplicit(deleteStatus)) && srcNodeId) {
-        nodeIdToUpdate = srcNodeId;
-        isMarkedForRetry = isDeletePendingExplicit(deleteStatus);
-      }
-    } else {
-      const nodeId = getTraversalRetryNodeId(item);
-      if (nodeId) {
-        nodeIdToUpdate = nodeId;
-        isMarkedForRetry = isTraversalRetryPending(item);
-      }
-    }
-
-    if (!nodeIdToUpdate) {
-      onToast?.(
-        "No node with failed, skipped, or pending status available for this item.",
-        "error"
-      );
-      return;
-    }
-
-    if (!canStartMutation(mutationOps, nodeIdToUpdate)) {
-      onToast?.(
-        "An operation is already running on this path; try again once it finishes.",
-        "error"
-      );
-      return;
-    }
-
-    const newRetryState = !isMarkedForRetry;
-
-    // Store original item state for rollback
-    const originalItem = { ...item };
-
-    setMutationOps((prev) =>
-      withInFlightOp(prev, [nodeIdToUpdate, item.id], RETRY_OP_TITLE)
+    await runReviewStatusCycleClick(
+      migrationId,
+      item,
+      reviewAxisForPhase(),
+      reviewStatusDeps()
     );
-
-    setItems((prevItems) =>
-      prevItems.map((i) => {
-        if (i.id !== item.id) {
-          return i;
-        }
-        if (isDelete && i.src) {
-          return {
-            ...i,
-            src: {
-              ...i.src,
-              deleteStatus: isMarkedForRetry ? "failed" : "pending_explicit",
-            },
-          };
-        }
-        return applyDiscoveryRetryOptimistic(i, newRetryState, "failed");
-      })
-    );
-
-    try {
-      // Mark or unmark for retry based on current state and phase
-      // Use phase-specific endpoints: discovery retry for traversal phase, copy retry for copy phase
-      const result = isMarkedForRetry
-        ? (isDelete
-            ? await unmarkNodeForRetryDelete(migrationId, nodeIdToUpdate)
-            : await unmarkNodeForRetryDiscovery(migrationId, nodeIdToUpdate))
-        : (isDelete
-            ? await markNodeForRetryDelete(migrationId, nodeIdToUpdate)
-            : await markNodeForRetryDiscovery(migrationId, nodeIdToUpdate));
-      
-      // If the call fails, revert optimistic update
-      if (!result.success) {
-        // Revert optimistic update
-        setItems((prevItems) =>
-          prevItems.map((i) => {
-            if (i.id === item.id) {
-              return originalItem;
-            }
-            return i;
-          })
-        );
-        onToast?.(result.error || "Failed to update node. Please try again.", "error");
-        return;
-      }
-
-      if (result.deltas && Object.keys(result.deltas).length > 0) {
-        onApplyStatsDeltas?.(result.deltas);
-      }
-      onToast?.(
-        newRetryState ? "Item marked for retry" : "Item unmarked for retry",
-        "success"
-      );
-      const opIds: Array<string | null | undefined> = [nodeIdToUpdate, item.id];
-      setMutationOps((prev) =>
-        withInFlightOp(prev, opIds, RETRY_OP_TITLE, "confirmed")
-      );
-      window.setTimeout(() => {
-        setMutationOps((prev) => withInFlightOp(prev, opIds, null));
-      }, MUTATION_CONFIRM_MS);
-      return;
-    } catch (err) {
-      // Revert optimistic update on network error
-      setItems((prevItems) =>
-        prevItems.map((i) => {
-          if (i.id === item.id) {
-            return originalItem;
-          }
-          return i;
-        })
-      );
-      const message =
-        err instanceof Error
-          ? err.message
-          : "Network error: Failed to update node. Please try again.";
-      onToast?.(message, "error");
-    } finally {
-      setMutationOps((prev) => {
-        const opIds: Array<string | null | undefined> = [nodeIdToUpdate, item.id];
-        const st = inFlightOpState(prev, opIds);
-        if (st?.phase === "confirmed") return prev;
-        return withInFlightOp(prev, opIds, null);
-      });
-    }
   };
 
 
@@ -1908,21 +1786,33 @@ export default function PathReviewListView({
         },
       });
     }
-    if (acts.canExclude) {
+    if (
+      acts.reviewAxis &&
+      acts.statusTransitions.length > 0 &&
+      !inFlightOpTitle(mutationOps, itemMutationIds(item))
+    ) {
+      for (const status of acts.statusTransitions) {
+        actions.push({
+          key: `status-${status}`,
+          label: REVIEW_STATUS_LABELS[status],
+          onClick: () => {
+            if (!migrationId || !acts.reviewAxis) return;
+            void runReviewStatusTransition(
+              migrationId,
+              item,
+              acts.reviewAxis,
+              status,
+              reviewStatusDeps()
+            );
+          },
+        });
+      }
+    } else if (acts.canExclude) {
       actions.push({
         key: "exclude",
         label: acts.excludeLabel,
         onClick: () => {
           void handleCheckboxChange(item, true);
-        },
-      });
-    }
-    if (acts.canRetry) {
-      actions.push({
-        key: "retry",
-        label: acts.retryLabel,
-        onClick: () => {
-          void handleRetryClick(item);
         },
       });
     }

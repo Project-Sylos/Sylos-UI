@@ -1,7 +1,7 @@
 import {
   DiffItem,
   RuleExclusion,
-  markNodeForRetryDiscovery,
+  setNodeStatus,
   unexcludeNode,
 } from "../api/services";
 
@@ -35,7 +35,10 @@ export async function includeRuleExcludedSubtree(
   if (!unex.success) {
     return { success: false, error: unex.error || "Failed to unexclude node" };
   }
-  const mark = await markNodeForRetryDiscovery(migrationId, nodeId);
+  const mark = await setNodeStatus(migrationId, nodeId, {
+    axis: "discovery",
+    status: "pending",
+  });
   if (!mark.success) {
     return {
       success: false,

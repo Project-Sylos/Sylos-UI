@@ -13,6 +13,7 @@ import {
   MigrationLogsResponse,
   MigrationQueueMetricsResponse,
   ListMigrationsResponse,
+  CancelInFlightResponse,
 } from "../types/migrations";
 import { ServiceDescriptor, Drive, ChildrenResponse, Folder } from "../types/services";
 import { UserPreferences, DEFAULT_PREFERENCES, normalizeAppTheme } from "../types/preferences";
@@ -870,6 +871,25 @@ export async function getMigrationQueueMetrics(
   return data;
 }
 
+export async function cancelMigrationInFlight(
+  migrationId: string,
+  nodeId: string
+): Promise<CancelInFlightResponse> {
+  const response = await apiFetch(
+    `/api/migrations/${migrationId}/inflight/${encodeURIComponent(nodeId)}/cancel`,
+    { method: "POST" }
+  );
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(
+      `Failed to cancel in-flight task (${response.status}): ${
+        message || "Unknown error"
+      }`
+    );
+  }
+  return (await response.json()) as CancelInFlightResponse;
+}
+
 // Diff types for path review - matching new API structure
 export interface PathNodeItem {
   queue: string;              // "SRC" or "DST"
@@ -1238,68 +1258,33 @@ export async function unexcludeNode(
   return data;
 }
 
-/**
- * Mark a node for retry (re-traversal)
- * @param migrationId The ID of the migration
- * @param nodeId The ID of the node to mark for retry (from PathNodeItem.id)
- * @returns Promise resolving to ExclusionResponse
- */
-/**
- * Mark a node for discovery/traversal retry
- * @param migrationId The ID of the migration
- * @param nodeId The ULID of the node to mark for retry (from PathNodeItem.id)
- * @returns Promise resolving to ExclusionResponse
- */
-export async function markNodeForRetryDiscovery(
-  migrationId: string,
-  nodeId: string
-): Promise<ExclusionResponse> {
+export type NodeStatusAxis = "discovery" | "copy" | "delete";
+export type NodeStatusValue = "failed" | "pending" | "excluded";
 
-  const response = await apiFetch(
-    `/api/migrations/${migrationId}/node/${encodeURIComponent(nodeId)}/mark-retry-discovery`,
-    {
-      method: "POST",
-    }
-  );
-
-  if (!response.ok) {
-    let errorMessage = "Failed to mark node for discovery retry";
-    try {
-      const errorData = await response.json();
-      errorMessage = errorData.error || errorMessage;
-    } catch {
-      errorMessage = `HTTP ${response.status}: ${response.statusText}`;
-    }
-    return {
-      success: false,
-      error: errorMessage,
-    };
-  }
-
-  const data = await response.json();
-  return data;
+export interface SetNodeStatusRequest {
+  axis: NodeStatusAxis;
+  status: NodeStatusValue;
 }
 
 /**
- * Unmark a node for discovery/traversal retry
- * @param migrationId The ID of the migration
- * @param nodeId The ULID of the node to unmark for retry (from PathNodeItem.id)
- * @returns Promise resolving to ExclusionResponse
+ * Set a node's review-axis status (failed / pending / excluded).
  */
-export async function unmarkNodeForRetryDiscovery(
+export async function setNodeStatus(
   migrationId: string,
-  nodeId: string
+  nodeId: string,
+  payload: SetNodeStatusRequest
 ): Promise<ExclusionResponse> {
-
   const response = await apiFetch(
-    `/api/migrations/${migrationId}/node/${encodeURIComponent(nodeId)}/unmark-retry-discovery`,
+    `/api/migrations/${migrationId}/node/${encodeURIComponent(nodeId)}/status`,
     {
-      method: "POST",
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
     }
   );
 
   if (!response.ok) {
-    let errorMessage = "Failed to unmark node for discovery retry";
+    let errorMessage = "Failed to set node status";
     try {
       const errorData = await response.json();
       errorMessage = errorData.error || errorMessage;
@@ -1312,80 +1297,7 @@ export async function unmarkNodeForRetryDiscovery(
     };
   }
 
-  const data = await response.json();
-  return data;
-}
-
-/**
- * Mark a node for copy retry (src nodes only)
- * @param migrationId The ID of the migration
- * @param nodeId The ULID of the src node to mark for retry (from PathNodeItem.id)
- * @returns Promise resolving to ExclusionResponse
- */
-export async function markNodeForRetryCopy(
-  migrationId: string,
-  nodeId: string
-): Promise<ExclusionResponse> {
-
-  const response = await apiFetch(
-    `/api/migrations/${migrationId}/node/${encodeURIComponent(nodeId)}/mark-retry-copy`,
-    {
-      method: "POST",
-    }
-  );
-
-  if (!response.ok) {
-    let errorMessage = "Failed to mark node for copy retry";
-    try {
-      const errorData = await response.json();
-      errorMessage = errorData.error || errorMessage;
-    } catch {
-      errorMessage = `HTTP ${response.status}: ${response.statusText}`;
-    }
-    return {
-      success: false,
-      error: errorMessage,
-    };
-  }
-
-  const data = await response.json();
-  return data;
-}
-
-/**
- * Unmark a node for copy retry
- * @param migrationId The ID of the migration
- * @param nodeId The ULID of the src node to unmark for retry (from PathNodeItem.id)
- * @returns Promise resolving to ExclusionResponse
- */
-export async function unmarkNodeForRetryCopy(
-  migrationId: string,
-  nodeId: string
-): Promise<ExclusionResponse> {
-
-  const response = await apiFetch(
-    `/api/migrations/${migrationId}/node/${encodeURIComponent(nodeId)}/unmark-retry-copy`,
-    {
-      method: "POST",
-    }
-  );
-
-  if (!response.ok) {
-    let errorMessage = "Failed to unmark node for copy retry";
-    try {
-      const errorData = await response.json();
-      errorMessage = errorData.error || errorMessage;
-    } catch {
-      errorMessage = `HTTP ${response.status}: ${response.statusText}`;
-    }
-    return {
-      success: false,
-      error: errorMessage,
-    };
-  }
-
-  const data = await response.json();
-  return data;
+  return response.json();
 }
 
 /** Prefer source overwrite for exists-on-both (already_existed → pending). Folders cascade to descendants. */
@@ -1964,34 +1876,6 @@ export async function getDeleteSummary(migrationId: string): Promise<DeleteSumma
   const response = await apiFetch(`/api/migrations/${migrationId}/delete-summary`);
   if (!response.ok) {
     throw new Error(`Failed to load delete summary (${response.status})`);
-  }
-  return response.json();
-}
-
-export async function markNodeForRetryDelete(
-  migrationId: string,
-  nodeId: string
-): Promise<ExclusionResponse> {
-  const response = await apiFetch(
-    `/api/migrations/${migrationId}/node/${encodeURIComponent(nodeId)}/mark-retry-delete`,
-    { method: "POST" }
-  );
-  if (!response.ok) {
-    return { success: false, error: `HTTP ${response.status}` };
-  }
-  return response.json();
-}
-
-export async function unmarkNodeForRetryDelete(
-  migrationId: string,
-  nodeId: string
-): Promise<ExclusionResponse> {
-  const response = await apiFetch(
-    `/api/migrations/${migrationId}/node/${encodeURIComponent(nodeId)}/unmark-retry-delete`,
-    { method: "POST" }
-  );
-  if (!response.ok) {
-    return { success: false, error: `HTTP ${response.status}` };
   }
   return response.json();
 }
@@ -3023,6 +2907,9 @@ export async function getPreferences(): Promise<UserPreferences> {
         enabled: typeof data.developer.enabled === "boolean" ? data.developer.enabled : DEFAULT_PREFERENCES.developer!.enabled,
         showSpectraService: typeof data.developer.showSpectraService === "boolean" ? data.developer.showSpectraService : DEFAULT_PREFERENCES.developer!.showSpectraService,
         disableDbQueryTimeout: typeof data.developer.disableDbQueryTimeout === "boolean" ? data.developer.disableDbQueryTimeout : DEFAULT_PREFERENCES.developer!.disableDbQueryTimeout,
+        stallTimeoutTraversalSec: typeof data.developer.stallTimeoutTraversalSec === "number" ? data.developer.stallTimeoutTraversalSec : DEFAULT_PREFERENCES.developer!.stallTimeoutTraversalSec,
+        stallTimeoutDeleteSec: typeof data.developer.stallTimeoutDeleteSec === "number" ? data.developer.stallTimeoutDeleteSec : DEFAULT_PREFERENCES.developer!.stallTimeoutDeleteSec,
+        stallTimeoutCopySec: typeof data.developer.stallTimeoutCopySec === "number" ? data.developer.stallTimeoutCopySec : DEFAULT_PREFERENCES.developer!.stallTimeoutCopySec,
       } : DEFAULT_PREFERENCES.developer,
     };
   } catch (error) {

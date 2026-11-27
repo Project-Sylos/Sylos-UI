@@ -34,19 +34,26 @@
 
 .toast--error {
   border-color: var(--ui-alert-danger-border);
-  background: var(--ui-alert-danger-bg);
+  /* Tint over opaque overlay so page content does not show through. */
+  background:
+    linear-gradient(var(--ui-alert-danger-bg), var(--ui-alert-danger-bg)),
+    var(--ui-overlay-95);
   color: var(--ui-alert-danger-fg);
 }
 
 .toast--success {
   border-color: var(--ui-alert-success-border);
-  background: var(--ui-alert-success-bg);
+  background:
+    linear-gradient(var(--ui-alert-success-bg), var(--ui-alert-success-bg)),
+    var(--ui-overlay-95);
   color: var(--ui-alert-success-fg);
 }
 
 .toast--info {
   border-color: var(--ui-alert-info-border);
-  background: var(--ui-alert-info-bg);
+  background:
+    linear-gradient(var(--ui-alert-info-bg), var(--ui-alert-info-bg)),
+    var(--ui-overlay-95);
   color: var(--ui-alert-info-fg);
 }
 

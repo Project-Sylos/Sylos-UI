@@ -592,6 +592,28 @@ export interface InFlightTask {
   bytesTotal?: number;
 }
 
+export interface SettledInFlightTask {
+  nodeId?: string;
+  path?: string;
+  taskType?: string;
+  itemKind?: string;
+  success?: boolean;
+  bytesDone?: number;
+  bytesTotal?: number;
+}
+
+export type CancelInFlightResult =
+  | "cancelled"
+  | "already_succeeded"
+  | "already_failed"
+  | "not_inflight";
+
+export interface CancelInFlightResponse {
+  ok: boolean;
+  result: CancelInFlightResult | string;
+  message?: string;
+}
+
 export interface MigrationLogsResponse {
   success: boolean;
   errorCode?: string;
@@ -683,6 +705,8 @@ export interface QueueMetrics {
   inter_op_delay_ms?: number;
   /** Live leased tasks from queue observer (memory-only). */
   activeTasks?: InFlightTask[];
+  /** One-poll flash of tasks that left the prior active snapshot. */
+  recentlySettled?: SettledInFlightTask[];
   /** Engine-owned remaining seconds (0 = done). */
   eta_seconds?: number;
   /** Which clock the engine used: "items" | "bytes". */

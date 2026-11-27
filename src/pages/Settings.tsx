@@ -4,6 +4,7 @@ import "./Settings.css";
 import { PageShell } from "../components/PageShell";
 import { useTheme } from "../contexts/ThemeContext";
 import { usePreferences } from "../contexts/PreferencesContext";
+import { DEFAULT_FS_STALL_TIMEOUT_SEC } from "../types/preferences";
 import { useAuth } from "../contexts/AuthContext";
 import CloudProviderOAuthSetup from "../components/CloudProviderOAuthSetup";
 import SettingsSftpHostsSection from "../components/SettingsSftpHostsSection";
@@ -556,6 +557,68 @@ export default function Settings({ onClose, initialSection = null }: SettingsPro
                   <span className="settings__toggle-slider"></span>
                 </label>
               </div>
+            </div>
+
+            <div
+              className={`settings__subsection${developerEnabled ? "" : " settings__subsection--disabled"}`}
+            >
+              <div className="settings__subsection-header">
+                <div>
+                  <h2 className="settings__subsection-title">FS stall timeouts</h2>
+                  <p className="settings__subsection-description">
+                    Cancel a hung filesystem call after this many seconds of wait (rate-limit time excluded). Applies on the next phase start. Use 0 to wait forever. Default {DEFAULT_FS_STALL_TIMEOUT_SEC}.
+                  </p>
+                </div>
+              </div>
+              {(
+                [
+                  ["Traversal (ListChildren)", "stallTimeoutTraversalSec"],
+                  ["Delete", "stallTimeoutDeleteSec"],
+                  ["Copy (open / create / chunks)", "stallTimeoutCopySec"],
+                ] as const
+              ).map(([label, key]) => {
+                const currentDeveloper = preferences.developer || {
+                  enabled: false,
+                  showSpectraService: false,
+                  disableDbQueryTimeout: false,
+                  stallTimeoutTraversalSec: DEFAULT_FS_STALL_TIMEOUT_SEC,
+                  stallTimeoutDeleteSec: DEFAULT_FS_STALL_TIMEOUT_SEC,
+                  stallTimeoutCopySec: DEFAULT_FS_STALL_TIMEOUT_SEC,
+                };
+                const value = currentDeveloper[key] ?? DEFAULT_FS_STALL_TIMEOUT_SEC;
+                return (
+                  <label
+                    key={key}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: "1rem",
+                      marginTop: "0.65rem",
+                      opacity: developerEnabled ? 1 : 0.5,
+                    }}
+                  >
+                    <span>{label}</span>
+                    <input
+                      type="number"
+                      min={0}
+                      step={1}
+                      disabled={!developerEnabled}
+                      value={value}
+                      onChange={(e) => {
+                        const n = Number(e.target.value);
+                        updatePreferences({
+                          developer: {
+                            ...currentDeveloper,
+                            [key]: Number.isFinite(n) && n >= 0 ? Math.floor(n) : DEFAULT_FS_STALL_TIMEOUT_SEC,
+                          },
+                        });
+                      }}
+                      style={{ width: "5.5rem" }}
+                    />
+                  </label>
+                );
+              })}
             </div>
           </div>
         </div>

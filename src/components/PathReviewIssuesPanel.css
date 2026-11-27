@@ -221,6 +221,28 @@
   cursor: not-allowed;
 }
 
+.path-review-issues-panel__row-action {
+  align-self: flex-start;
+  margin-left: 0.45rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 6px;
+  border: 1px solid rgba(239, 68, 68, 0.45);
+  background: rgba(239, 68, 68, 0.12);
+  color: var(--ui-status-danger);
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.path-review-issues-panel__row-action:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.2);
+}
+
+.path-review-issues-panel__row-action:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .path-review-issues-panel__tip {
   display: inline-flex;
   align-items: center;

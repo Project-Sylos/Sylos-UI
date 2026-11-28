@@ -44,11 +44,18 @@ import {
 } from "../utils/fsHealth";
 import {
   fetchScalingDefaults,
+  getMigrationAutoscaler,
   getMigrationScaling,
   putMigrationScaling,
   deleteProviderScalingOverrides,
 } from "../api/scaling";
 import AutoscalerPanel from "../components/AutoscalerPanel";
+import type { AutoscalerWaitBudget } from "../types/autoscaler";
+import {
+  waitBudgetInstantDelta,
+  workingOnActivityChip,
+  type WaitBudgetInstant,
+} from "../utils/waitBudgetActivity";
 import WorkerCapOverridesDialog from "../components/WorkerCapOverridesDialog";
 import type {
   ModeWorkerCaps,
@@ -846,6 +853,8 @@ export default function ProgressMonitor() {
 
   const [status, setStatus] = useState<any>(null);
   const [queueMetrics, setQueueMetrics] = useState<any>(null);
+  const [waitInstant, setWaitInstant] = useState<WaitBudgetInstant | null>(null);
+  const waitBudgetPrevRef = useRef<AutoscalerWaitBudget | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [migrationNotFound, setMigrationNotFound] = useState(false);
   const [allServices, setAllServices] = useState(services);
@@ -1501,6 +1510,38 @@ export default function ProgressMonitor() {
     };
   }, [migrationId, shouldPollLogs]);
 
+  // Light autoscaler poll for the Working-on activity chip (independent of Advanced panel).
+  // Diff cumulative wait totals so the chip tracks the current second, not EMA averages.
+  useEffect(() => {
+    if (!migrationId || !live || !inRunPhase) {
+      waitBudgetPrevRef.current = null;
+      setWaitInstant(null);
+      return;
+    }
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const view = await getMigrationAutoscaler(migrationId);
+        if (cancelled) return;
+        const next = view.snapshot?.waitBudget ?? null;
+        const instant = waitBudgetInstantDelta(waitBudgetPrevRef.current, next);
+        waitBudgetPrevRef.current = next;
+        if (instant) setWaitInstant(instant);
+      } catch {
+        if (!cancelled) {
+          waitBudgetPrevRef.current = null;
+          setWaitInstant(null);
+        }
+      }
+    };
+    void poll();
+    const id = window.setInterval(() => void poll(), 1000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [migrationId, live, inRunPhase]);
+
   const filteredLogLines = useMemo(() => {
     if (logFilter === "all") return logLines;
     const minIx = LOG_LEVELS.indexOf(logFilter);
@@ -1543,6 +1584,30 @@ export default function ProgressMonitor() {
   const inflightDestinationCount =
     inflightSides.destination.length + inflightSides.destinationSettled.length;
   const inflightTaskCount = inflightSourceCount + inflightDestinationCount;
+
+  const workingPhase = showDeleteUI
+    ? "delete"
+    : showCopyUI
+      ? "copy"
+      : "discovery";
+  const workingOnLabel =
+    workingPhase === "delete"
+      ? "Deleting"
+      : workingPhase === "copy"
+        ? "Copying over the following"
+        : "Looking inside of";
+  const activityChip = useMemo(
+    () =>
+      workingOnActivityChip({
+        instant: waitInstant,
+        phase: workingPhase,
+        activeTasks: [
+          ...inflightSides.source,
+          ...inflightSides.destination,
+        ],
+      }),
+    [waitInstant, workingPhase, inflightSides.source, inflightSides.destination]
+  );
 
   const pollSkewMs =
     metricsPollAt > 0 ? Math.max(0, Date.now() - metricsPollAt) : 0;
@@ -2467,7 +2532,15 @@ export default function ProgressMonitor() {
             >
               <summary className="progress-monitor__inflight-summary">
                 {inflightOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-                Working on
+                {workingOnLabel}
+                {activityChip ? (
+                  <span
+                    className={`progress-monitor__activity-chip progress-monitor__activity-chip--${activityChip.tone}`}
+                    title={activityChip.detail}
+                  >
+                    {activityChip.label}
+                  </span>
+                ) : null}
               </summary>
               <div className="progress-monitor__inflight-body">
                 {showDeleteUI ? (

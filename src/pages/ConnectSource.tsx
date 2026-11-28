@@ -64,11 +64,7 @@ export default function ConnectSource() {
     };
   }, []);
 
-  const spectraEligible = isSpectraEligible(
-    source?.root,
-    destination?.root,
-    migration.spectraLocked
-  );
+  const spectraEligible = isSpectraEligible(migration.spectraLocked);
 
   const providersById = useMemo(
     () => new Map(providers.map((provider) => [provider.id, provider])),

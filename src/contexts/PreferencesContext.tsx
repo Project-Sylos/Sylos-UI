@@ -16,9 +16,14 @@ import {
   writePreferencesCache,
 } from "../utils/preferencesCache";
 
+/** Partial preference patch; developer fields merge onto the current developer block. */
+export type PreferencesUpdate = Omit<Partial<UserPreferences>, "developer"> & {
+  developer?: Partial<NonNullable<UserPreferences["developer"]>>;
+};
+
 interface PreferencesContextType {
   preferences: UserPreferences;
-  updatePreferences: (updates: Partial<UserPreferences>) => Promise<void>;
+  updatePreferences: (updates: PreferencesUpdate) => Promise<void>;
   isLoading: boolean;
   /**
    * Bumps after prefs load, logout, or when developer/Spectra gating is persisted.
@@ -36,6 +41,20 @@ function developerGateChanged(prev: UserPreferences, next: UserPreferences): boo
   );
 }
 
+function applyPreferencesUpdate(
+  previous: UserPreferences,
+  updates: PreferencesUpdate
+): UserPreferences {
+  const baseDeveloper = previous.developer ?? DEFAULT_PREFERENCES.developer!;
+  return {
+    ...previous,
+    ...updates,
+    developer: updates.developer
+      ? { ...baseDeveloper, ...updates.developer }
+      : previous.developer,
+  };
+}
+
 export function PreferencesProvider({ children }: { children: ReactNode }) {
   const { user, isLoading: authLoading } = useAuth();
   const [preferences, setPreferences] = useState<UserPreferences>(
@@ -50,6 +69,8 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   const loadingRef = useRef(true);
   const userIdRef = useRef<string | null>(null);
   const loadedUserIdRef = useRef<string | null>(null);
+  /** Serializes preference PUTs so rapid toggles cannot overwrite newer values. */
+  const saveChainRef = useRef(Promise.resolve());
   userIdRef.current = user?.id ?? null;
 
   const bumpRevision = useCallback(() => {
@@ -124,18 +145,29 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   }, [user?.id, authLoading, bumpRevision]);
 
   const updatePreferences = useCallback(
-    async (updates: Partial<UserPreferences>) => {
+    async (updates: PreferencesUpdate) => {
       const previous = preferencesRef.current;
-      const newPrefs = { ...previous, ...updates };
+      const newPrefs = applyPreferencesUpdate(previous, updates);
       const gateChanged = developerGateChanged(previous, newPrefs);
       dirtyRef.current = true;
+      // Keep the ref ahead of React state so rapid patches merge onto the latest.
+      preferencesRef.current = newPrefs;
       setPreferences(newPrefs);
       if (userIdRef.current) {
         writePreferencesCache(userIdRef.current, newPrefs);
       }
       if (user && !loadingRef.current) {
+        const savePromise = saveChainRef.current.catch(() => undefined).then(async () => {
+          // Always persist whatever is current after prior saves finish.
+          const latest = preferencesRef.current;
+          await savePreferences(latest);
+          if (userIdRef.current) {
+            writePreferencesCache(userIdRef.current, latest);
+          }
+        });
+        saveChainRef.current = savePromise;
         try {
-          await savePreferences(newPrefs);
+          await savePromise;
         } catch (error) {
           console.error("Failed to save preferences", error);
           throw error;

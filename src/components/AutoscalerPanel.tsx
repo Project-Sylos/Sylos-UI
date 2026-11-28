@@ -17,6 +17,7 @@ import type {
   AutoscalerSystemMemory,
   AutoscalerWaitBudget,
 } from "../types/autoscaler";
+import { waitBudgetDominant } from "../utils/waitBudgetActivity";
 import "./AutoscalerPanel.css";
 
 const POLL_MS = 1000;
@@ -213,17 +214,6 @@ function formatWaitRate(msPerSec: number | undefined): string {
   if (msPerSec < 1000) return `${msPerSec.toFixed(msPerSec >= 100 ? 0 : 1)} ms/s`;
   const secPerSec = msPerSec / 1000;
   return `${secPerSec.toFixed(secPerSec >= 10 ? 0 : 1)} s/s`;
-}
-
-function waitBudgetDominant(
-  budget: AutoscalerWaitBudget
-): "fs" | "backpressure" | "dbWork" {
-  const fs = budget.fsEmaMsPerSec || 0;
-  const bp = budget.backpressureEmaMsPerSec || 0;
-  const work = budget.dbWorkEmaMsPerSec || 0;
-  if (bp >= fs && bp >= work) return "backpressure";
-  if (work >= fs && work >= bp) return "dbWork";
-  return "fs";
 }
 
 function WaitBudgetCard({ budget }: { budget: AutoscalerWaitBudget }) {

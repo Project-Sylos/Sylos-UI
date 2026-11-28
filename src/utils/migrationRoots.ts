@@ -174,11 +174,6 @@ export function getEndpointEditNavigation(
   return { path: servicePicker };
 }
 
-export function isSpectraEligible(
-  sourceRoot?: Folder,
-  destinationRoot?: Folder,
-  spectraLocked?: boolean
-): boolean {
-  if (spectraLocked) return false;
-  return !sourceRoot && !destinationRoot;
+export function isSpectraEligible(spectraLocked?: boolean): boolean {
+  return !spectraLocked;
 }

@@ -25,17 +25,8 @@ export interface UserPreferences {
     showSpectraService: boolean;
     /** When true, path review DB reads skip the default 2 minute cancel. */
     disableDbQueryTimeout?: boolean;
-    /**
-     * FS ProgressWatchdog budgets in seconds for the next phase start.
-     * 0 = unlimited (no stall abort). Defaults are 60.
-     */
-    stallTimeoutTraversalSec?: number;
-    stallTimeoutDeleteSec?: number;
-    stallTimeoutCopySec?: number;
   };
 }
-
-export const DEFAULT_FS_STALL_TIMEOUT_SEC = 60;
 
 export const DEFAULT_PREFERENCES: UserPreferences = {
   theme: "obsidian",
@@ -50,9 +41,6 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
     enabled: false,
     showSpectraService: false,
     disableDbQueryTimeout: false,
-    stallTimeoutTraversalSec: DEFAULT_FS_STALL_TIMEOUT_SEC,
-    stallTimeoutDeleteSec: DEFAULT_FS_STALL_TIMEOUT_SEC,
-    stallTimeoutCopySec: DEFAULT_FS_STALL_TIMEOUT_SEC,
   },
 };
 

@@ -214,6 +214,29 @@
   display: none;
 }
 
+/* FS activity (amber) vs database save/pull (blue). */
+.progress-monitor__activity-chip {
+  margin-left: auto;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  white-space: nowrap;
+  max-width: min(18rem, 55%);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.progress-monitor__activity-chip--fs {
+  color: var(--ui-status-warning, #c8a028);
+  background: rgba(200, 160, 40, 0.12);
+}
+
+.progress-monitor__activity-chip--db {
+  color: var(--accent, #2a8fd6);
+  background: rgba(42, 143, 214, 0.12);
+}
+
 .progress-monitor__inflight-count {
   margin-left: auto;
   padding: 0.05rem 0.4rem;

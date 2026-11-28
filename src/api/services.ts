@@ -33,7 +33,7 @@ export type { FilterRuleset, RuleExclusion } from "../types/rulesets";
 
 const fallbackServices: ServiceDescriptor[] = [
   { id: "local", displayName: "Local Filesystem", type: "local" },
-  { id: "spectra-primary", displayName: "Spectra Simulator", type: "spectra" },
+  { id: "spectra", displayName: "Spectra", type: "spectra" },
 ];
 
 export async function fetchServices(): Promise<ServiceDescriptor[]> {
@@ -2907,9 +2907,6 @@ export async function getPreferences(): Promise<UserPreferences> {
         enabled: typeof data.developer.enabled === "boolean" ? data.developer.enabled : DEFAULT_PREFERENCES.developer!.enabled,
         showSpectraService: typeof data.developer.showSpectraService === "boolean" ? data.developer.showSpectraService : DEFAULT_PREFERENCES.developer!.showSpectraService,
         disableDbQueryTimeout: typeof data.developer.disableDbQueryTimeout === "boolean" ? data.developer.disableDbQueryTimeout : DEFAULT_PREFERENCES.developer!.disableDbQueryTimeout,
-        stallTimeoutTraversalSec: typeof data.developer.stallTimeoutTraversalSec === "number" ? data.developer.stallTimeoutTraversalSec : DEFAULT_PREFERENCES.developer!.stallTimeoutTraversalSec,
-        stallTimeoutDeleteSec: typeof data.developer.stallTimeoutDeleteSec === "number" ? data.developer.stallTimeoutDeleteSec : DEFAULT_PREFERENCES.developer!.stallTimeoutDeleteSec,
-        stallTimeoutCopySec: typeof data.developer.stallTimeoutCopySec === "number" ? data.developer.stallTimeoutCopySec : DEFAULT_PREFERENCES.developer!.stallTimeoutCopySec,
       } : DEFAULT_PREFERENCES.developer,
     };
   } catch (error) {
